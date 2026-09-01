@@ -1,4 +1,4 @@
-"""Календарный модуль: разбор команды и создание события в Google Calendar."""
+"""Календарный модуль: разбор команд и создание событий в Google Calendar."""
 
 from datetime import datetime, timedelta
 import logging
@@ -16,48 +16,65 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(text: str) -> datetime | None:
-    """Распознать дату и время из русской естественной фразы."""
+    """Распознать дату и время. Если дата не указана, вернуть None."""
+    lower = text.lower()
+
+    # Явно определяем русские относительные даты и дни недели.
+    has_explicit_date = bool(re.search(
+        r"\b(?:сегодня|завтра|послезавтра|понедельник|вторник|сред[ауе]|четверг|пятниц[ауе]|суббот[ауе]|воскресень[ея])\b",
+        lower,
+    ))
+
+    # Также считаем датой явную календарную дату: 02.09, 02.09.2026 и т.п.
+    has_explicit_date = has_explicit_date or bool(
+        re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", lower)
+    )
+
+    if not has_explicit_date:
+        return None
+
     return dateparser.parse(
         text,
         languages=["ru"],
         settings={
             "PREFER_DATES_FROM": "future",
             "RETURN_AS_TIMEZONE_AWARE": False,
+            "DATE_ORDER": "DMY",
         },
     )
 
 
 def _extract_title(text: str) -> str:
-    """Удалить из команды дату/время и оставить понятное название события."""
+    """Удалить дату и время, оставив название события."""
     title = text.strip()
 
-    # Удаляем время: 16:00, 16 00, 16.00, 16ч и т.п.
-    title = re.sub(r"\b\d{1,2}\s*(?::|\.|\s)\s*\d{2}\b", " ", title)
+    # Время: 16:00, 16 00, 16.00, 16ч.
+    title = re.sub(r"\b\d{1,2}\s*(?::|\.)\s*\d{2}\b", " ", title)
+    title = re.sub(r"\b\d{1,2}\s+\d{2}\b", " ", title)
     title = re.sub(r"\b\d{1,2}\s*(?:ч|час|часа|часов)\b", " ", title, flags=re.IGNORECASE)
 
-    # Удаляем относительные даты и дни недели.
+    # Относительные даты.
     title = re.sub(
         r"\b(?:сегодня|завтра|послезавтра|после\s+завтра|вчера)\b",
-        " ",
-        title,
-        flags=re.IGNORECASE,
+        " ", title, flags=re.IGNORECASE,
     )
+
+    # Дни недели.
     title = re.sub(
-        r"\b(?:в|во)\s+(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)\b",
-        " ",
-        title,
-        flags=re.IGNORECASE,
+        r"\b(?:в|во)?\s*(?:понедельник|вторник|среда|среду|среде|четверг|пятница|пятницу|суббота|субботу|воскресенье)\b",
+        " ", title, flags=re.IGNORECASE,
     )
 
-    # Убираем лишние связки, оставшиеся после даты/времени.
-    title = re.sub(r"\b(?:в|на)\s*$", "", title, flags=re.IGNORECASE)
-    title = re.sub(r"\s+", " ", title).strip(" ,.-")
+    # Даты 02.09 / 02.09.2026 / 02-09-2026.
+    title = re.sub(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", " ", title)
 
-    # Если после очистки ничего не осталось, используем понятное название.
+    # Убираем лишние предлоги после очистки.
+    title = re.sub(r"\s+", " ", title).strip(" ,.-")
+    title = re.sub(r"^(?:в|на)\s+", "", title, flags=re.IGNORECASE).strip()
+
     if not title:
         return "Встреча"
 
-    # Нормализуем типичный ввод "встреча".
     return title[0].upper() + title[1:]
 
 
@@ -66,14 +83,8 @@ def _build_event(text: str, start: datetime) -> dict:
     end = start + timedelta(hours=1)
     return {
         "summary": _extract_title(text),
-        "start": {
-            "dateTime": start.isoformat(),
-            "timeZone": "Europe/Moscow",
-        },
-        "end": {
-            "dateTime": end.isoformat(),
-            "timeZone": "Europe/Moscow",
-        },
+        "start": {"dateTime": start.isoformat(), "timeZone": "Europe/Moscow"},
+        "end": {"dateTime": end.isoformat(), "timeZone": "Europe/Moscow"},
     }
 
 
@@ -111,9 +122,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return True
     except Exception:
         logger.exception("Calendar event creation failed for user %s", user_id)
-        await update.message.reply_text(
-            "Не удалось добавить событие в Google Calendar. Попробуйте ещё раз."
-        )
+        await update.message.reply_text("Не удалось добавить событие в Google Calendar. Попробуйте ещё раз.")
         return True
 
     await update.message.reply_text(
