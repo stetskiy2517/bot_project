@@ -1,16 +1,32 @@
+"""Центральная маршрутизация сообщений."""
+
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from modules.calendar import handle as handle_calendar
 
-async def handle_text(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Temporary diagnostic router.
+logger = logging.getLogger(__name__)
 
-    Only the router is being tested at this stage.
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Передать текстовое сообщение подключённым модулям.
+
+    На этапе MVP подключён только календарь.
     """
-    if not update.message or not update.message.text:
-        return
+    try:
+        handled = await handle_calendar(update, context)
+        if handled:
+            return
 
-    await update.message.reply_text("MODULAR_ROUTER_OK")
+        if update.message:
+            await update.message.reply_text(
+                "Пока я умею работать только с календарём."
+            )
+    except Exception:
+        logger.exception("Unhandled error in text router")
+        if update.message:
+            await update.message.reply_text(
+                "Не удалось обработать сообщение. Попробуйте ещё раз."
+            )
