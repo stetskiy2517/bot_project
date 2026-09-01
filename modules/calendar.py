@@ -1,11 +1,8 @@
-"""Календарный модуль.
-
-Принимает обычный текст пользователя, пытается распознать дату/время
-и создаёт событие в Google Calendar.
-"""
+"""Календарный модуль: разбор команды и создание события в Google Calendar."""
 
 from datetime import datetime, timedelta
 import logging
+import re
 
 import dateparser
 from google.oauth2.credentials import Credentials
@@ -19,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(text: str) -> datetime | None:
-    """Распознать дату/время из русской естественной фразы."""
+    """Распознать дату и время из русской естественной фразы."""
     return dateparser.parse(
         text,
         languages=["ru"],
@@ -30,11 +27,45 @@ def _parse_datetime(text: str) -> datetime | None:
     )
 
 
+def _extract_title(text: str) -> str:
+    """Удалить из команды дату/время и оставить понятное название события."""
+    title = text.strip()
+
+    # Удаляем время: 16:00, 16 00, 16.00, 16ч и т.п.
+    title = re.sub(r"\b\d{1,2}\s*(?::|\.|\s)\s*\d{2}\b", " ", title)
+    title = re.sub(r"\b\d{1,2}\s*(?:ч|час|часа|часов)\b", " ", title, flags=re.IGNORECASE)
+
+    # Удаляем относительные даты и дни недели.
+    title = re.sub(
+        r"\b(?:сегодня|завтра|послезавтра|после\s+завтра|вчера)\b",
+        " ",
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = re.sub(
+        r"\b(?:в|во)\s+(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)\b",
+        " ",
+        title,
+        flags=re.IGNORECASE,
+    )
+
+    # Убираем лишние связки, оставшиеся после даты/времени.
+    title = re.sub(r"\b(?:в|на)\s*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip(" ,.-")
+
+    # Если после очистки ничего не осталось, используем понятное название.
+    if not title:
+        return "Встреча"
+
+    # Нормализуем типичный ввод "встреча".
+    return title[0].upper() + title[1:]
+
+
 def _build_event(text: str, start: datetime) -> dict:
     """Собрать событие продолжительностью один час."""
     end = start + timedelta(hours=1)
     return {
-        "summary": text,
+        "summary": _extract_title(text),
         "start": {
             "dateTime": start.isoformat(),
             "timeZone": "Europe/Moscow",
@@ -58,10 +89,7 @@ def _create_event(user_id: int, event: dict) -> None:
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Обработать текст как календарную команду.
-
-    Возвращает True, если сообщение было распознано и обработано.
-    """
+    """Обработать текст как календарную команду."""
     if not update.message or not update.message.text:
         return False
 
@@ -89,6 +117,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return True
 
     await update.message.reply_text(
-        f"Событие добавлено: {start.strftime('%d.%m.%Y %H:%M')}"
+        f"Событие «{event['summary']}» добавлено: {start.strftime('%d.%m.%Y %H:%M')}"
     )
     return True
