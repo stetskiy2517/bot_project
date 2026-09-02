@@ -94,6 +94,27 @@ def _relative_offset(text: str) -> timedelta | None:
     return timedelta(weeks=amount) if unit.startswith("недел") else None
 
 
+def _parse_numeric_date(value: str, now: datetime):
+    parts = re.split(r"[./-]", value)
+    if len(parts) not in {2, 3}:
+        return None
+    day, month = int(parts[0]), int(parts[1])
+    year = now.year
+    if len(parts) == 3:
+        raw_year = int(parts[2])
+        year = raw_year + 2000 if raw_year < 100 else raw_year
+    try:
+        candidate = datetime(year, month, day).date()
+    except ValueError:
+        return None
+    if len(parts) == 2 and candidate < now.date():
+        try:
+            candidate = datetime(year + 1, month, day).date()
+        except ValueError:
+            return None
+    return candidate
+
+
 def _date_from_text(text: str, now: datetime, hour: int, minute: int):
     lower = _normalise(text)
     if re.search(r"\bпосле\s*завтра\b|\bпослезавтра\b", lower): return now.date() + timedelta(days=2)
@@ -111,9 +132,12 @@ def _date_from_text(text: str, now: datetime, hour: int, minute: int):
                 candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 days = 7 if candidate <= now else 0
             return now.date() + timedelta(days=days)
-    date_match = NUMERIC_DATE_RE.search(lower) or NAMED_DATE_RE.search(lower)
-    if date_match:
-        parsed = dateparser.parse(date_match.group(0), languages=["ru"], settings={"PREFER_DATES_FROM": "future", "RELATIVE_BASE": now, "DATE_ORDER": "DMY"})
+    numeric_match = NUMERIC_DATE_RE.search(lower)
+    if numeric_match:
+        return _parse_numeric_date(numeric_match.group(0), now)
+    named_match = NAMED_DATE_RE.search(lower)
+    if named_match:
+        parsed = dateparser.parse(named_match.group(0), languages=["ru"], settings={"PREFER_DATES_FROM": "future", "RELATIVE_BASE": now, "DATE_ORDER": "DMY"})
         if parsed: return parsed.date()
     return None
 
