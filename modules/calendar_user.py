@@ -13,7 +13,14 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_google_token, get_user_timezone
-from modules.calendar import _build_event, _create_event, _parse_event_timing
+from modules.calendar import (
+    NAMED_DATE_RE,
+    NUMERIC_DATE_RE,
+    _build_event,
+    _create_event,
+    _date_from_text,
+    _parse_event_timing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +107,13 @@ def _parse_view_period(
         return start, start + timedelta(days=1), "завтра"
     if re.search(r"\bсегодня\b", lower):
         return today, today + timedelta(days=1), "сегодня"
+
+    if NUMERIC_DATE_RE.search(lower) or NAMED_DATE_RE.search(lower):
+        explicit_date = _date_from_text(text, now.replace(tzinfo=None), 12, 0)
+        if explicit_date:
+            start = datetime.combine(explicit_date, time.min, tzinfo=zone)
+            return start, start + timedelta(days=1), explicit_date.strftime("%d.%m")
+
     if re.search(r"\bследующ\w*\s+недел\w*\b|\bна\s+следующ\w*\s+недел\w*\b", lower):
         current_monday = today - timedelta(days=today.weekday())
         start = current_monday + timedelta(days=7)
@@ -175,6 +189,8 @@ def _extract_search_query(text: str) -> str:
     query = SEARCH_PREFIX_RE.sub("", query)
     query = GENERIC_EVENT_RE.sub("", query)
     query = SEARCH_DATE_RE.sub(" ", query)
+    query = NUMERIC_DATE_RE.sub(" ", query)
+    query = NAMED_DATE_RE.sub(" ", query)
     query = re.sub(r"\b(?:на\s+следующ\w*\s+недел\w*|на\s+эт\w*\s+недел\w*)\b", " ", query, flags=re.IGNORECASE)
     query = re.sub(r"\s+", " ", query).strip(" ,.-")
     return query
@@ -195,6 +211,8 @@ def _parse_search_period(
             r"пятниц\w*|суббот\w*|воскресень\w*|недел\w*)\b",
             lower,
         )
+        or NUMERIC_DATE_RE.search(lower)
+        or NAMED_DATE_RE.search(lower)
     )
     if has_period:
         start, end, _ = _parse_view_period(text, timezone, local_now)
