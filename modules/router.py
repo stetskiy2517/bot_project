@@ -15,6 +15,7 @@ from modules.calendar_actions import (
     resume_pending_action,
     update_from_text,
 )
+from modules.calendar_availability import free_slots_from_text
 from modules.calendar_user import search_from_text, view_from_text
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,8 @@ UPDATE_WORDS = (
 )
 DELETE_WORDS = ("удали", "удалить", "отмени", "отменить", "убери", "убрать")
 FREE_WORDS = (
-    "когда свобод", "свободное окно", "свободные окна", "найди время", "найди окно", "куда поставить",
+    "когда свобод", "когда я свобод", "свободное окно", "свободные окна", "найди время",
+    "найди окно", "куда поставить", "есть ли окно", "есть окно",
 )
 EVENT_WORDS = (
     "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
@@ -169,8 +171,7 @@ async def route_text(
     if intent.name == INTENT_DELETE:
         return await delete_from_text(update, context, text)
     if intent.name == INTENT_FREE:
-        await update.message.reply_text("Поиск свободных окон подключаю следующим шагом.")
-        return True
+        return await free_slots_from_text(update, context, text)
 
     return False
 
