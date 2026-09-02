@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar_user import create_from_text
+from modules.calendar_user import create_from_text, view_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ CREATE_WORDS = (
 VIEW_WORDS = (
     "что у меня", "покажи", "покажи календар", "какие встречи", "какие события",
     "что запланировано", "что запланирован", "расписание", "когда у меня",
+    "что на неделе", "что на неделю", "планы на неделю", "планы на завтра",
 )
 UPDATE_WORDS = (
     "перенеси", "перенести", "сдвинь", "сдвинуть", "измени", "изменить", "поменяй", "поменять",
@@ -147,8 +148,7 @@ async def route_text(
         return await create_from_text(update, context, text)
 
     if intent.name == INTENT_VIEW:
-        await update.message.reply_text("Просмотр календаря подключаю следующим шагом.")
-        return True
+        return await view_from_text(update, context, text)
     if intent.name == INTENT_UPDATE:
         await update.message.reply_text("Перенос и изменение событий подключаю следующим шагом.")
         return True
