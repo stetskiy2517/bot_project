@@ -14,13 +14,11 @@ from modules.calendar import (
     _build_event,
     _create_event,
     _date_from_text,
-    _extract_duration,
     _extract_time,
     _parse_event_timing,
 )
 from modules.calendar_user import (
     _event_start,
-    _extract_search_query,
     _format_event_line,
     _get_calendar_service,
     _list_events,
@@ -86,14 +84,42 @@ def _find_conflicts(
     return conflicts
 
 
+def _query_tokens(query: str) -> list[str]:
+    tokens = re.findall(r"[a-zа-я0-9]+", _normalise(query))
+    return [token for token in tokens if len(token) >= 3]
+
+
+def _event_matches_query(event: dict, query: str) -> bool:
+    """Небольшой морфологически терпимый поиск: врач/врача, Иванов/Ивановым."""
+    haystack = _normalise(" ".join([
+        str(event.get("summary") or ""),
+        str(event.get("description") or ""),
+        str(event.get("location") or ""),
+    ]))
+    hay_tokens = re.findall(r"[a-zа-я0-9]+", haystack)
+    for token in _query_tokens(query):
+        prefix = token[:4] if len(token) >= 4 else token
+        if not any(word.startswith(prefix) or prefix in word for word in hay_tokens):
+            return False
+    return True
+
+
 def _candidate_search(
     user_id: int,
     timezone: str,
     text: str,
     query: str,
+    *,
+    use_text_period: bool = True,
 ) -> list[dict]:
-    start, end = _parse_search_period(text, timezone)
-    return _list_events(user_id, start, end, query=query)
+    zone = _user_zone(timezone)
+    if use_text_period:
+        start, end = _parse_search_period(text, timezone)
+    else:
+        start = datetime.now(zone)
+        end = start + timedelta(days=365)
+    events = _list_events(user_id, start, end)
+    return [event for event in events if _event_matches_query(event, query)]
 
 
 def _extract_delete_query(text: str) -> str:
@@ -113,12 +139,14 @@ def _extract_update_target(text: str) -> str:
     if duration:
         body = body[: duration.start()]
     else:
-        # Для переноса всё после «на ...» — новая дата/время.
-        move = re.search(r"\s+на\s+(?=(?:сегодня|завтра|послезавтра|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|\d))", body, re.IGNORECASE)
+        move = re.search(
+            r"\s+на\s+(?=(?:сегодня|завтра|послезавтра|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|\d))",
+            body,
+            re.IGNORECASE,
+        )
         if move:
             body = body[: move.start()]
         else:
-            # «перенеси встречу в 16:00»
             move_time = re.search(r"\s+в\s+(?=\d{1,2}(?::|\.|\s)\d{2}\b)", body, re.IGNORECASE)
             if move_time:
                 body = body[: move_time.start()]
@@ -170,7 +198,8 @@ def _build_update_patch(event: dict, text: str, timezone: str) -> dict:
         return {}
 
     parsed_time = _extract_time(text)
-    new_date = _date_from_text(text, old_start, old_start.hour, old_start.minute)
+    now = datetime.now(_user_zone(timezone))
+    new_date = _date_from_text(text, now, old_start.hour, old_start.minute)
     new_start = old_start
     if new_date:
         new_start = new_start.replace(year=new_date.year, month=new_date.month, day=new_date.day)
@@ -268,7 +297,7 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
 
     try:
-        events = _candidate_search(user_id, timezone, text, query)
+        events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -310,7 +339,8 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
 
     try:
-        events = _candidate_search(user_id, timezone, text, query)
+        # Destination date/time in an update command must not narrow the search for the source event.
+        events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
