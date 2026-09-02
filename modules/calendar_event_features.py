@@ -122,6 +122,7 @@ def _clean_title(text: str) -> str:
     cleaned = EMAIL_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\bкажд\w*\s+(?:день|недел\w*|месяц\w*|понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:ежедневно|еженедельно|ежемесячно)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(?:^|\s)(?:и|а)(?=\s*$)", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
     return _extract_title(cleaned)
 
