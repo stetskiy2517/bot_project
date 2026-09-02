@@ -29,7 +29,6 @@ MONTHS_PATTERN = (
     r"январ[ья]|феврал[ья]|март[ае]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|"
     r"август[ае]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]"
 )
-# Строгий DMY: второй компонент 1..12. Поэтому 19.30 не считается датой.
 NUMERIC_DATE_RE = re.compile(
     r"\b(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])(?:[./-]\d{2,4})?\b"
 )
@@ -71,7 +70,7 @@ HOUR_WORDS_GENITIVE = {
 EVENT_CATEGORIES = {
     "work": {"color_id": "3", "keywords": ("работ", "встреч", "созвон", "совещ", "клиент", "офис", "проект", "презентац", "отчет", "отчёт", "коммерчес", "переговор", "планерк")},
     "health": {"color_id": "6", "keywords": ("врач", "доктор", "невролог", "стоматолог", "клиник", "больниц", "анализ", "мрт", "узи", "массаж", "физиотерап", "здоров", "лекар")},
-    "rest": {"color_id": "10", "keywords": ("отдых", "выходн", "кино", "театр", "ресторан", "кафе", "прогул", "сауна", "баня", "спорт", "трениров", "зал", "семь", "друз")},
+    "rest": {"color_id": "10", "keywords": ("отдых", "выходн", "кино", "театр", "ресторан", "кафе", "прогул", "сауна", "баня", "спорт", "трениров", "зал", "друз")},
     "travel": {"color_id": "7", "keywords": ("самолет", "самолёт", "рейс", "поезд", "вокзал", "аэропорт", "дорог", "такси", "перелет", "перелёт", "командиров", "отъезд", "прилет", "прилёт")},
     "personal": {"color_id": "5", "keywords": ("личн", "дом", "покуп", "магазин", "семья", "родител", "ребен", "ребён", "день рождения", "забрать", "отвезти")},
 }
@@ -272,6 +271,8 @@ def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetim
 
 def _detect_category(text: str) -> tuple[str, str | None]:
     lower = _normalise(text)
+    if re.search(r"\bсемь(?:я|и|е|ю|ей|ям|ями|ях)\b", lower):
+        return "personal", EVENT_CATEGORIES["personal"]["color_id"]
     for category, config in EVENT_CATEGORIES.items():
         if any(keyword in lower for keyword in config["keywords"]):
             return category, config["color_id"]
@@ -325,7 +326,10 @@ def _create_event(user_id: int, event: dict) -> None:
         raise PermissionError("GOOGLE_AUTH_REQUIRED")
     credentials = Credentials.from_authorized_user_info(token_dict)
     service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
-    service.events().insert(calendarId="primary", body=event).execute()
+    insert_kwargs = {"calendarId": "primary", "body": event}
+    if event.get("attendees"):
+        insert_kwargs["sendUpdates"] = "all"
+    service.events().insert(**insert_kwargs).execute()
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
