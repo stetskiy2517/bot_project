@@ -16,7 +16,14 @@ from core.db import init_db
 from handlers.voice import handle_voice
 from logging_config import setup_logging
 from modules.router import handle_text
-from modules.settings import timezone_callback, timezone_command
+from modules.settings import (
+    buffer_command,
+    calendar_settings_command,
+    timezone_callback,
+    timezone_command,
+    workdays_command,
+    workhours_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +31,8 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
         await update.message.reply_text(
-            "Бот запущен. После подключения Google Calendar настрой часовой пояс командой /timezone."
+            "Бот запущен. После подключения Google Calendar настрой часовой пояс /timezone "
+            "и рабочий график /calendar_settings."
         )
 
 
@@ -37,11 +45,13 @@ async def main() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("timezone", timezone_command))
+    application.add_handler(CommandHandler("calendar_settings", calendar_settings_command))
+    application.add_handler(CommandHandler("workhours", workhours_command))
+    application.add_handler(CommandHandler("workdays", workdays_command))
+    application.add_handler(CommandHandler("buffer", buffer_command))
     application.add_handler(CallbackQueryHandler(timezone_callback, pattern=r"^tz:"))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
-    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot started")
 
