@@ -24,6 +24,7 @@ class RouterIntentTests(unittest.TestCase):
     def test_view(self):
         self.assertEqual(detect_intent("что у меня завтра?").name, INTENT_VIEW)
         self.assertEqual(detect_intent("покажи календарь на пятницу").name, INTENT_VIEW)
+        self.assertEqual(detect_intent("что на неделе").name, INTENT_VIEW)
 
     def test_update(self):
         self.assertEqual(detect_intent("перенеси врача на субботу").name, INTENT_UPDATE)
