@@ -9,9 +9,10 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_user_timezone
+from core.db import get_calendar_preferences, get_user_timezone
 from modules.calendar import _build_event, _create_event, _date_from_text, _extract_time, _parse_event_timing
 from modules.calendar_availability import format_alternatives, suggest_alternatives
+from modules.calendar_event_features import apply_event_features, build_all_day_event, is_all_day
 from modules.calendar_user import (
     _event_start,
     _format_event_line,
@@ -58,15 +59,21 @@ def _event_end(event: dict, timezone: str) -> datetime | None:
 
 
 def _find_conflicts(user_id: int, start: datetime, end: datetime, *, exclude_event_id: str | None = None) -> list[dict]:
-    events = _list_events(user_id, start, end)
+    prefs = get_calendar_preferences(user_id)
+    buffer = timedelta(minutes=prefs["buffer_minutes"])
+    query_start = start - buffer
+    query_end = end + buffer
+    events = _list_events(user_id, query_start, query_end)
     conflicts = []
     timezone = str(start.tzinfo) if start.tzinfo else "Europe/Moscow"
     for event in events:
+        if event.get("transparency") == "transparent":
+            continue
         if exclude_event_id and event.get("id") == exclude_event_id:
             continue
         event_start, _ = _event_start(event, timezone)
         event_end = _event_end(event, timezone)
-        if event_start and event_end and event_start < end and event_end > start:
+        if event_start and event_end and event_start < query_end and event_end > query_start:
             conflicts.append(event)
     return conflicts
 
@@ -132,8 +139,10 @@ def _duration_from_update(text: str) -> timedelta | None:
     match = DURATION_RE.search(_normalise(text))
     if not match:
         return None
-    if match.group(1): return timedelta(minutes=30)
-    if match.group(2): return timedelta(minutes=90)
+    if match.group(1):
+        return timedelta(minutes=30)
+    if match.group(2):
+        return timedelta(minutes=90)
     amount = int(match.group(3))
     return timedelta(minutes=amount) if match.group(4).startswith("минут") else timedelta(hours=amount)
 
@@ -207,22 +216,32 @@ def _format_candidates(events: list[dict], timezone: str) -> str:
 
 
 async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
-    timing = _parse_event_timing(text)
-    if not timing:
-        return False
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
         await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
 
-    start_naive, end_naive = timing
-    zone = _user_zone(timezone)
-    start = start_naive.replace(tzinfo=zone) if start_naive.tzinfo is None else start_naive.astimezone(zone)
-    end = end_naive.replace(tzinfo=zone) if end_naive.tzinfo is None else end_naive.astimezone(zone)
-
     try:
-        event = _build_event(text, start, end)
+        if is_all_day(text):
+            event = build_all_day_event(text, timezone)
+            if not event:
+                return False
+            _create_event(user_id, event)
+            await update.message.reply_text(
+                f"Событие «{event['summary']}» добавлено на весь день: {event['start']['date']}"
+            )
+            return True
+
+        timing = _parse_event_timing(text)
+        if not timing:
+            return False
+        start_naive, end_naive = timing
+        zone = _user_zone(timezone)
+        start = start_naive.replace(tzinfo=zone) if start_naive.tzinfo is None else start_naive.astimezone(zone)
+        end = end_naive.replace(tzinfo=zone) if end_naive.tzinfo is None else end_naive.astimezone(zone)
+
+        event = apply_event_features(_build_event(text, start, end), text)
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         conflicts = _find_conflicts(user_id, start, end)
@@ -245,8 +264,18 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text("Не удалось добавить событие в Google Calendar. Попробуй ещё раз.")
         return True
 
+    extras = []
+    if event.get("recurrence"):
+        extras.append("повторяется")
+    if event.get("reminders"):
+        extras.append("с напоминанием")
+    if event.get("location"):
+        extras.append(f"место: {event['location']}")
+    if event.get("attendees"):
+        extras.append(f"участников: {len(event['attendees'])}")
+    suffix = " · " + ", ".join(extras) if extras else ""
     await update.message.reply_text(
-        f"Событие «{event['summary']}» добавлено: {start.strftime('%d.%m.%Y %H:%M')}–{end.strftime('%H:%M')} ({timezone})"
+        f"Событие «{event['summary']}» добавлено: {start.strftime('%d.%m.%Y %H:%M')}–{end.strftime('%H:%M')} ({timezone}){suffix}"
     )
     return True
 
