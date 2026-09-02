@@ -1,12 +1,10 @@
 import asyncio
 import logging
 
-from telegram import Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
-    ContextTypes,
     MessageHandler,
     filters,
 )
@@ -15,6 +13,7 @@ from config import TG_TOKEN, validate_config
 from core.db import init_db
 from handlers.voice import handle_voice
 from logging_config import setup_logging
+from modules.auth import OAuthServer, reconnect_command, start_command
 from modules.router import handle_text
 from modules.settings import (
     buffer_command,
@@ -28,22 +27,18 @@ from modules.settings import (
 logger = logging.getLogger(__name__)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message:
-        await update.message.reply_text(
-            "Бот запущен. После подключения Google Calendar настрой часовой пояс /timezone "
-            "и рабочий график /calendar_settings."
-        )
-
-
 async def main() -> None:
     setup_logging()
     validate_config()
     init_db()
 
+    oauth_server = OAuthServer(port=8080)
+    oauth_server.start()
+
     application = Application.builder().token(TG_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("reconnect_google", reconnect_command))
     application.add_handler(CommandHandler("timezone", timezone_command))
     application.add_handler(CommandHandler("calendar_settings", calendar_settings_command))
     application.add_handler(CommandHandler("workhours", workhours_command))
@@ -68,6 +63,7 @@ async def main() -> None:
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
+        oauth_server.stop()
 
 
 if __name__ == "__main__":
