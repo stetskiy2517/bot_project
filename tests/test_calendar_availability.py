@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -45,28 +45,56 @@ class CalendarAvailabilityTests(unittest.TestCase):
         self.assertEqual(slots[0][0], datetime(2026, 9, 3, 10, 0, tzinfo=self.zone))
         self.assertEqual(slots[1][0], datetime(2026, 9, 3, 12, 0, tzinfo=self.zone))
 
+    def test_buffer_blocks_adjacent_slot(self):
+        start = datetime(2026, 9, 3, 0, 0, tzinfo=self.zone)
+        end = datetime(2026, 9, 4, 0, 0, tzinfo=self.zone)
+        slots = find_free_slots(
+            [self.event(9, 10)], self.tz, start, end, timedelta(hours=1),
+            buffer=timedelta(minutes=15), now=self.now, limit=1,
+        )
+        self.assertEqual(slots[0][0], datetime(2026, 9, 3, 10, 30, tzinfo=self.zone))
+
+    def test_non_work_day_has_no_slots(self):
+        saturday = datetime(2026, 9, 5, 0, 0, tzinfo=self.zone)
+        sunday = datetime(2026, 9, 6, 0, 0, tzinfo=self.zone)
+        slots = find_free_slots(
+            [], self.tz, saturday, sunday, timedelta(hours=1),
+            work_days=[0, 1, 2, 3, 4], now=self.now,
+        )
+        self.assertEqual(slots, [])
+
+    def test_custom_work_hours(self):
+        start = datetime(2026, 9, 3, 0, 0, tzinfo=self.zone)
+        end = datetime(2026, 9, 4, 0, 0, tzinfo=self.zone)
+        slots = find_free_slots(
+            [], self.tz, start, end, timedelta(hours=1),
+            work_start=time(10, 0), work_end=time(12, 0), now=self.now, limit=2,
+        )
+        self.assertEqual(slots[0][0].hour, 10)
+        self.assertEqual(slots[-1][1].hour, 11)
+        self.assertEqual(slots[-1][1].minute, 30)
+
     def test_transparent_event_does_not_block(self):
         start = datetime(2026, 9, 3, 0, 0, tzinfo=self.zone)
         end = datetime(2026, 9, 4, 0, 0, tzinfo=self.zone)
         slots = find_free_slots(
-            [self.event(9, 10, transparent=True)],
-            self.tz,
-            start,
-            end,
-            timedelta(hours=1),
-            now=self.now,
-            limit=1,
+            [self.event(9, 10, transparent=True)], self.tz, start, end,
+            timedelta(hours=1), now=self.now, limit=1,
         )
         self.assertEqual(slots[0][0].hour, 9)
 
+    @patch("modules.calendar_availability.get_calendar_preferences")
     @patch("modules.calendar_availability._list_events")
-    def test_suggest_alternative_after_conflict(self, list_events):
+    def test_suggest_alternative_after_conflict(self, list_events, get_prefs):
+        get_prefs.return_value = {
+            "work_start": "09:00", "work_end": "18:00",
+            "work_days": [0, 1, 2, 3, 4], "buffer_minutes": 15,
+        }
         list_events.return_value = [self.event(15, 16)]
         desired = datetime(2026, 9, 3, 15, 0, tzinfo=self.zone)
         slots = suggest_alternatives(1, self.tz, desired, timedelta(hours=1), limit=2)
-        self.assertEqual(slots[0][0], datetime(2026, 9, 3, 16, 0, tzinfo=self.zone))
-        self.assertEqual(slots[1][0], datetime(2026, 9, 3, 16, 30, tzinfo=self.zone))
-        self.assertIn("16:00–17:00", format_alternatives(slots))
+        self.assertEqual(slots[0][0], datetime(2026, 9, 3, 16, 30, tzinfo=self.zone))
+        self.assertIn("16:30–17:30", format_alternatives(slots))
 
 
 if __name__ == "__main__":
