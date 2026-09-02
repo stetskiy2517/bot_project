@@ -124,3 +124,7 @@ def get_calendar_preferences(user_id: int) -> dict:
         "work_days": work_days,
         "buffer_minutes": int(buffer_minutes),
     }
+
+
+# Модули и unit-тесты могут использовать DB helpers напрямую, без запуска bot.main().
+init_db()
