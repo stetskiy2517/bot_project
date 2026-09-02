@@ -16,6 +16,7 @@ from modules.calendar_actions import (
     update_from_text,
 )
 from modules.calendar_availability import free_slots_from_text
+from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,8 @@ def detect_intent(text: str) -> IntentResult:
 
 
 def _needs_time(text: str) -> bool:
+    if is_all_day(text):
+        return False
     return bool(DATE_HINT_RE.search(text)) and not bool(TIME_HINT_RE.search(text))
 
 
@@ -141,7 +144,6 @@ async def route_text(
     context: ContextTypes.DEFAULT_TYPE,
     text: str | None = None,
 ) -> bool:
-    """Route one text command. Used by both text and voice input."""
     if not update.message:
         return False
 
@@ -177,7 +179,6 @@ async def route_text(
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Telegram text entry point."""
     try:
         handled = await route_text(update, context)
         if handled:
