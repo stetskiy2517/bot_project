@@ -13,47 +13,18 @@ from telegram.ext import ContextTypes
 from core.db import get_google_token
 
 logger = logging.getLogger(__name__)
-
 CALENDAR_TIMEZONE = "Europe/Moscow"
 DEFAULT_EVENT_DURATION = timedelta(hours=1)
-
-WEEKDAYS = {
-    "понедельник": 0, "понедельника": 0,
-    "вторник": 1, "вторника": 1,
-    "среда": 2, "среду": 2, "среды": 2,
-    "четверг": 3, "четверга": 3,
-    "пятница": 4, "пятницу": 4, "пятницы": 4,
-    "суббота": 5, "субботу": 5, "субботы": 5,
-    "воскресенье": 6, "воскресенья": 6,
-}
-MONTHS_PATTERN = (
-    r"январ[ья]|феврал[ья]|март[ае]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|"
-    r"август[ае]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]"
-)
+WEEKDAYS = {"понедельник": 0, "понедельника": 0, "вторник": 1, "вторника": 1, "среда": 2, "среду": 2, "среды": 2, "четверг": 3, "четверга": 3, "пятница": 4, "пятницу": 4, "пятницы": 4, "суббота": 5, "субботу": 5, "субботы": 5, "воскресенье": 6, "воскресенья": 6}
+MONTHS_PATTERN = r"январ[ья]|феврал[ья]|март[ае]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[ае]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]"
 NUMERIC_DATE_RE = re.compile(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b")
 NAMED_DATE_RE = re.compile(rf"\b\d{{1,2}}\s+(?:{MONTHS_PATTERN})(?:\s+\d{{4}})?\b", re.IGNORECASE)
-CLOCK_TIME_RE = re.compile(
-    r"(?<!\d)(?:(?:в|к)\s*)?(?P<hour>[01]?\d|2[0-3])"
-    r"(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d)|\s+(?P<space_minute>[0-5]\d))"
-    r"(?:\s*(?:ч|час(?:а|ов)?))?(?!\d)", re.IGNORECASE,
-)
+CLOCK_TIME_RE = re.compile(r"(?<!\d)(?:(?:в|к)\s*)?(?P<hour>[01]?\d|2[0-3])(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d)|\s+(?P<space_minute>[0-5]\d))(?:\s*(?:ч|час(?:а|ов)?))?(?!\d)", re.IGNORECASE)
 SIMPLE_HOUR_RE = re.compile(r"\b(?:в|к)\s+(?P<hour>[01]?\d|2[0-3])(?:\s*(?:ч|час(?:а|ов)?))?\b", re.IGNORECASE)
-DAYPART_HOUR_RE = re.compile(
-    r"\b(?:в|к)\s+(?P<hour>\d{1,2})(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d))?\s+(?P<part>утра|дня|вечера|ночи)\b",
-    re.IGNORECASE,
-)
-RANGE_RE = re.compile(
-    r"\bс\s+(\d{1,2})(?:(?::|\.|\s)(\d{2}))?\s+до\s+(\d{1,2})(?:(?::|\.|\s)(\d{2}))?\b",
-    re.IGNORECASE,
-)
-HOUR_WORDS = {
-    "один": 1, "час": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6,
-    "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12,
-}
-HOUR_WORDS_GENITIVE = {
-    "первого": 1, "второго": 2, "третьего": 3, "четвертого": 4, "пятого": 5, "шестого": 6,
-    "седьмого": 7, "восьмого": 8, "девятого": 9, "десятого": 10, "одиннадцатого": 11, "двенадцатого": 12,
-}
+DAYPART_HOUR_RE = re.compile(r"\b(?:в|к)\s+(?P<hour>\d{1,2})(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d))?\s+(?P<part>утра|дня|вечера|ночи)\b", re.IGNORECASE)
+RANGE_RE = re.compile(r"\bс\s+(\d{1,2})(?:(?::|\.|\s)(\d{2}))?\s+до\s+(\d{1,2})(?:(?::|\.|\s)(\d{2}))?\b", re.IGNORECASE)
+HOUR_WORDS = {"один": 1, "час": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12}
+HOUR_WORDS_GENITIVE = {"первого": 1, "второго": 2, "третьего": 3, "четвертого": 4, "пятого": 5, "шестого": 6, "седьмого": 7, "восьмого": 8, "девятого": 9, "десятого": 10, "одиннадцатого": 11, "двенадцатого": 12}
 EVENT_CATEGORIES = {
     "work": {"color_id": "3", "keywords": ("работ", "встреч", "созвон", "совещ", "клиент", "офис", "проект", "презентац", "отчет", "отчёт", "коммерчес", "переговор", "планерк")},
     "health": {"color_id": "6", "keywords": ("врач", "доктор", "невролог", "стоматолог", "клиник", "больниц", "анализ", "мрт", "узи", "массаж", "физиотерап", "здоров", "лекар")},
@@ -88,26 +59,20 @@ def _extract_time(text: str) -> tuple[int, int] | None:
         hour, minute = int(range_match.group(1)), int(range_match.group(2) or 0)
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             return hour, minute
-    if re.search(r"\bполдень\b", lower):
-        return 12, 0
-    if re.search(r"\bполночь\b", lower):
-        return 0, 0
+    if re.search(r"\bполдень\b", lower): return 12, 0
+    if re.search(r"\bполночь\b", lower): return 0, 0
     daypart = DAYPART_HOUR_RE.search(lower)
     if daypart:
         hour = _apply_daypart(int(daypart.group("hour")), daypart.group("part"))
-        if hour is not None:
-            return hour, int(daypart.group("minute") or 0)
+        if hour is not None: return hour, int(daypart.group("minute") or 0)
     half = re.search(r"\b(?:в\s+)?половин[аеуы]?\s+(\w+)\b", lower)
-    if half and half.group(1) in HOUR_WORDS_GENITIVE:
-        return (HOUR_WORDS_GENITIVE[half.group(1)] - 1) % 12, 30
+    if half and half.group(1) in HOUR_WORDS_GENITIVE: return (HOUR_WORDS_GENITIVE[half.group(1)] - 1) % 12, 30
     quarter_to = re.search(r"\bбез\s+четверти\s+(\w+)\b", lower)
     if quarter_to:
         target = HOUR_WORDS.get(quarter_to.group(1)) or HOUR_WORDS_GENITIVE.get(quarter_to.group(1))
-        if target:
-            return (target - 1) % 12, 45
+        if target: return (target - 1) % 12, 45
     quarter_past = re.search(r"\bчетверть\s+(\w+)\b", lower)
-    if quarter_past and quarter_past.group(1) in HOUR_WORDS_GENITIVE:
-        return (HOUR_WORDS_GENITIVE[quarter_past.group(1)] - 1) % 12, 15
+    if quarter_past and quarter_past.group(1) in HOUR_WORDS_GENITIVE: return (HOUR_WORDS_GENITIVE[quarter_past.group(1)] - 1) % 12, 15
     matches = list(CLOCK_TIME_RE.finditer(lower))
     if matches:
         match = matches[-1]
@@ -118,40 +83,30 @@ def _extract_time(text: str) -> tuple[int, int] | None:
 
 def _relative_offset(text: str) -> timedelta | None:
     lower = _normalise(text)
-    if re.search(r"\bчерез\s+полчаса\b", lower):
-        return timedelta(minutes=30)
-    if re.search(r"\bчерез\s+полтора\s+часа\b", lower):
-        return timedelta(minutes=90)
+    if re.search(r"\bчерез\s+полчаса\b", lower): return timedelta(minutes=30)
+    if re.search(r"\bчерез\s+полтора\s+часа\b", lower): return timedelta(minutes=90)
     match = re.search(r"\bчерез\s+(?:(\d+)\s+)?(минут\w*|час\w*|дн\w*|день|дня|недел\w*)\b", lower)
-    if not match:
-        return None
+    if not match: return None
     amount, unit = int(match.group(1) or 1), match.group(2)
-    if unit.startswith("минут"):
-        return timedelta(minutes=amount)
-    if unit.startswith("час"):
-        return timedelta(hours=amount)
-    if unit.startswith("дн") or unit in {"день", "дня"}:
-        return timedelta(days=amount)
+    if unit.startswith("минут"): return timedelta(minutes=amount)
+    if unit.startswith("час"): return timedelta(hours=amount)
+    if unit.startswith("дн") or unit in {"день", "дня"}: return timedelta(days=amount)
     return timedelta(weeks=amount) if unit.startswith("недел") else None
 
 
 def _date_from_text(text: str, now: datetime, hour: int, minute: int):
     lower = _normalise(text)
-    if re.search(r"\bпосле\s*завтра\b|\bпослезавтра\b", lower):
-        return now.date() + timedelta(days=2)
-    if re.search(r"\bзавтра\b|\bзавтро\b", lower):
-        return now.date() + timedelta(days=1)
-    if re.search(r"\bсегодня\b", lower):
-        return now.date()
+    if re.search(r"\bпосле\s*завтра\b|\bпослезавтра\b", lower): return now.date() + timedelta(days=2)
+    if re.search(r"\bзавтра\b|\bзавтро\b", lower): return now.date() + timedelta(days=1)
+    if re.search(r"\bсегодня\b", lower): return now.date()
     relative = _relative_offset(lower)
-    if relative and relative >= timedelta(days=1):
-        return (now + relative).date()
+    if relative and relative >= timedelta(days=1): return (now + relative).date()
     for word, weekday in WEEKDAYS.items():
         if re.search(rf"\b{word}\b", lower):
             days = (weekday - now.weekday()) % 7
             force_next = bool(re.search(r"\b(?:следующ\w*|след\.?)[^\n]{0,20}" + re.escape(word), lower))
             if force_next:
-                days = days + 7 if days else 7
+                days = days or 7
             elif days == 0:
                 candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 days = 7 if candidate <= now else 0
@@ -159,18 +114,15 @@ def _date_from_text(text: str, now: datetime, hour: int, minute: int):
     date_match = NUMERIC_DATE_RE.search(lower) or NAMED_DATE_RE.search(lower)
     if date_match:
         parsed = dateparser.parse(date_match.group(0), languages=["ru"], settings={"PREFER_DATES_FROM": "future", "RELATIVE_BASE": now, "DATE_ORDER": "DMY"})
-        if parsed:
-            return parsed.date()
+        if parsed: return parsed.date()
     return None
 
 
 def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now()
     parsed_time, relative = _extract_time(text), _relative_offset(text)
-    if relative and relative < timedelta(days=1) and not parsed_time:
-        return (now + relative).replace(second=0, microsecond=0)
-    if not parsed_time:
-        return None
+    if relative and relative < timedelta(days=1) and not parsed_time: return (now + relative).replace(second=0, microsecond=0)
+    if not parsed_time: return None
     hour, minute = parsed_time
     base_date = _date_from_text(text, now, hour, minute)
     if base_date is None:
@@ -181,12 +133,9 @@ def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
 
 def _extract_duration(text: str) -> timedelta:
     lower = _normalise(text)
-    if re.search(r"\bна\s+полчаса\b", lower):
-        return timedelta(minutes=30)
-    if re.search(r"\bна\s+полтора\s+часа\b", lower):
-        return timedelta(minutes=90)
-    if re.search(r"\bна\s+час\b", lower):
-        return timedelta(hours=1)
+    if re.search(r"\bна\s+полчаса\b", lower): return timedelta(minutes=30)
+    if re.search(r"\bна\s+полтора\s+часа\b", lower): return timedelta(minutes=90)
+    if re.search(r"\bна\s+час\b", lower): return timedelta(hours=1)
     match = re.search(r"\bна\s+(\d+)\s*(минут\w*|час\w*)\b", lower)
     if match:
         amount = int(match.group(1))
@@ -196,33 +145,28 @@ def _extract_duration(text: str) -> timedelta:
 
 def _extract_range_end(text: str, start: datetime) -> datetime | None:
     match = RANGE_RE.search(_normalise(_strip_explicit_dates(text)))
-    if not match:
-        return None
+    if not match: return None
     end_hour, end_minute = int(match.group(3)), int(match.group(4) or 0)
-    if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
-        return None
+    if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59): return None
     end = start.replace(hour=end_hour, minute=end_minute)
     return end + timedelta(days=1) if end <= start else end
 
 
 def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetime, datetime] | None:
     start = _parse_datetime(text, now)
-    if not start:
-        return None
+    if not start: return None
     return start, (_extract_range_end(text, start) or start + _extract_duration(text))
 
 
 def _detect_category(text: str) -> tuple[str, str | None]:
     lower = _normalise(text)
     for category, config in EVENT_CATEGORIES.items():
-        if any(keyword in lower for keyword in config["keywords"]):
-            return category, config["color_id"]
+        if any(keyword in lower for keyword in config["keywords"]): return category, config["color_id"]
     return "other", None
 
 
 def _extract_title(text: str) -> str:
-    title = text.strip()
-    title = NAMED_DATE_RE.sub(" ", NUMERIC_DATE_RE.sub(" ", title))
+    title = NAMED_DATE_RE.sub(" ", NUMERIC_DATE_RE.sub(" ", text.strip()))
     title = RANGE_RE.sub(" ", title)
     title = DAYPART_HOUR_RE.sub(" ", title)
     title = CLOCK_TIME_RE.sub(" ", title)
@@ -242,37 +186,27 @@ def _extract_title(text: str) -> str:
 
 
 def _build_event(text: str, start: datetime, end: datetime | None = None) -> dict:
-    end = end or (start + _extract_duration(text))
+    end = end or start + _extract_duration(text)
     category, color_id = _detect_category(text)
-    event = {
-        "summary": _extract_title(text),
-        "description": f"AI Smart Planner category: {category}",
-        "start": {"dateTime": start.isoformat(), "timeZone": CALENDAR_TIMEZONE},
-        "end": {"dateTime": end.isoformat(), "timeZone": CALENDAR_TIMEZONE},
-    }
-    if color_id:
-        event["colorId"] = color_id
+    event = {"summary": _extract_title(text), "description": f"AI Smart Planner category: {category}", "start": {"dateTime": start.isoformat(), "timeZone": CALENDAR_TIMEZONE}, "end": {"dateTime": end.isoformat(), "timeZone": CALENDAR_TIMEZONE}}
+    if color_id: event["colorId"] = color_id
     return event
 
 
 def _create_event(user_id: int, event: dict) -> None:
     token_dict = get_google_token(user_id)
-    if not token_dict:
-        raise PermissionError("GOOGLE_AUTH_REQUIRED")
+    if not token_dict: raise PermissionError("GOOGLE_AUTH_REQUIRED")
     credentials = Credentials.from_authorized_user_info(token_dict)
     service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
     service.events().insert(calendarId="primary", body=event).execute()
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.message or not update.message.text:
-        return False
+    if not update.message or not update.message.text: return False
     text = update.message.text.strip()
-    if not text:
-        return False
+    if not text: return False
     timing = _parse_event_timing(text)
-    if not timing:
-        return False
+    if not timing: return False
     start, end = timing
     user_id = update.effective_user.id
     try:
