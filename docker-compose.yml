@@ -7,5 +7,9 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      DB_PATH: /data/bot.db
     ports:
-      - "80:8080"
+      - "8080:8080"
+    volumes:
+      - ./data:/data

@@ -3,6 +3,8 @@ import time
 import logging
 import requests
 import re
+import asyncio
+from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -85,7 +87,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = f"/tmp/{voice.file_id}.oga"
         await file.download_to_drive(file_path)
 
-        text = transcribe_audio(file_path)
+        text = await asyncio.to_thread(transcribe_audio, file_path)
 
         if not text:
             await update.message.reply_text("❌ Не удалось распознать речь")
@@ -96,24 +98,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(f"🗣 Распознано: {text}")
 
-        from app import handle_text
+        from modules.planner.handlers import handle
 
-        class FakeMessage:
-            def __init__(self, text, user):
-                self.text = text
-                self.from_user = user
-                self.chat_id = update.effective_chat.id
-
-            async def reply_text(self, *args, **kwargs):
-                await update.message.reply_text(*args, **kwargs)
-
-        fake_update = Update(
-            update.update_id,
-            message=FakeMessage(text, update.effective_user),
-        )
-
-        await handle_text(fake_update, context)
+        handled = await handle(update, context, text_override=text)
+        if not handled:
+            await update.message.reply_text("Не понял поручение. Скажите дату, время и действие.")
 
     except Exception:
         logger.exception("Ошибка распознавания голоса")
         await update.message.reply_text("❌ Ошибка распознавания голоса")
+    finally:
+        if "file_path" in locals():
+            Path(file_path).unlink(missing_ok=True)
