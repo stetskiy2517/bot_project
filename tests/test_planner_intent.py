@@ -4,6 +4,7 @@ from modules.router import (
     INTENT_CREATE,
     INTENT_DELETE,
     INTENT_FREE,
+    INTENT_SEARCH,
     INTENT_UNKNOWN,
     INTENT_UPDATE,
     INTENT_VIEW,
@@ -20,6 +21,11 @@ class RouterIntentTests(unittest.TestCase):
     def test_natural_create_without_command_verb(self):
         self.assertEqual(detect_intent("невролог в пятницу в 19:00").name, INTENT_CREATE)
         self.assertEqual(detect_intent("созвон завтра в 9").name, INTENT_CREATE)
+
+    def test_search(self):
+        self.assertEqual(detect_intent("когда у меня невролог?").name, INTENT_SEARCH)
+        self.assertEqual(detect_intent("найди встречу с Ивановым").name, INTENT_SEARCH)
+        self.assertEqual(detect_intent("покажи когда у меня стоматолог").name, INTENT_SEARCH)
 
     def test_view(self):
         self.assertEqual(detect_intent("что у меня завтра?").name, INTENT_VIEW)
