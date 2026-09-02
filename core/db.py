@@ -1,11 +1,13 @@
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 DEFAULT_TIMEZONE = "Europe/Moscow"
 DEFAULT_WORK_START = "09:00"
 DEFAULT_WORK_END = "18:00"
 DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
 DEFAULT_BUFFER_MINUTES = 15
+OAUTH_STATE_TTL_MINUTES = 15
 
 conn = sqlite3.connect("bot.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -37,6 +39,24 @@ def init_db():
     for column, sql_type in migrations.items():
         if column not in columns:
             cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {sql_type}")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS oauth_states (
+        state TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+
+
+def ensure_user(user_id: int, name: str | None = None) -> None:
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (user_id, name) VALUES (?, ?)",
+        (user_id, name),
+    )
+    if name:
+        cursor.execute("UPDATE users SET name=? WHERE user_id=?", (name, user_id))
     conn.commit()
 
 
@@ -53,6 +73,40 @@ def get_google_token(user_id):
     cursor.execute("SELECT google_token FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
     return json.loads(row[0]) if row and row[0] else None
+
+
+def clear_google_token(user_id: int) -> None:
+    cursor.execute("UPDATE users SET google_token=NULL WHERE user_id=?", (user_id,))
+    conn.commit()
+
+
+def save_oauth_state(state: str, user_id: int) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    cursor.execute("DELETE FROM oauth_states WHERE user_id=?", (user_id,))
+    cursor.execute(
+        "INSERT OR REPLACE INTO oauth_states (state, user_id, created_at) VALUES (?, ?, ?)",
+        (state, user_id, now),
+    )
+    conn.commit()
+
+
+def consume_oauth_state(state: str) -> int | None:
+    cursor.execute("SELECT user_id, created_at FROM oauth_states WHERE state=?", (state,))
+    row = cursor.fetchone()
+    if not row:
+        return None
+    cursor.execute("DELETE FROM oauth_states WHERE state=?", (state,))
+    conn.commit()
+    user_id, created_at = int(row[0]), row[1]
+    try:
+        created = datetime.fromisoformat(created_at)
+    except (TypeError, ValueError):
+        return None
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - created > timedelta(minutes=OAUTH_STATE_TTL_MINUTES):
+        return None
+    return user_id
 
 
 def save_user_timezone(user_id: int, timezone: str) -> None:
@@ -123,6 +177,14 @@ def get_calendar_preferences(user_id: int) -> dict:
         "work_end": work_end,
         "work_days": work_days,
         "buffer_minutes": int(buffer_minutes),
+    }
+
+
+def get_onboarding_status(user_id: int) -> dict:
+    return {
+        "google_connected": get_google_token(user_id) is not None,
+        "timezone_set": get_user_timezone(user_id, default=None) is not None,
+        "preferences": get_calendar_preferences(user_id),
     }
 
 
