@@ -5,7 +5,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar import handle as handle_calendar
+from modules.calendar_user import handle as handle_calendar
 
 logger = logging.getLogger(__name__)
 
