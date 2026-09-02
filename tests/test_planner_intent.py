@@ -1,6 +1,6 @@
 import unittest
 
-from modules.planner import (
+from modules.router import (
     INTENT_CREATE,
     INTENT_DELETE,
     INTENT_FREE,
@@ -12,7 +12,7 @@ from modules.planner import (
 )
 
 
-class PlannerIntentTests(unittest.TestCase):
+class RouterIntentTests(unittest.TestCase):
     def test_explicit_create(self):
         self.assertEqual(detect_intent("поставь врача завтра в 19").name, INTENT_CREATE)
         self.assertEqual(detect_intent("добавь встречу в пятницу в 10:30").name, INTENT_CREATE)
