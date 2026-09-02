@@ -13,20 +13,15 @@ from telegram.ext import (
 
 from config import TG_TOKEN, validate_config
 from core.db import init_db
+from handlers.voice import handle_voice
 from logging_config import setup_logging
 from modules.router import handle_text
 from modules.settings import timezone_callback, timezone_command
 
-
 logger = logging.getLogger(__name__)
 
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Обработчик команды /start."""
-
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
         await update.message.reply_text(
             "Бот запущен. После подключения Google Calendar настрой часовой пояс командой /timezone."
@@ -34,27 +29,18 @@ async def start(
 
 
 async def main() -> None:
-    """Запуск Telegram-бота."""
-
     setup_logging()
     validate_config()
     init_db()
 
-    application = (
-        Application.builder()
-        .token(TG_TOKEN)
-        .build()
-    )
+    application = Application.builder().token(TG_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("timezone", timezone_command))
     application.add_handler(CallbackQueryHandler(timezone_callback, pattern=r"^tz:"))
-
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_text,
-        )
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
     )
 
     logger.info("Bot started")
