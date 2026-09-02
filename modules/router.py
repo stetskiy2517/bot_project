@@ -9,12 +9,13 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar_user import create_from_text, view_from_text
+from modules.calendar_user import create_from_text, search_from_text, view_from_text
 
 logger = logging.getLogger(__name__)
 
 INTENT_CREATE = "calendar_create"
 INTENT_VIEW = "calendar_view"
+INTENT_SEARCH = "calendar_search"
 INTENT_UPDATE = "calendar_update"
 INTENT_DELETE = "calendar_delete"
 INTENT_FREE = "calendar_free_slots"
@@ -24,9 +25,13 @@ CREATE_WORDS = (
     "добавь", "добавить", "создай", "создать", "поставь", "поставить", "запиши",
     "записать", "запланируй", "запланировать", "назначь", "назначить", "внеси",
 )
+SEARCH_WORDS = (
+    "когда у меня", "найди встреч", "найди событ", "найди созвон", "найди звонок",
+    "найди запись", "найти встреч", "найти событ", "покажи когда", "покажи где",
+)
 VIEW_WORDS = (
     "что у меня", "покажи", "покажи календар", "какие встречи", "какие события",
-    "что запланировано", "что запланирован", "расписание", "когда у меня",
+    "что запланировано", "что запланирован", "расписание",
     "что на неделе", "что на неделю", "планы на неделю", "планы на завтра",
 )
 UPDATE_WORDS = (
@@ -73,6 +78,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_UPDATE, 0.98)
     if any(word in lower for word in FREE_WORDS):
         return IntentResult(INTENT_FREE, 0.96)
+    if any(word in lower for word in SEARCH_WORDS):
+        return IntentResult(INTENT_SEARCH, 0.97)
     if any(word in lower for word in VIEW_WORDS):
         return IntentResult(INTENT_VIEW, 0.96)
     if any(word in lower for word in CREATE_WORDS):
@@ -147,6 +154,8 @@ async def route_text(
             return True
         return await create_from_text(update, context, text)
 
+    if intent.name == INTENT_SEARCH:
+        return await search_from_text(update, context, text)
     if intent.name == INTENT_VIEW:
         return await view_from_text(update, context, text)
     if intent.name == INTENT_UPDATE:
