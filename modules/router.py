@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar_user import create_from_text, search_from_text, view_from_text
+from modules.calendar_actions import (
+    create_from_text,
+    delete_from_text,
+    resume_pending_action,
+    update_from_text,
+)
+from modules.calendar_user import search_from_text, view_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ VIEW_WORDS = (
 )
 UPDATE_WORDS = (
     "перенеси", "перенести", "сдвинь", "сдвинуть", "измени", "изменить", "поменяй", "поменять",
+    "переименуй", "сделай встреч", "сделай созвон", "сделай событ",
 )
 DELETE_WORDS = ("удали", "удалить", "отмени", "отменить", "убери", "убрать")
 FREE_WORDS = (
@@ -110,22 +117,21 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     if not pending:
         return False
 
+    if pending.get("type") != "create_time":
+        return await resume_pending_action(update, context, text, pending)
+
     if _normalise(text) in {"отмена", "отменить", "не надо", "нет"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
 
-    if pending.get("type") == "create_time":
-        combined = f"{pending['text']} {text}"
-        _clear_pending(context)
-        handled = await create_from_text(update, context, combined)
-        if not handled:
-            context.user_data["smart_planner_pending"] = pending
-            await update.message.reply_text("Не понял время. Напиши, например: 19:00 или в 7 вечера.")
-        return True
-
+    combined = f"{pending['text']} {text}"
     _clear_pending(context)
-    return False
+    handled = await create_from_text(update, context, combined)
+    if not handled:
+        context.user_data["smart_planner_pending"] = pending
+        await update.message.reply_text("Не понял время. Напиши, например: 19:00 или в 7 вечера.")
+    return True
 
 
 async def route_text(
@@ -159,11 +165,9 @@ async def route_text(
     if intent.name == INTENT_VIEW:
         return await view_from_text(update, context, text)
     if intent.name == INTENT_UPDATE:
-        await update.message.reply_text("Перенос и изменение событий подключаю следующим шагом.")
-        return True
+        return await update_from_text(update, context, text)
     if intent.name == INTENT_DELETE:
-        await update.message.reply_text("Удаление событий подключаю следующим шагом с подтверждением.")
-        return True
+        return await delete_from_text(update, context, text)
     if intent.name == INTENT_FREE:
         await update.message.reply_text("Поиск свободных окон подключаю следующим шагом.")
         return True
