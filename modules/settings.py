@@ -26,15 +26,7 @@ TIMEZONE_OPTIONS = [
     ("Таллин", "Europe/Tallinn"),
 ]
 
-DAY_NAMES = {
-    0: "пн",
-    1: "вт",
-    2: "ср",
-    3: "чт",
-    4: "пт",
-    5: "сб",
-    6: "вс",
-}
+DAY_NAMES = {0: "пн", 1: "вт", 2: "ср", 3: "чт", 4: "пт", 5: "сб", 6: "вс"}
 DAY_ALIASES = {
     "пн": 0, "понедельник": 0,
     "вт": 1, "вторник": 1,
@@ -56,12 +48,15 @@ def _keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _valid_hhmm(value: str) -> bool:
+def _parse_hhmm(value: str) -> datetime | None:
     try:
-        datetime.strptime(value, "%H:%M")
-        return True
+        return datetime.strptime(value, "%H:%M")
     except ValueError:
-        return False
+        return None
+
+
+def _valid_hhmm(value: str) -> bool:
+    return _parse_hhmm(value) is not None
 
 
 def _parse_work_days(values: list[str]) -> list[int] | None:
@@ -94,10 +89,7 @@ async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     current = get_user_timezone(update.effective_user.id, default=None)
     suffix = f"\nСейчас: {current}" if current else ""
-    await update.message.reply_text(
-        "Выбери часовой пояс для календаря." + suffix,
-        reply_markup=_keyboard(),
-    )
+    await update.message.reply_text("Выбери часовой пояс для календаря." + suffix, reply_markup=_keyboard())
 
 
 async def timezone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -113,8 +105,7 @@ async def timezone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     save_user_timezone(update.effective_user.id, timezone)
     await query.edit_message_text(
-        f"Часовой пояс сохранён: {timezone}\n"
-        "Теперь можно настроить рабочий график: /calendar_settings"
+        f"Часовой пояс сохранён: {timezone}\nТеперь можно настроить рабочий график: /calendar_settings"
     )
 
 
@@ -131,8 +122,7 @@ async def calendar_settings_command(update: Update, context: ContextTypes.DEFAUL
         f"• рабочие часы: {prefs['work_start']}–{prefs['work_end']}\n"
         f"• рабочие дни: {days}\n"
         f"• буфер между встречами: {prefs['buffer_minutes']} мин\n\n"
-        "Изменить:\n"
-        "/workhours 09:00 18:00\n"
+        "Изменить:\n/workhours 09:00 18:00\n"
         "/workdays 1-5  или  /workdays пн вт ср чт пт\n"
         "/buffer 15"
     )
@@ -141,13 +131,19 @@ async def calendar_settings_command(update: Update, context: ContextTypes.DEFAUL
 async def workhours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    if len(context.args) != 2 or not all(_valid_hhmm(value) for value in context.args):
+    if len(context.args) != 2:
         await update.message.reply_text("Формат: /workhours 09:00 18:00")
         return
-    start, end = context.args
-    if start >= end:
+    parsed_start = _parse_hhmm(context.args[0])
+    parsed_end = _parse_hhmm(context.args[1])
+    if not parsed_start or not parsed_end:
+        await update.message.reply_text("Формат: /workhours 09:00 18:00")
+        return
+    if parsed_start >= parsed_end:
         await update.message.reply_text("Начало рабочего дня должно быть раньше конца.")
         return
+    start = parsed_start.strftime("%H:%M")
+    end = parsed_end.strftime("%H:%M")
     save_calendar_preferences(update.effective_user.id, work_start=start, work_end=end)
     await update.message.reply_text(f"Рабочие часы сохранены: {start}–{end}")
 
