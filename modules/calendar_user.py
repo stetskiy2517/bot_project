@@ -47,6 +47,20 @@ WEEKDAY_LABELS = {
     6: "воскресенье",
 }
 
+SEARCH_PREFIX_RE = re.compile(
+    r"^(?:когда\s+у\s+меня|найди|найти|покажи\s+где|покажи\s+когда|отыщи)\s+",
+    re.IGNORECASE,
+)
+GENERIC_EVENT_RE = re.compile(
+    r"^(?:событие|события|встреча|встречу|созвон|звонок|запись)\s+",
+    re.IGNORECASE,
+)
+SEARCH_DATE_RE = re.compile(
+    r"\b(?:сегодня|завтра|послезавтра|в\s+понедельник\w*|во\s+вторник\w*|в\s+сред\w*|"
+    r"в\s+четверг\w*|в\s+пятниц\w*|в\s+суббот\w*|в\s+воскресень\w*)\b",
+    re.IGNORECASE,
+)
+
 
 def _get_calendar_service(user_id: int):
     token_dict = get_google_token(user_id)
@@ -81,21 +95,16 @@ def _parse_view_period(
     if re.search(r"\bпослезавтра\b|\bпосле\s+завтра\b", lower):
         start = today + timedelta(days=2)
         return start, start + timedelta(days=1), "послезавтра"
-
     if re.search(r"\bзавтра\b", lower):
         start = today + timedelta(days=1)
         return start, start + timedelta(days=1), "завтра"
-
     if re.search(r"\bсегодня\b", lower):
         return today, today + timedelta(days=1), "сегодня"
-
     if re.search(r"\bследующ\w*\s+недел\w*\b|\bна\s+следующ\w*\s+недел\w*\b", lower):
         current_monday = today - timedelta(days=today.weekday())
         start = current_monday + timedelta(days=7)
         return start, start + timedelta(days=7), "на следующей неделе"
-
     if re.search(r"\b(?:эта|эту|текущ\w*|на)\s+недел\w*\b|\bнедел\w*\b", lower):
-        # Для текущей недели показываем оставшуюся часть недели, а не уже прошедшие дни.
         start = today
         end = today + timedelta(days=7 - today.weekday())
         return start, end, "на этой неделе"
@@ -110,25 +119,23 @@ def _parse_view_period(
         start = today + timedelta(days=days)
         return start, start + timedelta(days=1), WEEKDAY_LABELS[weekday]
 
-    # Если период не указан, просмотр календаря означает сегодня.
     return today, today + timedelta(days=1), "сегодня"
 
 
-def _list_events(user_id: int, start: datetime, end: datetime) -> list[dict]:
+def _list_events(user_id: int, start: datetime, end: datetime, query: str | None = None) -> list[dict]:
     service = _get_calendar_service(user_id)
-    response = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=start.isoformat(),
-            timeMax=end.isoformat(),
-            singleEvents=True,
-            orderBy="startTime",
-            maxResults=100,
-        )
-        .execute()
-    )
-    return response.get("items", [])
+    params = {
+        "calendarId": "primary",
+        "timeMin": start.isoformat(),
+        "timeMax": end.isoformat(),
+        "singleEvents": True,
+        "orderBy": "startTime",
+        "maxResults": 100,
+    }
+    if query:
+        params["q"] = query
+    response = service.events().list(**params).execute()
+    return [event for event in response.get("items", []) if event.get("status") != "cancelled"]
 
 
 def _event_start(event: dict, timezone: str) -> tuple[datetime | None, bool]:
@@ -157,10 +164,57 @@ def _format_event_line(event: dict, timezone: str, include_date: bool) -> str:
 def _format_events(events: list[dict], timezone: str, start: datetime, end: datetime, label: str) -> str:
     if not events:
         return f"На {label} событий нет."
-
     include_date = (end - start) > timedelta(days=1)
     lines = [_format_event_line(event, timezone, include_date) for event in events]
     return f"Календарь {label}:\n" + "\n".join(lines)
+
+
+def _extract_search_query(text: str) -> str:
+    """Оставить смысловую часть запроса: «когда у меня невролог» -> «невролог»."""
+    query = text.strip().rstrip("?.!,")
+    query = SEARCH_PREFIX_RE.sub("", query)
+    query = GENERIC_EVENT_RE.sub("", query)
+    query = SEARCH_DATE_RE.sub(" ", query)
+    query = re.sub(r"\b(?:на\s+следующ\w*\s+недел\w*|на\s+эт\w*\s+недел\w*)\b", " ", query, flags=re.IGNORECASE)
+    query = re.sub(r"\s+", " ", query).strip(" ,.-")
+    return query
+
+
+def _parse_search_period(
+    text: str,
+    timezone: str,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """Если пользователь назвал день/неделю — искать там, иначе на год вперёд."""
+    zone = _user_zone(timezone)
+    local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
+    lower = text.lower().replace("ё", "е")
+    has_period = bool(
+        re.search(
+            r"\b(?:сегодня|завтра|послезавтра|понедельник\w*|вторник\w*|сред\w*|четверг\w*|"
+            r"пятниц\w*|суббот\w*|воскресень\w*|недел\w*)\b",
+            lower,
+        )
+    )
+    if has_period:
+        start, end, _ = _parse_view_period(text, timezone, local_now)
+        return start, end
+    return local_now, local_now + timedelta(days=365)
+
+
+def _format_search_results(events: list[dict], timezone: str, query: str) -> str:
+    if not events:
+        return f"Не нашёл будущих событий по запросу «{query}»."
+
+    visible = events[:5]
+    lines = [_format_event_line(event, timezone, include_date=True) for event in visible]
+    if len(events) == 1:
+        return f"Нашёл событие по запросу «{query}»:\n" + lines[0]
+
+    suffix = ""
+    if len(events) > len(visible):
+        suffix = f"\nИ ещё {len(events) - len(visible)}."
+    return f"Нашёл несколько событий по запросу «{query}»:\n" + "\n".join(lines) + suffix
 
 
 async def create_from_text(
@@ -168,7 +222,6 @@ async def create_from_text(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
 ) -> bool:
-    """Создать календарное событие из уже классифицированной команды."""
     timing = _parse_event_timing(text)
     if not timing:
         return False
@@ -176,13 +229,10 @@ async def create_from_text(
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
-        await update.message.reply_text(
-            "Сначала выбери часовой пояс для календаря: /timezone"
-        )
+        await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
 
     start, end = timing
-
     try:
         event = _build_event(text, start, end)
         event["start"]["timeZone"] = timezone
@@ -193,9 +243,7 @@ async def create_from_text(
         return True
     except Exception:
         logger.exception("Calendar event creation failed for user %s", user_id)
-        await update.message.reply_text(
-            "Не удалось добавить событие в Google Calendar. Попробуйте ещё раз."
-        )
+        await update.message.reply_text("Не удалось добавить событие в Google Calendar. Попробуйте ещё раз.")
         return True
 
     await update.message.reply_text(
@@ -210,7 +258,6 @@ async def view_from_text(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
 ) -> bool:
-    """Показать события пользователя за день или неделю."""
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
@@ -232,8 +279,39 @@ async def view_from_text(
     return True
 
 
+async def search_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    """Найти конкретное ближайшее событие по названию/смысловой части команды."""
+    user_id = update.effective_user.id
+    timezone = get_user_timezone(user_id, default=None)
+    if not timezone:
+        await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
+        return True
+
+    query = _extract_search_query(text)
+    if not query:
+        await update.message.reply_text("Что именно найти в календаре?")
+        return True
+
+    try:
+        start, end = _parse_search_period(text, timezone)
+        events = _list_events(user_id, start, end, query=query)
+    except PermissionError:
+        await update.message.reply_text("Сначала подключите Google Calendar: /start")
+        return True
+    except Exception:
+        logger.exception("Calendar event search failed for user %s", user_id)
+        await update.message.reply_text("Не удалось выполнить поиск в Google Calendar. Попробуй ещё раз.")
+        return True
+
+    await update.message.reply_text(_format_search_results(events, timezone, query))
+    return True
+
+
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Совместимость: прямой вызов трактуется как создание события."""
     if not update.message or not update.message.text:
         return False
     text = update.message.text.strip()
