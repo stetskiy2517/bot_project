@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")
 BASE_URL = "https://api.assemblyai.com"
+TRANSCRIPTION_TIMEOUT_SECONDS = 180
+POLL_INTERVAL_SECONDS = 2
 
 
 def normalize_time_format(text: str) -> str:
@@ -50,7 +52,8 @@ def transcribe_audio(file_path: str) -> str:
     transcript_response.raise_for_status()
     transcript_id = transcript_response.json()["id"]
 
-    while True:
+    deadline = time.monotonic() + TRANSCRIPTION_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
         response = requests.get(
             f"{BASE_URL}/v2/transcript/{transcript_id}",
             headers={"authorization": ASSEMBLYAI_API_KEY},
@@ -63,7 +66,9 @@ def transcribe_audio(file_path: str) -> str:
             return result.get("text", "").strip()
         if status == "error":
             raise RuntimeError(result.get("error") or "Ошибка распознавания речи")
-        time.sleep(2)
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+    raise TimeoutError("Распознавание речи превысило допустимое время")
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
