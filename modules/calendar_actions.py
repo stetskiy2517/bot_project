@@ -10,7 +10,15 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_calendar_preferences, get_user_timezone
-from modules.calendar import _build_event, _create_event, _date_from_text, _extract_time, _parse_event_timing
+from modules.calendar import (
+    NAMED_DATE_RE,
+    NUMERIC_DATE_RE,
+    _build_event,
+    _create_event,
+    _date_from_text,
+    _extract_time,
+    _parse_event_timing,
+)
 from modules.calendar_availability import format_alternatives, suggest_alternatives
 from modules.calendar_event_features import apply_event_features, build_all_day_event, is_all_day
 from modules.calendar_user import (
@@ -107,10 +115,16 @@ def _candidate_search(user_id: int, timezone: str, text: str, query: str, *, use
     return [event for event in _list_events(user_id, start, end) if _event_matches_query(event, query)]
 
 
+def _clean_date_tokens(value: str) -> str:
+    value = DATE_TAIL_RE.sub(" ", value)
+    value = NUMERIC_DATE_RE.sub(" ", value)
+    value = NAMED_DATE_RE.sub(" ", value)
+    return re.sub(r"\s+", " ", value).strip(" ,.-")
+
+
 def _extract_delete_query(text: str) -> str:
     query = DELETE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
-    query = DATE_TAIL_RE.sub(" ", query)
-    return re.sub(r"\s+", " ", query).strip(" ,.-")
+    return _clean_date_tokens(query)
 
 
 def _extract_update_target(text: str) -> str:
@@ -132,7 +146,7 @@ def _extract_update_target(text: str) -> str:
             move_time = re.search(r"\s+в\s+(?=\d{1,2}(?::|\.|\s)\d{2}\b)", body, re.IGNORECASE)
             if move_time:
                 body = body[: move_time.start()]
-    return re.sub(r"\s+", " ", body).strip(" ,.-")
+    return _clean_date_tokens(body)
 
 
 def _duration_from_update(text: str) -> timedelta | None:
