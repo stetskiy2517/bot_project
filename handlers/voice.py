@@ -7,7 +7,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.planner import handle_text as handle_planner_text
+from modules.router import route_text
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def transcribe_audio(file_path: str) -> str:
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Распознать голос и передать текст в то же ядро, что и обычное сообщение."""
+    """Распознать голос и передать текст в центральный router."""
     file_path = None
     try:
         if not update.message or not update.message.voice:
@@ -84,7 +84,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await update.message.reply_text(f"Распознано: {text}")
-        handled = await handle_planner_text(update, context, text=text)
+        handled = await route_text(update, context, text=text)
         if not handled:
             await update.message.reply_text(
                 "Не понял календарную команду. Скажи, например: «поставь врача завтра в 19:00»."
