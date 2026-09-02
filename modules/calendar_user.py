@@ -11,14 +11,12 @@ from modules.calendar import _build_event, _create_event, _parse_event_timing
 logger = logging.getLogger(__name__)
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.message or not update.message.text:
-        return False
-
-    text = update.message.text.strip()
-    if not text:
-        return False
-
+async def create_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    """Создать календарное событие из уже классифицированной команды."""
     timing = _parse_event_timing(text)
     if not timing:
         return False
@@ -53,3 +51,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         f"{start.strftime('%d.%m.%Y %H:%M')}–{end.strftime('%H:%M')} ({timezone})"
     )
     return True
+
+
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Совместимость со старым роутером. Новое ядро использует modules.planner."""
+    if not update.message or not update.message.text:
+        return False
+    text = update.message.text.strip()
+    if not text:
+        return False
+    return await create_from_text(update, context, text)
