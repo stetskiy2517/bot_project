@@ -59,6 +59,22 @@ def _next_work_day(value: datetime, work_days: list[int]) -> datetime:
     return candidate
 
 
+def _apply_daypart_window(text: str, start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """Сузить период по простым разговорным ограничениям времени суток."""
+    lower = text.lower().replace("ё", "е")
+    zone = start.tzinfo
+    day = start.date()
+    if re.search(r"\b(?:после\s+обеда|после\s+полудня)\b", lower):
+        start = max(start, datetime.combine(day, time(13, 0), tzinfo=zone))
+    elif re.search(r"\b(?:вечером|вечер)\b", lower):
+        start = max(start, datetime.combine(day, time(17, 0), tzinfo=zone))
+    elif re.search(r"\b(?:утром|утро)\b", lower):
+        end = min(end, datetime.combine(day, time(12, 0), tzinfo=zone))
+    elif re.search(r"\b(?:до\s+обеда|до\s+полудня)\b", lower):
+        end = min(end, datetime.combine(day, time(13, 0), tzinfo=zone))
+    return start, end
+
+
 def _availability_period(
     text: str,
     timezone: str,
@@ -70,7 +86,9 @@ def _availability_period(
     zone = _user_zone(timezone)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
     if _period_has_explicit_day(text):
-        return _parse_view_period(text, timezone, local_now)
+        start, end, label = _parse_view_period(text, timezone, local_now)
+        start, end = _apply_daypart_window(text, start, end)
+        return start, end, label
 
     work_days = work_days or [0, 1, 2, 3, 4]
     today_start = datetime.combine(local_now.date(), time.min, tzinfo=zone)
@@ -79,7 +97,8 @@ def _availability_period(
         candidate += timedelta(days=1)
     candidate = _next_work_day(candidate, work_days)
     label = "сегодня" if candidate.date() == local_now.date() else candidate.strftime("%d.%m")
-    return candidate, candidate + timedelta(days=1), label
+    start, end = _apply_daypart_window(text, candidate, candidate + timedelta(days=1))
+    return start, end, label
 
 
 def _busy_intervals(
