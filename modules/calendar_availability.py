@@ -8,7 +8,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_user_timezone
+from core.db import get_calendar_preferences, get_user_timezone
 from modules.calendar import _extract_duration
 from modules.calendar_user import (
     _event_start,
@@ -17,11 +17,13 @@ from modules.calendar_user import (
     _user_zone,
 )
 
-DEFAULT_WORK_START = time(9, 0)
-DEFAULT_WORK_END = time(20, 0)
 DEFAULT_SLOT_DURATION = timedelta(hours=1)
 SLOT_STEP = timedelta(minutes=30)
 MAX_SUGGESTIONS = 5
+
+
+def _parse_hhmm(value: str) -> time:
+    return datetime.strptime(value, "%H:%M").time()
 
 
 def _event_end(event: dict, timezone: str) -> datetime | None:
@@ -48,25 +50,44 @@ def _period_has_explicit_day(text: str) -> bool:
     ))
 
 
+def _next_work_day(value: datetime, work_days: list[int]) -> datetime:
+    candidate = value
+    for _ in range(8):
+        if candidate.weekday() in work_days:
+            return candidate
+        candidate += timedelta(days=1)
+    return candidate
+
+
 def _availability_period(
     text: str,
     timezone: str,
     now: datetime | None = None,
+    *,
+    work_days: list[int] | None = None,
+    work_end: time = time(18, 0),
 ) -> tuple[datetime, datetime, str]:
     zone = _user_zone(timezone)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
     if _period_has_explicit_day(text):
         return _parse_view_period(text, timezone, local_now)
 
-    # Без даты ищем сегодня, если рабочий день ещё не закончился; иначе завтра.
+    work_days = work_days or [0, 1, 2, 3, 4]
     today_start = datetime.combine(local_now.date(), time.min, tzinfo=zone)
-    if local_now.time() < DEFAULT_WORK_END:
-        return today_start, today_start + timedelta(days=1), "сегодня"
-    start = today_start + timedelta(days=1)
-    return start, start + timedelta(days=1), "завтра"
+    candidate = today_start
+    if local_now.time() >= work_end or local_now.weekday() not in work_days:
+        candidate += timedelta(days=1)
+    candidate = _next_work_day(candidate, work_days)
+    label = "сегодня" if candidate.date() == local_now.date() else candidate.strftime("%d.%m")
+    return candidate, candidate + timedelta(days=1), label
 
 
-def _busy_intervals(events: list[dict], timezone: str) -> list[tuple[datetime, datetime]]:
+def _busy_intervals(
+    events: list[dict],
+    timezone: str,
+    *,
+    buffer: timedelta = timedelta(0),
+) -> list[tuple[datetime, datetime]]:
     intervals: list[tuple[datetime, datetime]] = []
     for event in events:
         if event.get("transparency") == "transparent":
@@ -74,7 +95,7 @@ def _busy_intervals(events: list[dict], timezone: str) -> list[tuple[datetime, d
         start, _ = _event_start(event, timezone)
         end = _event_end(event, timezone)
         if start and end and end > start:
-            intervals.append((start, end))
+            intervals.append((start - buffer, end + buffer))
     intervals.sort(key=lambda item: item[0])
     return intervals
 
@@ -90,21 +111,28 @@ def find_free_slots(
     period_end: datetime,
     duration: timedelta,
     *,
-    work_start: time = DEFAULT_WORK_START,
-    work_end: time = DEFAULT_WORK_END,
+    work_start: time = time(9, 0),
+    work_end: time = time(18, 0),
+    work_days: list[int] | None = None,
+    buffer: timedelta = timedelta(0),
     step: timedelta = SLOT_STEP,
     now: datetime | None = None,
     limit: int = MAX_SUGGESTIONS,
 ) -> list[tuple[datetime, datetime]]:
-    """Найти свободные интервалы заданной длины в пределах рабочего окна."""
+    """Найти свободные интервалы с учётом рабочего графика и буфера."""
     zone = _user_zone(timezone)
-    busy = _busy_intervals(events, timezone)
+    work_days = work_days or [0, 1, 2, 3, 4]
+    busy = _busy_intervals(events, timezone, buffer=buffer)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
     slots: list[tuple[datetime, datetime]] = []
 
     day = period_start.date()
     last_day = (period_end - timedelta(microseconds=1)).date()
     while day <= last_day and len(slots) < limit:
+        if day.weekday() not in work_days:
+            day += timedelta(days=1)
+            continue
+
         day_start = datetime.combine(day, work_start, tzinfo=zone)
         day_end = datetime.combine(day, work_end, tzinfo=zone)
         window_start = max(day_start, period_start)
@@ -135,22 +163,27 @@ def suggest_alternatives(
     *,
     limit: int = 3,
 ) -> list[tuple[datetime, datetime]]:
-    """Предложить ближайшие свободные слоты после конфликтного времени."""
+    prefs = get_calendar_preferences(user_id)
     zone = _user_zone(timezone)
-    start = desired_start.astimezone(zone) if desired_start.tzinfo else desired_start.replace(tzinfo=zone)
-    end_of_search = datetime.combine(start.date(), DEFAULT_WORK_END, tzinfo=zone)
-    if start >= end_of_search:
-        next_day = start.date() + timedelta(days=1)
-        start = datetime.combine(next_day, DEFAULT_WORK_START, tzinfo=zone)
-        end_of_search = datetime.combine(next_day, DEFAULT_WORK_END, tzinfo=zone)
+    work_start = _parse_hhmm(prefs["work_start"])
+    work_end = _parse_hhmm(prefs["work_end"])
+    work_days = prefs["work_days"]
+    buffer = timedelta(minutes=prefs["buffer_minutes"])
 
-    events = _list_events(user_id, start, end_of_search)
+    start = desired_start.astimezone(zone) if desired_start.tzinfo else desired_start.replace(tzinfo=zone)
+    search_start = start
+    search_end = start + timedelta(days=7)
+    events = _list_events(user_id, search_start, search_end)
     return find_free_slots(
         events,
         timezone,
-        start,
-        end_of_search,
+        search_start,
+        search_end,
         duration,
+        work_start=work_start,
+        work_end=work_end,
+        work_days=work_days,
+        buffer=buffer,
         now=start,
         limit=limit,
     )
@@ -166,7 +199,10 @@ def _format_slot(slot: tuple[datetime, datetime], include_date: bool = False) ->
 def format_alternatives(slots: list[tuple[datetime, datetime]]) -> str:
     if not slots:
         return "Свободных вариантов рядом не нашёл."
-    return "Могу предложить: " + ", ".join(_format_slot(slot) for slot in slots)
+    multiple_days = len({slot[0].date() for slot in slots}) > 1
+    return "Могу предложить: " + ", ".join(
+        _format_slot(slot, include_date=multiple_days) for slot in slots
+    )
 
 
 async def free_slots_from_text(
@@ -180,11 +216,31 @@ async def free_slots_from_text(
         await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
 
+    prefs = get_calendar_preferences(user_id)
+    work_start = _parse_hhmm(prefs["work_start"])
+    work_end = _parse_hhmm(prefs["work_end"])
+    buffer = timedelta(minutes=prefs["buffer_minutes"])
+
     try:
-        start, end, label = _availability_period(text, timezone)
+        start, end, label = _availability_period(
+            text,
+            timezone,
+            work_days=prefs["work_days"],
+            work_end=work_end,
+        )
         duration = _requested_duration(text)
         events = _list_events(user_id, start, end)
-        slots = find_free_slots(events, timezone, start, end, duration)
+        slots = find_free_slots(
+            events,
+            timezone,
+            start,
+            end,
+            duration,
+            work_start=work_start,
+            work_end=work_end,
+            work_days=prefs["work_days"],
+            buffer=buffer,
+        )
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
