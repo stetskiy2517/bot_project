@@ -10,13 +10,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_user_timezone
-from modules.calendar import (
-    _build_event,
-    _create_event,
-    _date_from_text,
-    _extract_time,
-    _parse_event_timing,
-)
+from modules.calendar import _build_event, _create_event, _date_from_text, _extract_time, _parse_event_timing
+from modules.calendar_availability import format_alternatives, suggest_alternatives
 from modules.calendar_user import (
     _event_start,
     _format_event_line,
@@ -56,21 +51,13 @@ def _event_end(event: dict, timezone: str) -> datetime | None:
     end = event.get("end") or {}
     zone = _user_zone(timezone)
     if end.get("dateTime"):
-        value = datetime.fromisoformat(end["dateTime"].replace("Z", "+00:00"))
-        return value.astimezone(zone)
+        return datetime.fromisoformat(end["dateTime"].replace("Z", "+00:00")).astimezone(zone)
     if end.get("date"):
         return datetime.fromisoformat(end["date"]).replace(tzinfo=zone)
     return None
 
 
-def _find_conflicts(
-    user_id: int,
-    start: datetime,
-    end: datetime,
-    *,
-    exclude_event_id: str | None = None,
-) -> list[dict]:
-    """Вернуть события, которые реально пересекаются с новым интервалом."""
+def _find_conflicts(user_id: int, start: datetime, end: datetime, *, exclude_event_id: str | None = None) -> list[dict]:
     events = _list_events(user_id, start, end)
     conflicts = []
     timezone = str(start.tzinfo) if start.tzinfo else "Europe/Moscow"
@@ -90,7 +77,6 @@ def _query_tokens(query: str) -> list[str]:
 
 
 def _event_matches_query(event: dict, query: str) -> bool:
-    """Небольшой морфологически терпимый поиск: врач/врача, Иванов/Ивановым."""
     haystack = _normalise(" ".join([
         str(event.get("summary") or ""),
         str(event.get("description") or ""),
@@ -104,36 +90,26 @@ def _event_matches_query(event: dict, query: str) -> bool:
     return True
 
 
-def _candidate_search(
-    user_id: int,
-    timezone: str,
-    text: str,
-    query: str,
-    *,
-    use_text_period: bool = True,
-) -> list[dict]:
+def _candidate_search(user_id: int, timezone: str, text: str, query: str, *, use_text_period: bool = True) -> list[dict]:
     zone = _user_zone(timezone)
     if use_text_period:
         start, end = _parse_search_period(text, timezone)
     else:
         start = datetime.now(zone)
         end = start + timedelta(days=365)
-    events = _list_events(user_id, start, end)
-    return [event for event in events if _event_matches_query(event, query)]
+    return [event for event in _list_events(user_id, start, end) if _event_matches_query(event, query)]
 
 
 def _extract_delete_query(text: str) -> str:
     query = DELETE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
     query = DATE_TAIL_RE.sub(" ", query)
-    query = re.sub(r"\s+", " ", query).strip(" ,.-")
-    return query
+    return re.sub(r"\s+", " ", query).strip(" ,.-")
 
 
 def _extract_update_target(text: str) -> str:
     rename = RENAME_RE.match(text.strip())
     if rename:
         return rename.group(1).strip()
-
     body = UPDATE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
     duration = DURATION_RE.search(body)
     if duration:
@@ -141,8 +117,7 @@ def _extract_update_target(text: str) -> str:
     else:
         move = re.search(
             r"\s+на\s+(?=(?:сегодня|завтра|послезавтра|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|\d))",
-            body,
-            re.IGNORECASE,
+            body, re.IGNORECASE,
         )
         if move:
             body = body[: move.start()]
@@ -157,13 +132,10 @@ def _duration_from_update(text: str) -> timedelta | None:
     match = DURATION_RE.search(_normalise(text))
     if not match:
         return None
-    if match.group(1):
-        return timedelta(minutes=30)
-    if match.group(2):
-        return timedelta(minutes=90)
+    if match.group(1): return timedelta(minutes=30)
+    if match.group(2): return timedelta(minutes=90)
     amount = int(match.group(3))
-    unit = match.group(4)
-    return timedelta(minutes=amount) if unit.startswith("минут") else timedelta(hours=amount)
+    return timedelta(minutes=amount) if match.group(4).startswith("минут") else timedelta(hours=amount)
 
 
 def _new_title_from_update(text: str) -> str | None:
@@ -175,25 +147,18 @@ def _new_title_from_update(text: str) -> str | None:
 
 
 def _build_update_patch(event: dict, text: str, timezone: str) -> dict:
-    """Построить минимальный patch для даты, времени, длительности или названия."""
     old_start, all_day = _event_start(event, timezone)
     old_end = _event_end(event, timezone)
     if not old_start or not old_end:
         return {}
-
-    patch: dict = {}
     new_title = _new_title_from_update(text)
     if new_title:
-        patch["summary"] = new_title
-        return patch
-
+        return {"summary": new_title}
     duration = _duration_from_update(text)
     if duration:
         if all_day:
             return {}
-        patch["end"] = {"dateTime": (old_start + duration).isoformat(), "timeZone": timezone}
-        return patch
-
+        return {"end": {"dateTime": (old_start + duration).isoformat(), "timeZone": timezone}}
     if all_day:
         return {}
 
@@ -205,14 +170,13 @@ def _build_update_patch(event: dict, text: str, timezone: str) -> dict:
         new_start = new_start.replace(year=new_date.year, month=new_date.month, day=new_date.day)
     if parsed_time:
         new_start = new_start.replace(hour=parsed_time[0], minute=parsed_time[1], second=0, microsecond=0)
-
     if new_start == old_start:
         return {}
-
     old_duration = old_end - old_start
-    patch["start"] = {"dateTime": new_start.isoformat(), "timeZone": timezone}
-    patch["end"] = {"dateTime": (new_start + old_duration).isoformat(), "timeZone": timezone}
-    return patch
+    return {
+        "start": {"dateTime": new_start.isoformat(), "timeZone": timezone},
+        "end": {"dateTime": (new_start + old_duration).isoformat(), "timeZone": timezone},
+    }
 
 
 def _patch_interval(event: dict, patch: dict, timezone: str) -> tuple[datetime, datetime] | None:
@@ -236,10 +200,10 @@ def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
 
 
 def _format_candidates(events: list[dict], timezone: str) -> str:
-    lines = []
-    for index, event in enumerate(events[:5], start=1):
-        lines.append(f"{index}. {_format_event_line(event, timezone, include_date=True).lstrip('• ')}")
-    return "\n".join(lines)
+    return "\n".join(
+        f"{index}. {_format_event_line(event, timezone, include_date=True).lstrip('• ')}"
+        for index, event in enumerate(events[:5], start=1)
+    )
 
 
 async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -263,11 +227,13 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         event["end"]["timeZone"] = timezone
         conflicts = _find_conflicts(user_id, start, end)
         if conflicts:
+            alternatives = suggest_alternatives(user_id, timezone, start, end - start, limit=3)
             _store_pending(context, {"type": "confirm_create_conflict", "event": event})
             await update.message.reply_text(
                 "В это время уже есть событие:\n"
                 f"{_format_event_line(conflicts[0], timezone, include_date=True)}\n"
-                "Создать новое событие всё равно? Ответь «да» или «нет»."
+                f"{format_alternatives(alternatives)}\n"
+                "Если всё равно создать в исходное время — ответь «да». Для отмены — «нет»."
             )
             return True
         _create_event(user_id, event)
@@ -295,7 +261,6 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     if not query:
         await update.message.reply_text("Какое событие удалить?")
         return True
-
     try:
         events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
     except PermissionError:
@@ -305,24 +270,18 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         logger.exception("Calendar delete search failed for user %s", user_id)
         await update.message.reply_text("Не удалось найти событие для удаления.")
         return True
-
     if not events:
         await update.message.reply_text(f"Не нашёл событие «{query}».")
         return True
     if len(events) > 1:
         visible = events[:5]
         _store_pending(context, {"type": "select_delete", "events": visible, "timezone": timezone})
-        await update.message.reply_text(
-            "Нашёл несколько событий. Напиши номер нужного:\n" + _format_candidates(visible, timezone)
-        )
+        await update.message.reply_text("Нашёл несколько событий. Напиши номер нужного:\n" + _format_candidates(visible, timezone))
         return True
-
     event = events[0]
     _store_pending(context, {"type": "confirm_delete", "event": event, "timezone": timezone})
     await update.message.reply_text(
-        "Удалить это событие?\n"
-        f"{_format_event_line(event, timezone, include_date=True)}\n"
-        "Ответь «да» или «нет»."
+        "Удалить это событие?\n" + _format_event_line(event, timezone, include_date=True) + "\nОтветь «да» или «нет»."
     )
     return True
 
@@ -337,9 +296,7 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     if not query:
         await update.message.reply_text("Какое событие изменить?")
         return True
-
     try:
-        # Destination date/time in an update command must not narrow the search for the source event.
         events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
@@ -348,28 +305,18 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         logger.exception("Calendar update search failed for user %s", user_id)
         await update.message.reply_text("Не удалось найти событие для изменения.")
         return True
-
     if not events:
         await update.message.reply_text(f"Не нашёл событие «{query}».")
         return True
     if len(events) > 1:
         visible = events[:5]
         _store_pending(context, {"type": "select_update", "events": visible, "timezone": timezone, "text": text})
-        await update.message.reply_text(
-            "Нашёл несколько событий. Напиши номер нужного:\n" + _format_candidates(visible, timezone)
-        )
+        await update.message.reply_text("Нашёл несколько событий. Напиши номер нужного:\n" + _format_candidates(visible, timezone))
         return True
-
     return await _prepare_update_confirmation(update, context, events[0], text, timezone)
 
 
-async def _prepare_update_confirmation(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    event: dict,
-    text: str,
-    timezone: str,
-) -> bool:
+async def _prepare_update_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, event: dict, text: str, timezone: str) -> bool:
     patch = _build_update_patch(event, text, timezone)
     if not patch:
         await update.message.reply_text("Не понял, что именно изменить в событии.")
@@ -380,7 +327,17 @@ async def _prepare_update_confirmation(
     if interval and ("start" in patch or "end" in patch):
         conflicts = _find_conflicts(update.effective_user.id, interval[0], interval[1], exclude_event_id=event.get("id"))
         if conflicts:
-            conflict_text = f"\nВ новом времени есть конфликт: {_format_event_line(conflicts[0], timezone, include_date=True)}"
+            alternatives = suggest_alternatives(
+                update.effective_user.id,
+                timezone,
+                interval[0],
+                interval[1] - interval[0],
+                limit=3,
+            )
+            conflict_text = (
+                f"\nВ новом времени есть конфликт: {_format_event_line(conflicts[0], timezone, include_date=True)}"
+                f"\n{format_alternatives(alternatives)}"
+            )
 
     _store_pending(context, {"type": "confirm_update", "event": event, "patch": patch, "timezone": timezone})
     await update.message.reply_text(
@@ -391,13 +348,7 @@ async def _prepare_update_confirmation(
     return True
 
 
-async def resume_pending_action(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    text: str,
-    pending: dict,
-) -> bool:
-    """Продолжить выбор/подтверждение календарного действия."""
+async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, pending: dict) -> bool:
     normal = _normalise(text)
     pending_type = pending.get("type")
 
@@ -420,8 +371,7 @@ async def resume_pending_action(
         if pending_type == "select_delete":
             _store_pending(context, {"type": "confirm_delete", "event": event, "timezone": timezone})
             await update.message.reply_text(
-                "Удалить это событие?\n"
-                f"{_format_event_line(event, timezone, include_date=True)}\nОтветь «да» или «нет»."
+                "Удалить это событие?\n" + _format_event_line(event, timezone, include_date=True) + "\nОтветь «да» или «нет»."
             )
             return True
         return await _prepare_update_confirmation(update, context, event, pending["text"], timezone)
@@ -449,7 +399,9 @@ async def resume_pending_action(
                 eventId=pending["event"]["id"],
                 body=pending["patch"],
             ).execute()
-            await update.message.reply_text(f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено.")
+            await update.message.reply_text(
+                f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
+            )
             return True
     except Exception:
         logger.exception("Calendar pending action failed for user %s", user_id)
