@@ -38,7 +38,7 @@ DAY_ALIASES = {
 }
 
 
-def _keyboard() -> InlineKeyboardMarkup:
+def timezone_keyboard() -> InlineKeyboardMarkup:
     rows = []
     for index in range(0, len(TIMEZONE_OPTIONS), 2):
         row = []
@@ -46,6 +46,42 @@ def _keyboard() -> InlineKeyboardMarkup:
             row.append(InlineKeyboardButton(label, callback_data=f"tz:{timezone}"))
         rows.append(row)
     return InlineKeyboardMarkup(rows)
+
+
+def _workhours_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("09:00–18:00", callback_data="wh:09:00:18:00"),
+            InlineKeyboardButton("10:00–19:00", callback_data="wh:10:00:19:00"),
+        ],
+        [
+            InlineKeyboardButton("08:00–17:00", callback_data="wh:08:00:17:00"),
+            InlineKeyboardButton("09:00–20:00", callback_data="wh:09:00:20:00"),
+        ],
+    ])
+
+
+def _workdays_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Пн–Пт", callback_data="wd:0,1,2,3,4"),
+            InlineKeyboardButton("Пн–Сб", callback_data="wd:0,1,2,3,4,5"),
+        ],
+        [InlineKeyboardButton("Каждый день", callback_data="wd:0,1,2,3,4,5,6")],
+    ])
+
+
+def _buffer_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Без буфера", callback_data="buf:0"),
+            InlineKeyboardButton("15 минут", callback_data="buf:15"),
+        ],
+        [
+            InlineKeyboardButton("30 минут", callback_data="buf:30"),
+            InlineKeyboardButton("60 минут", callback_data="buf:60"),
+        ],
+    ])
 
 
 def _parse_hhmm(value: str) -> datetime | None:
@@ -84,12 +120,25 @@ def _parse_work_days(values: list[str]) -> list[int] | None:
     return sorted(set(days)) if days else None
 
 
+def _settings_text(user_id: int) -> str:
+    prefs = get_calendar_preferences(user_id)
+    timezone = get_user_timezone(user_id, default=None) or "не выбран"
+    days = ", ".join(DAY_NAMES[day] for day in prefs["work_days"])
+    return (
+        "Настройки календаря:\n"
+        f"• часовой пояс: {timezone}\n"
+        f"• рабочие часы: {prefs['work_start']}–{prefs['work_end']}\n"
+        f"• рабочие дни: {days}\n"
+        f"• буфер между встречами: {prefs['buffer_minutes']} мин"
+    )
+
+
 async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
     current = get_user_timezone(update.effective_user.id, default=None)
     suffix = f"\nСейчас: {current}" if current else ""
-    await update.message.reply_text("Выбери часовой пояс для календаря." + suffix, reply_markup=_keyboard())
+    await update.message.reply_text("Выбери часовой пояс для календаря." + suffix, reply_markup=timezone_keyboard())
 
 
 async def timezone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,26 +154,80 @@ async def timezone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     save_user_timezone(update.effective_user.id, timezone)
     await query.edit_message_text(
-        f"Часовой пояс сохранён: {timezone}\nТеперь можно настроить рабочий график: /calendar_settings"
+        f"Часовой пояс сохранён: {timezone}\n\nТеперь выбери обычные рабочие часы.",
+        reply_markup=_workhours_keyboard(),
+    )
+
+
+async def workhours_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+    parts = query.data.split(":")
+    if len(parts) != 5:
+        await query.edit_message_text("Не удалось сохранить рабочие часы. Используй /workhours.")
+        return
+    start = f"{parts[1]}:{parts[2]}"
+    end = f"{parts[3]}:{parts[4]}"
+    if not _valid_hhmm(start) or not _valid_hhmm(end):
+        await query.edit_message_text("Не удалось сохранить рабочие часы. Используй /workhours.")
+        return
+    save_calendar_preferences(update.effective_user.id, work_start=start, work_end=end)
+    await query.edit_message_text(
+        f"Рабочие часы: {start}–{end}\n\nТеперь выбери рабочие дни.",
+        reply_markup=_workdays_keyboard(),
+    )
+
+
+async def workdays_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+    raw = query.data.removeprefix("wd:")
+    try:
+        days = sorted({int(value) for value in raw.split(",")})
+    except ValueError:
+        days = []
+    if not days or any(day < 0 or day > 6 for day in days):
+        await query.edit_message_text("Не удалось сохранить рабочие дни. Используй /workdays.")
+        return
+    save_calendar_preferences(update.effective_user.id, work_days=days)
+    labels = ", ".join(DAY_NAMES[day] for day in days)
+    await query.edit_message_text(
+        f"Рабочие дни: {labels}\n\nКакой буфер оставлять между встречами?",
+        reply_markup=_buffer_keyboard(),
+    )
+
+
+async def buffer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+    raw = query.data.removeprefix("buf:")
+    if not raw.isdigit():
+        await query.edit_message_text("Не удалось сохранить буфер. Используй /buffer.")
+        return
+    minutes = int(raw)
+    if not 0 <= minutes <= 180:
+        await query.edit_message_text("Буфер должен быть от 0 до 180 минут.")
+        return
+    save_calendar_preferences(update.effective_user.id, buffer_minutes=minutes)
+    await query.edit_message_text(
+        "Настройка завершена.\n\n" + _settings_text(update.effective_user.id) +
+        "\n\nТеперь можно писать или диктовать команды календарю."
     )
 
 
 async def calendar_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    user_id = update.effective_user.id
-    prefs = get_calendar_preferences(user_id)
-    timezone = get_user_timezone(user_id, default=None) or "не выбран"
-    days = ", ".join(DAY_NAMES[day] for day in prefs["work_days"])
     await update.message.reply_text(
-        "Настройки календаря:\n"
-        f"• часовой пояс: {timezone}\n"
-        f"• рабочие часы: {prefs['work_start']}–{prefs['work_end']}\n"
-        f"• рабочие дни: {days}\n"
-        f"• буфер между встречами: {prefs['buffer_minutes']} мин\n\n"
-        "Изменить:\n/workhours 09:00 18:00\n"
-        "/workdays 1-5  или  /workdays пн вт ср чт пт\n"
-        "/buffer 15"
+        _settings_text(update.effective_user.id) +
+        "\n\nИзменить:\n/timezone\n/workhours 09:00 18:00\n"
+        "/workdays 1-5  или  /workdays пн вт ср чт пт\n/buffer 15"
     )
 
 
