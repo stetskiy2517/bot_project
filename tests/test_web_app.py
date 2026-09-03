@@ -29,6 +29,10 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(seen,[(aid,'Alice','A'),(bid,'Bob','B')])
     def test_logout_removes_google_session(self):
         self._google_session(self.client,'logout-sub','logout@example.test','Logout');self.assertEqual(self.client.get('/api/status').status_code,200);self.client.post('/api/logout');self.assertEqual(self.client.get('/api/status').status_code,401)
-    def test_pwa_shell_and_manifest_are_served(self):
-        r=self.client.get('/');self.assertEqual(r.status_code,200);r.close();m=self.client.get('/manifest.webmanifest');self.assertEqual(m.status_code,200);m.close()
+    def test_pwa_shell_contains_calendar_settings_controls(self):
+        r=self.client.get('/');self.assertEqual(r.status_code,200);html=r.get_data(as_text=True);r.close()
+        for control in ['settingsBtn','timezone','workStart','workEnd','days','buffer','saveSettings']:
+            self.assertIn(f'id="{control}"',html)
+        self.assertIn('Войти через Google',html)
+        m=self.client.get('/manifest.webmanifest');self.assertEqual(m.status_code,200);m.close()
 if __name__=='__main__':unittest.main()
