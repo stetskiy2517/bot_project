@@ -8,6 +8,14 @@ DEFAULT_WORK_START = "09:00"
 DEFAULT_WORK_END = "18:00"
 DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
 DEFAULT_BUFFER_MINUTES = 15
+DEFAULT_CATEGORY_COLORS = {
+    "work": "3",
+    "health": "6",
+    "rest": "10",
+    "travel": "7",
+    "personal": "5",
+    "other": "1",
+}
 OAUTH_STATE_TTL_MINUTES = 15
 
 conn = sqlite3.connect("bot.db", check_same_thread=False)
@@ -22,6 +30,7 @@ def init_db():
             if column not in columns: conn.execute(f"ALTER TABLE users ADD COLUMN {column} {sql_type}")
         conn.execute("""CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, user_id INTEGER, created_at TEXT NOT NULL)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS google_accounts (user_id INTEGER PRIMARY KEY AUTOINCREMENT, google_sub TEXT NOT NULL UNIQUE, email TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS user_category_colors (user_id INTEGER PRIMARY KEY, colors_json TEXT NOT NULL)""")
         conn.commit()
 
 
@@ -80,6 +89,7 @@ def save_user_timezone(user_id:int,timezone:str)->None:
 def get_user_timezone(user_id:int,default:str|None=DEFAULT_TIMEZONE)->str|None:
     with db_lock: row=conn.execute("SELECT timezone FROM users WHERE user_id=?",(user_id,)).fetchone()
     return row[0] if row and row[0] else default
+
 def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:str|None=None,work_days:list[int]|None=None,buffer_minutes:int|None=None)->None:
     with db_lock:
         conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)",(user_id,));updates=[];values=[]
@@ -96,7 +106,49 @@ def get_calendar_preferences(user_id:int)->dict:
     except (TypeError,ValueError,json.JSONDecodeError):work_days=DEFAULT_WORK_DAYS.copy()
     buffer=row[3] if row and row[3] is not None else DEFAULT_BUFFER_MINUTES
     return {"work_start":work_start,"work_end":work_end,"work_days":work_days,"buffer_minutes":int(buffer)}
+
+
+def get_category_colors(user_id: int) -> dict[str, str]:
+    with db_lock:
+        row = conn.execute("SELECT colors_json FROM user_category_colors WHERE user_id=?", (user_id,)).fetchone()
+    if not row:
+        return DEFAULT_CATEGORY_COLORS.copy()
+    try:
+        stored = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return DEFAULT_CATEGORY_COLORS.copy()
+    result = DEFAULT_CATEGORY_COLORS.copy()
+    for category in result:
+        value = str(stored.get(category, result[category]))
+        if value.isdigit() and 1 <= int(value) <= 11:
+            result[category] = value
+    return result
+
+
+def save_category_colors(user_id: int, colors: dict[str, str]) -> None:
+    merged = get_category_colors(user_id)
+    for category, value in colors.items():
+        if category not in DEFAULT_CATEGORY_COLORS:
+            raise ValueError(f"Неизвестная категория: {category}")
+        color_id = str(value)
+        if not color_id.isdigit() or not 1 <= int(color_id) <= 11:
+            raise ValueError("Цвет категории должен быть Google colorId от 1 до 11")
+        merged[category] = color_id
+    with db_lock:
+        conn.execute(
+            "INSERT INTO user_category_colors (user_id,colors_json) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET colors_json=excluded.colors_json",
+            (user_id, json.dumps(merged, ensure_ascii=False)),
+        )
+        conn.commit()
+
+
+def reset_category_colors(user_id: int) -> None:
+    with db_lock:
+        conn.execute("DELETE FROM user_category_colors WHERE user_id=?", (user_id,))
+        conn.commit()
+
+
 def get_onboarding_status(user_id:int)->dict:
-    return {"google_connected":get_google_token(user_id) is not None,"timezone_set":get_user_timezone(user_id,default=None) is not None,"preferences":get_calendar_preferences(user_id)}
+    return {"google_connected":get_google_token(user_id) is not None,"timezone_set":get_user_timezone(user_id,default=None) is not None,"preferences":get_calendar_preferences(user_id),"category_colors":get_category_colors(user_id)}
 
 init_db()
