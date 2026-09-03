@@ -5,6 +5,7 @@ load_dotenv()
 
 TG_TOKEN = os.getenv("TG_TOKEN") or os.getenv("BOT_TOKEN")
 TELEGRAM_PROXY_URL = os.getenv("TELEGRAM_PROXY_URL")
+TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BASE_URL = os.getenv("BASE_URL")
 
