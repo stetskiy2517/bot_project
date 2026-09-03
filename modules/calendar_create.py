@@ -7,8 +7,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_user_timezone
+from modules import calendar_actions as actions
 from modules.calendar import _build_event, _create_event, _parse_event_timing
-from modules.calendar_actions import _find_conflicts, _format_event_line, _store_pending
 from modules.calendar_availability import format_alternatives, suggest_alternatives
 from modules.calendar_categories import apply_user_category
 from modules.calendar_event_features import apply_event_features, build_all_day_event, is_all_day
@@ -48,13 +48,13 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         apply_user_category(event, text, user_id)
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
-        conflicts = _find_conflicts(user_id, start, end)
+        conflicts = actions._find_conflicts(user_id, start, end)
         if conflicts:
             alternatives = suggest_alternatives(user_id, timezone, start, end - start, limit=3)
-            _store_pending(context, {"type": "confirm_create_conflict", "event": event})
+            actions._store_pending(context, {"type": "confirm_create_conflict", "event": event})
             await update.message.reply_text(
                 "В это время уже есть событие:\n"
-                f"{_format_event_line(conflicts[0], timezone, include_date=True)}\n"
+                f"{actions._format_event_line(conflicts[0], timezone, include_date=True)}\n"
                 f"{format_alternatives(alternatives)}\n"
                 "Если всё равно создать в исходное время — ответь «да». Для отмены — «нет»."
             )
