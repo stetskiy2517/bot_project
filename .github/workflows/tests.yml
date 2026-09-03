@@ -3,6 +3,7 @@ name: tests
 on:
   push:
     branches:
+      - main
       - fix/smart-planner-parser
   pull_request:
 
