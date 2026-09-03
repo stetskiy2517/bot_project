@@ -78,7 +78,11 @@ def _status_payload(user_id: int) -> dict:
 def _valid_voice_upload(audio) -> bool:
     mimetype = (audio.mimetype or "").lower()
     suffix = Path(audio.filename or "").suffix.lower()
-    return mimetype in VOICE_MIME_SUFFIXES or suffix in VOICE_SUFFIXES
+    if mimetype in VOICE_MIME_SUFFIXES:
+        return True
+    if mimetype and mimetype != "application/octet-stream":
+        return False
+    return suffix in VOICE_SUFFIXES
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
