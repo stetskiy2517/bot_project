@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import BinaryIO
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")
 BASE_URL = "https://api.assemblyai.com"
