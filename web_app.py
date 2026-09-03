@@ -13,11 +13,14 @@ from flask import Flask, jsonify, redirect, request, send_from_directory, sessio
 
 from config import WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
+    DEFAULT_CATEGORY_COLORS,
     get_google_account,
     get_onboarding_status,
     get_user_timezone,
     init_db,
+    reset_category_colors,
     save_calendar_preferences,
+    save_category_colors,
     save_user_timezone,
 )
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
@@ -72,6 +75,7 @@ def _validate_time_range(start: str, end: str) -> None:
 def _status_payload(user_id: int) -> dict:
     result = get_onboarding_status(user_id)
     result["timezone"] = get_user_timezone(user_id, default=None)
+    result["default_category_colors"] = DEFAULT_CATEGORY_COLORS.copy()
     return result
 
 
@@ -86,7 +90,6 @@ def _valid_voice_upload(audio) -> bool:
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
-    """Route text from any web input channel through the shared command router."""
     update = WebUpdate(user_id, user_name, text)
     context = WebContext(_state_for(user_id))
     handled = await route_text(update, context, text=text)
@@ -167,11 +170,7 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         account = get_google_account(user_id)
         result = _status_payload(user_id)
-        result["user"] = {
-            "id": user_id,
-            "email": account["email"],
-            "name": account["name"],
-        }
+        result["user"] = {"id": user_id, "email": account["email"], "name": account["name"]}
         return result
 
     @app.post("/api/chat")
@@ -182,9 +181,7 @@ def create_web_app() -> Flask:
         if not text:
             return jsonify({"error": "empty_message"}), 400
         try:
-            result = asyncio.run(
-                process_web_message(text, user_id, account.get("name") or account["email"])
-            )
+            result = asyncio.run(process_web_message(text, user_id, account.get("name") or account["email"]))
         except Exception:
             logger.exception("Web command request failed for user %s", user_id)
             return jsonify({"error": "command_failed", "replies": ["Не удалось обработать сообщение."]}), 500
@@ -199,23 +196,15 @@ def create_web_app() -> Flask:
             return jsonify({"error": "empty_audio"}), 400
         if not _valid_voice_upload(audio):
             return jsonify({"error": "unsupported_audio", "message": "Неподдерживаемый формат аудио."}), 415
-
         try:
             text = normalize_time_format(transcribe_audio(audio.stream))
             if not text:
                 return jsonify({"error": "empty_transcript", "message": "Не удалось распознать речь."}), 400
-            result = asyncio.run(
-                process_web_message(text, user_id, account.get("name") or account["email"])
-            )
+            result = asyncio.run(process_web_message(text, user_id, account.get("name") or account["email"]))
         except Exception:
             logger.exception("Web voice processing failed for user %s", user_id)
             return jsonify({"error": "voice_failed", "message": "Не удалось обработать голосовое сообщение."}), 503
-
-        return {
-            "transcript": text,
-            "handled": result.handled,
-            "replies": result.replies,
-        }
+        return {"transcript": text, "handled": result.handled, "replies": result.replies}
 
     @app.post("/api/settings")
     def settings():
@@ -253,6 +242,14 @@ def create_web_app() -> Flask:
                 if not 0 <= value <= 180:
                     raise ValueError("Буфер должен быть от 0 до 180 минут")
                 save_calendar_preferences(user_id, buffer_minutes=value)
+
+            if payload.get("reset_category_colors"):
+                reset_category_colors(user_id)
+            elif "category_colors" in payload:
+                colors = payload["category_colors"]
+                if not isinstance(colors, dict):
+                    raise ValueError("Некорректные настройки категорий")
+                save_category_colors(user_id, colors)
         except (TypeError, ValueError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
         return _status_payload(user_id)
