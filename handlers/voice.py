@@ -1,119 +1,59 @@
-import os
-import time
+"""Telegram voice transport.
+
+Voice is only an input channel: speech is transcribed by the shared integration
+and the resulting text is passed to the same central router as typed messages.
+"""
+
+from __future__ import annotations
+
+import asyncio
 import logging
-import requests
-import re
+import os
+import tempfile
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from integrations.speech import normalize_time_format, transcribe_audio
+from modules.router import route_text
+
 logger = logging.getLogger(__name__)
 
-ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")
-BASE_URL = "https://api.assemblyai.com"
 
-
-# ---------- FIX: normalize time like 22.00 -> 22:00 ----------
-def normalize_time_format(text: str) -> str:
-    return re.sub(
-        r'\b([01]?\d|2[0-3])\.(\d{2})\b',
-        r'\1:\2',
-        text
-    )
-
-
-# ---------- AssemblyAI ----------
-def transcribe_audio(file_path: str) -> str:
-    if not ASSEMBLYAI_API_KEY:
-        raise RuntimeError("ASSEMBLYAI_API_KEY not set")
-
-    # 1️⃣ Upload
-    with open(file_path, "rb") as f:
-        upload = requests.post(
-            f"{BASE_URL}/v2/upload",
-            headers={"authorization": ASSEMBLYAI_API_KEY},
-            data=f,
-            timeout=60,
-        )
-
-    if upload.status_code != 200:
-        raise RuntimeError("Ошибка загрузки аудио")
-
-    audio_url = upload.json()["upload_url"]
-
-    # 2️⃣ Transcription (RU)
-    transcript = requests.post(
-        f"{BASE_URL}/v2/transcript",
-        headers={
-            "authorization": ASSEMBLYAI_API_KEY,
-            "content-type": "application/json",
-        },
-        json={
-            "audio_url": audio_url,
-            "language_code": "ru",
-            "speech_model": "universal",
-        },
-        timeout=30,
-    ).json()
-
-    transcript_id = transcript["id"]
-
-    # 3️⃣ Poll
-    while True:
-        result = requests.get(
-            f"{BASE_URL}/v2/transcript/{transcript_id}",
-            headers={"authorization": ASSEMBLYAI_API_KEY},
-            timeout=30,
-        ).json()
-
-        status = result.get("status")
-
-        if status == "completed":
-            return result.get("text", "").strip()
-
-        if status == "error":
-            raise RuntimeError(result.get("error"))
-
-        time.sleep(2)
-
-
-# ---------- Telegram ----------
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Transcribe a Telegram voice message and pass its text to the central router."""
+    file_path: str | None = None
     try:
-        voice = update.message.voice
-        file = await context.bot.get_file(voice.file_id)
-
-        file_path = f"/tmp/{voice.file_id}.oga"
-        await file.download_to_drive(file_path)
-
-        text = transcribe_audio(file_path)
-
-        if not text:
-            await update.message.reply_text("❌ Не удалось распознать речь")
+        if not update.message or not update.message.voice:
             return
 
-        # 🔥 FIX APPLY HERE
-        text = normalize_time_format(text)
+        voice = update.message.voice
+        telegram_file = await context.bot.get_file(voice.file_id)
 
-        await update.message.reply_text(f"🗣 Распознано: {text}")
+        with tempfile.NamedTemporaryFile(suffix=".oga", delete=False) as tmp:
+            file_path = tmp.name
 
-        from app import handle_text
+        await telegram_file.download_to_drive(file_path)
 
-        class FakeMessage:
-            def __init__(self, text, user):
-                self.text = text
-                self.from_user = user
-                self.chat_id = update.effective_chat.id
+        transcript = await asyncio.to_thread(transcribe_audio, file_path)
+        text = normalize_time_format(transcript)
+        if not text:
+            await update.message.reply_text("Не удалось распознать речь.")
+            return
 
-            async def reply_text(self, *args, **kwargs):
-                await update.message.reply_text(*args, **kwargs)
-
-        fake_update = Update(
-            update.update_id,
-            message=FakeMessage(text, update.effective_user),
-        )
-
-        await handle_text(fake_update, context)
-
+        await update.message.reply_text(f"Распознано: {text}")
+        handled = await route_text(update, context, text=text)
+        if not handled:
+            await update.message.reply_text(
+                "Не понял команду. Скажи иначе или уточни, что нужно сделать."
+            )
     except Exception:
-        logger.exception("Ошибка распознавания голоса")
-        await update.message.reply_text("❌ Ошибка распознавания голоса")
+        logger.exception("Voice processing failed")
+        if update.message:
+            await update.message.reply_text("Не удалось обработать голосовое сообщение.")
+    finally:
+        if file_path:
+            try:
+                os.remove(file_path)
+            except OSError:
+                logger.debug("Temporary voice file was already removed: %s", file_path)

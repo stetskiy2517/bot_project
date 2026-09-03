@@ -1,57 +1,73 @@
 import asyncio
 import logging
 
-from telegram import Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
-    ContextTypes,
     MessageHandler,
     filters,
 )
 
-from config import TG_TOKEN, validate_config
+from config import TELEGRAM_API_BASE, TELEGRAM_PROXY_URL, TG_TOKEN, validate_config
+from core.db import init_db
+from handlers.voice import handle_voice
 from logging_config import setup_logging
+from modules.auth import OAuthServer, reconnect_command, start_command
 from modules.router import handle_text
-
+from modules.settings import (
+    buffer_callback,
+    buffer_command,
+    calendar_settings_command,
+    timezone_callback,
+    timezone_command,
+    workdays_callback,
+    workdays_command,
+    workhours_callback,
+    workhours_command,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Обработчик команды /start."""
+def build_application():
+    builder = Application.builder().token(TG_TOKEN)
 
-    if update.message:
-        await update.message.reply_text(
-            "Бот запущен."
-        )
+    if TELEGRAM_API_BASE:
+        base = TELEGRAM_API_BASE.rstrip("/")
+        builder = builder.base_url(f"{base}/bot").base_file_url(f"{base}/file/bot")
+
+    if TELEGRAM_PROXY_URL:
+        builder = builder.proxy(TELEGRAM_PROXY_URL).get_updates_proxy(TELEGRAM_PROXY_URL)
+
+    return builder.build()
 
 
 async def main() -> None:
-    """Запуск Telegram-бота."""
-
     setup_logging()
     validate_config()
+    init_db()
 
-    application = (
-        Application.builder()
-        .token(TG_TOKEN)
-        .build()
-    )
+    oauth_server = OAuthServer(port=8080)
+    oauth_server.start()
 
-    application.add_handler(
-        CommandHandler("start", start)
-    )
+    application = build_application()
 
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_text,
-        )
-    )
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("reconnect_google", reconnect_command))
+    application.add_handler(CommandHandler("timezone", timezone_command))
+    application.add_handler(CommandHandler("calendar_settings", calendar_settings_command))
+    application.add_handler(CommandHandler("workhours", workhours_command))
+    application.add_handler(CommandHandler("workdays", workdays_command))
+    application.add_handler(CommandHandler("buffer", buffer_command))
+
+    application.add_handler(CallbackQueryHandler(timezone_callback, pattern=r"^tz:"))
+    application.add_handler(CallbackQueryHandler(workhours_callback, pattern=r"^wh:"))
+    application.add_handler(CallbackQueryHandler(workdays_callback, pattern=r"^wd:"))
+    application.add_handler(CallbackQueryHandler(buffer_callback, pattern=r"^buf:"))
+
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot started")
 
@@ -68,8 +84,8 @@ async def main() -> None:
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
+        oauth_server.stop()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-

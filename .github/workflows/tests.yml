@@ -1,0 +1,48 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - fix/smart-planner-parser
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
+      - name: Run tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Telegram image
+        run: docker build -t personal-secretary:test .
+      - name: Import Telegram application inside image
+        run: >-
+          docker run --rm
+          -e TG_TOKEN=123456:TESTTOKEN
+          personal-secretary:test
+          python -c "import bot; from modules.auth import create_oauth_web_app; app=create_oauth_web_app(); c=app.test_client(); r=c.get('/health'); assert r.status_code == 200; print('telegram docker smoke ok')"
+      - name: Build web-only image
+        run: docker build -f Dockerfile.web -t personal-secretary-web:test .
+      - name: Smoke web app without Telegram token
+        run: >-
+          docker run --rm
+          personal-secretary-web:test
+          python -c "import web_app; c=web_app.create_web_app().test_client(); r=c.get('/api/health'); assert r.status_code == 200; assert r.get_json()['transport'] == 'web'; print('web docker smoke ok')"
+      - name: Run web-to-calendar E2E inside image
+        run: >-
+          docker run --rm
+          personal-secretary-web:test
+          python -m unittest tests.test_web_calendar_e2e -v
