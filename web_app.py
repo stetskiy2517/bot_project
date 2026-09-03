@@ -26,6 +26,7 @@ from config import (
 from core.db import (
     ensure_user,
     get_onboarding_status,
+    get_user_timezone,
     init_db,
     save_calendar_preferences,
     save_user_timezone,
@@ -56,6 +57,12 @@ def _validate_time_range(start: str, end: str) -> None:
         raise ValueError("Время должно быть в формате HH:MM")
     if start >= end:
         raise ValueError("Начало рабочего дня должно быть раньше окончания")
+
+
+def _status_payload(user_id: int) -> dict:
+    result = get_onboarding_status(user_id)
+    result["timezone"] = get_user_timezone(user_id, default=None)
+    return result
 
 
 async def process_web_message(text: str, user_id: int = WEB_USER_ID) -> WebPlannerResult:
@@ -125,7 +132,7 @@ def create_web_app() -> Flask:
 
     @app.get("/api/status")
     def status():
-        result = get_onboarding_status(WEB_USER_ID)
+        result = _status_payload(WEB_USER_ID)
         result["user"] = {"id": WEB_USER_ID, "name": WEB_USER_NAME}
         result["password_required"] = bool(WEB_PASSWORD)
         return result
@@ -178,7 +185,7 @@ def create_web_app() -> Flask:
             work_start = payload.get("work_start")
             work_end = payload.get("work_end")
             if work_start is not None or work_end is not None:
-                current = get_onboarding_status(WEB_USER_ID)["preferences"]
+                current = _status_payload(WEB_USER_ID)["preferences"]
                 start = str(work_start or current["work_start"])
                 end = str(work_end or current["work_end"])
                 _validate_time_range(start, end)
@@ -200,7 +207,7 @@ def create_web_app() -> Flask:
                 save_calendar_preferences(WEB_USER_ID, buffer_minutes=buffer_minutes)
         except (TypeError, ValueError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
-        return get_onboarding_status(WEB_USER_ID)
+        return _status_payload(WEB_USER_ID)
 
     return app
 
