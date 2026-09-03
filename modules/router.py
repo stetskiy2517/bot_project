@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
+from modules.calendar_actions import delete_from_text, resume_pending_action, update_from_text
 from modules.calendar_availability import free_slots_from_text
+from modules.calendar_create import create_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
 
