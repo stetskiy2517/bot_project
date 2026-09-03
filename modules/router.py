@@ -9,12 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from modules.calendar_actions import (
-    create_from_text,
-    delete_from_text,
-    resume_pending_action,
-    update_from_text,
-)
+from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
@@ -39,8 +34,8 @@ SEARCH_WORDS = (
 )
 VIEW_WORDS = (
     "что у меня", "покажи", "покажи календар", "какие встречи", "какие события",
-    "что запланировано", "что запланирован", "расписание",
-    "что на неделе", "что на неделю", "планы на неделю", "планы на завтра",
+    "что запланировано", "что запланирован", "расписание", "что на неделе",
+    "что на неделю", "планы на неделю", "планы на завтра",
 )
 UPDATE_WORDS = (
     "перенеси", "перенести", "сдвинь", "сдвинуть", "измени", "изменить", "поменяй", "поменять",
@@ -53,7 +48,7 @@ FREE_WORDS = (
 )
 EVENT_WORDS = (
     "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
-    "трениров", "зал", "кино", "ресторан", "рейс", "поезд", "такси", "совещ",
+    "трениров", "зал", "кино", "ресторан", "рейс", "полет", "полёт", "поезд", "такси", "совещ",
     "планерк", "клиент", "переговор", "день рождения", "обед", "ужин",
 )
 DATE_HINT_RE = re.compile(
@@ -68,6 +63,8 @@ TIME_HINT_RE = re.compile(
     r"\b(?:полдень|полночь|половин\w+|без\s+четверти|через\s+\d+\s+(?:минут\w*|час\w*))\b",
     re.IGNORECASE,
 )
+QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|зачем|как|сколько|есть ли|можно ли)\b", re.IGNORECASE)
+CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -96,8 +93,17 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_CREATE, 0.99)
 
     has_event = any(word in lower for word in EVENT_WORDS)
-    has_date_or_time = bool(DATE_HINT_RE.search(lower) or TIME_HINT_RE.search(lower))
-    if has_event and has_date_or_time:
+    has_date = bool(DATE_HINT_RE.search(lower))
+    has_time = bool(TIME_HINT_RE.search(lower))
+
+    # Natural calendar entry: a title plus both a date and time is enough.
+    # No command verb or fixed event vocabulary is required.
+    if has_date and has_time and not QUESTION_PREFIX_RE.search(lower) and not CURRENT_STATE_RE.search(lower):
+        return IntentResult(INTENT_CREATE, 0.92)
+
+    # For date-only/time-only phrases keep a softer semantic event check so
+    # ordinary statements such as "завтра будет сложный день" are not scheduled.
+    if has_event and (has_date or has_time):
         return IntentResult(INTENT_CREATE, 0.86)
     return IntentResult(INTENT_UNKNOWN, 0.0)
 
@@ -121,15 +127,12 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     pending = _pending(context)
     if not pending:
         return False
-
     if pending.get("type") != "create_time":
         return await resume_pending_action(update, context, text, pending)
-
     if _normalise(text) in {"отмена", "отменить", "не надо", "нет"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
-
     combined = f"{pending['text']} {text}"
     _clear_pending(context)
     handled = await create_from_text(update, context, combined)
@@ -139,31 +142,22 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     return True
 
 
-async def route_text(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    text: str | None = None,
-) -> bool:
+async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
-
     text = (text if text is not None else update.message.text or "").strip()
     if not text:
         return False
-
     if await _resume_pending(update, context, text):
         return True
-
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
-
     if intent.name == INTENT_CREATE:
         if _needs_time(text):
             context.user_data["smart_planner_pending"] = {"type": "create_time", "text": text}
             await update.message.reply_text("Во сколько поставить событие?")
             return True
         return await create_from_text(update, context, text)
-
     if intent.name == INTENT_SEARCH:
         return await search_from_text(update, context, text)
     if intent.name == INTENT_VIEW:
@@ -174,7 +168,6 @@ async def route_text(
         return await delete_from_text(update, context, text)
     if intent.name == INTENT_FREE:
         return await free_slots_from_text(update, context, text)
-
     return False
 
 
@@ -184,9 +177,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if handled:
             return
         if update.message:
-            await update.message.reply_text(
-                "Не понял команду календаря. Например: «поставь врача завтра в 19:00»."
-            )
+            await update.message.reply_text("Не понял команду календаря. Например: «врач завтра в 19:00».")
     except Exception:
         logger.exception("Unhandled error in text router")
         if update.message:
