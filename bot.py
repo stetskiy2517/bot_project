@@ -9,7 +9,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_PROXY_URL, TG_TOKEN, validate_config
+from config import TELEGRAM_API_BASE, TELEGRAM_PROXY_URL, TG_TOKEN, validate_config
 from core.db import init_db
 from handlers.voice import handle_voice
 from logging_config import setup_logging
@@ -32,8 +32,14 @@ logger = logging.getLogger(__name__)
 
 def build_application():
     builder = Application.builder().token(TG_TOKEN)
+
+    if TELEGRAM_API_BASE:
+        base = TELEGRAM_API_BASE.rstrip("/")
+        builder = builder.base_url(f"{base}/bot").base_file_url(f"{base}/file/bot")
+
     if TELEGRAM_PROXY_URL:
         builder = builder.proxy(TELEGRAM_PROXY_URL).get_updates_proxy(TELEGRAM_PROXY_URL)
+
     return builder.build()
 
 
