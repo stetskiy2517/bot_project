@@ -25,7 +25,6 @@ from config import (
 from core.db import (
     consume_oauth_state,
     ensure_user,
-    get_google_token,
     get_onboarding_status,
     save_google_token,
     save_oauth_state,
@@ -65,7 +64,7 @@ def _client_config() -> dict:
 
 
 def build_authorization_url(user_id: int) -> str:
-    """Создать одноразовую ссылку Google OAuth и связать state с Telegram user_id."""
+    """Создать одноразовую Google OAuth ссылку для любого пользовательского канала."""
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES)
     flow.redirect_uri = _redirect_uri()
     authorization_url, state = flow.authorization_url(
@@ -77,6 +76,23 @@ def build_authorization_url(user_id: int) -> str:
     return authorization_url
 
 
+def complete_authorization(state: str, code: str) -> int:
+    """Обменять OAuth code на токен и вернуть связанный user_id."""
+    if not state or not code:
+        raise ValueError("В ответе Google нет code или state.")
+
+    user_id = consume_oauth_state(state)
+    if user_id is None:
+        raise ValueError("Ссылка авторизации устарела или уже была использована.")
+
+    flow = Flow.from_client_config(_client_config(), scopes=SCOPES, state=state)
+    flow.redirect_uri = _redirect_uri()
+    flow.fetch_token(code=code)
+    token_dict = json.loads(flow.credentials.to_json())
+    save_google_token(user_id, token_dict)
+    return user_id
+
+
 def _auth_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Подключить Google Calendar", url=build_authorization_url(user_id))]
@@ -84,7 +100,6 @@ def _auth_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 
 def _telegram_notify(user_id: int, text: str) -> None:
-    """Уведомить Telegram после HTTP callback, не смешивая Flask и PTB event loop."""
     if not TG_TOKEN:
         return
     try:
@@ -102,7 +117,7 @@ def _success_html() -> str:
     <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Google Calendar подключён</title></head>
     <body style="font-family: sans-serif; max-width: 560px; margin: 48px auto; padding: 0 16px;">
       <h2>Google Calendar подключён</h2>
-      <p>Вернись в Telegram. Бот продолжит настройку календаря.</p>
+      <p>Авторизация завершена. Можно вернуться в приложение.</p>
     </body></html>
     """
 
@@ -112,7 +127,7 @@ def _error_html(message: str) -> tuple[str, int]:
     return (
         f"<!doctype html><html lang='ru'><meta charset='utf-8'><body>"
         f"<h2>Не удалось подключить Google Calendar</h2><p>{safe}</p>"
-        f"<p>Вернись в Telegram и выполни /start ещё раз.</p></body></html>",
+        f"<p>Вернись в приложение и начни авторизацию ещё раз.</p></body></html>",
         400,
     )
 
@@ -130,24 +145,15 @@ def create_oauth_web_app() -> Flask:
         if error:
             return _error_html(f"Google вернул ошибку: {error}")
 
-        state = request.args.get("state", "")
-        code = request.args.get("code", "")
-        if not state or not code:
-            return _error_html("В ответе Google нет code или state.")
-
-        user_id = consume_oauth_state(state)
-        if user_id is None:
-            return _error_html("Ссылка авторизации устарела или уже была использована.")
-
         try:
-            flow = Flow.from_client_config(_client_config(), scopes=SCOPES, state=state)
-            flow.redirect_uri = _redirect_uri()
-            flow.fetch_token(code=code)
-            credentials = flow.credentials
-            token_dict = json.loads(credentials.to_json())
-            save_google_token(user_id, token_dict)
+            user_id = complete_authorization(
+                request.args.get("state", ""),
+                request.args.get("code", ""),
+            )
+        except ValueError as exc:
+            return _error_html(str(exc))
         except Exception:
-            logger.exception("Google OAuth callback failed for user %s", user_id)
+            logger.exception("Google OAuth callback failed")
             return _error_html("Не удалось обменять код Google на токен.")
 
         _telegram_notify(
@@ -160,8 +166,6 @@ def create_oauth_web_app() -> Flask:
 
 
 class OAuthServer:
-    """Небольшой HTTP-сервер только для OAuth callback и health-check."""
-
     def __init__(self, host: str = "0.0.0.0", port: int = 8080):
         self._server = make_server(host, port, create_oauth_web_app(), threaded=True)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -211,7 +215,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def reconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Явно переавторизовать Google Calendar и получить новый refresh token."""
     if not update.message or not update.effective_user:
         return
     if not _oauth_ready():
