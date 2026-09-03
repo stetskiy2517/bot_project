@@ -95,15 +95,17 @@ def detect_intent(text: str) -> IntentResult:
     has_event = any(word in lower for word in EVENT_WORDS)
     has_date = bool(DATE_HINT_RE.search(lower))
     has_time = bool(TIME_HINT_RE.search(lower))
+    is_question = bool(QUESTION_PREFIX_RE.search(lower))
+    is_current_state = bool(CURRENT_STATE_RE.search(lower))
 
-    # Natural calendar entry: a title plus both a date and time is enough.
+    # Natural calendar entry: a title plus date and time is enough.
     # No command verb or fixed event vocabulary is required.
-    if has_date and has_time and not QUESTION_PREFIX_RE.search(lower) and not CURRENT_STATE_RE.search(lower):
+    if has_date and has_time and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.92)
 
-    # For date-only/time-only phrases keep a softer semantic event check so
-    # ordinary statements such as "завтра будет сложный день" are not scheduled.
-    if has_event and (has_date or has_time):
+    # Date-only/time-only phrases still need an event hint, and must not be
+    # questions/current-state statements.
+    if has_event and (has_date or has_time) and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.86)
     return IntentResult(INTENT_UNKNOWN, 0.0)
 
