@@ -41,3 +41,8 @@ jobs:
           docker run --rm
           personal-secretary-web:test
           python -c "import web_app; c=web_app.create_web_app().test_client(); r=c.get('/api/health'); assert r.status_code == 200; assert r.get_json()['transport'] == 'web'; print('web docker smoke ok')"
+      - name: Run web-to-calendar E2E inside image
+        run: >-
+          docker run --rm
+          personal-secretary-web:test
+          python -m unittest tests.test_web_calendar_e2e -v
