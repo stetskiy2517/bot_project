@@ -9,7 +9,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TG_TOKEN, validate_config
+from config import TELEGRAM_PROXY_URL, TG_TOKEN, validate_config
 from core.db import init_db
 from handlers.voice import handle_voice
 from logging_config import setup_logging
@@ -30,6 +30,13 @@ from modules.settings import (
 logger = logging.getLogger(__name__)
 
 
+def build_application():
+    builder = Application.builder().token(TG_TOKEN)
+    if TELEGRAM_PROXY_URL:
+        builder = builder.proxy(TELEGRAM_PROXY_URL).get_updates_proxy(TELEGRAM_PROXY_URL)
+    return builder.build()
+
+
 async def main() -> None:
     setup_logging()
     validate_config()
@@ -38,7 +45,7 @@ async def main() -> None:
     oauth_server = OAuthServer(port=8080)
     oauth_server.start()
 
-    application = Application.builder().token(TG_TOKEN).build()
+    application = build_application()
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("reconnect_google", reconnect_command))
