@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TG_TOKEN = os.getenv("TG_TOKEN") or os.getenv("BOT_TOKEN")
+TELEGRAM_PROXY_URL = os.getenv("TELEGRAM_PROXY_URL")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BASE_URL = os.getenv("BASE_URL")
 
