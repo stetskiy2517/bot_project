@@ -32,9 +32,16 @@ class RouterIntentTests(unittest.TestCase):
                 self.assertEqual(detect_intent(text).name, INTENT_CREATE)
 
     def test_search(self):
-        self.assertEqual(detect_intent("когда у меня невролог?").name, INTENT_SEARCH)
-        self.assertEqual(detect_intent("найди встречу с Ивановым").name, INTENT_SEARCH)
-        self.assertEqual(detect_intent("покажи когда у меня стоматолог").name, INTENT_SEARCH)
+        cases = (
+            "когда у меня невролог?",
+            "найди встречу с Ивановым",
+            "покажи когда у меня стоматолог",
+            "когда полет в Саратов?",
+            "когда поезд 18 сентября в 18:00?",
+        )
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(detect_intent(text).name, INTENT_SEARCH)
 
     def test_view(self):
         self.assertEqual(detect_intent("что у меня завтра?").name, INTENT_VIEW)
@@ -53,7 +60,6 @@ class RouterIntentTests(unittest.TestCase):
     def test_plain_statement_is_not_event(self):
         self.assertEqual(detect_intent("сейчас 19:00, я уже дома").name, INTENT_UNKNOWN)
         self.assertEqual(detect_intent("завтра будет сложный день").name, INTENT_UNKNOWN)
-        self.assertEqual(detect_intent("когда поезд 18 сентября в 18:00?").name, INTENT_UNKNOWN)
 
     def test_missing_time_requires_clarification(self):
         self.assertTrue(_needs_time("поставь врача завтра"))
