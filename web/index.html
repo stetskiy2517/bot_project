@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>Personal Secretary</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <style>
+    :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5e7eb;background:#0b1120}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(180deg,#0b1120,#111827)}button,input{font:inherit}.app{max-width:860px;margin:0 auto;min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;padding:env(safe-area-inset-top) 14px env(safe-area-inset-bottom)}header{display:flex;align-items:center;justify-content:space-between;padding:16px 4px;border-bottom:1px solid #243044}h1{font-size:20px;margin:0}.status{font-size:12px;color:#94a3b8}.toolbar{display:flex;gap:8px}.btn{border:1px solid #334155;background:#182235;color:#e5e7eb;border-radius:12px;padding:9px 12px;cursor:pointer}.btn.primary{background:#e2e8f0;color:#0f172a;border-color:#e2e8f0}.chat{overflow:auto;padding:20px 0 100px}.msg{max-width:82%;padding:12px 14px;border-radius:16px;margin:8px 0;white-space:pre-wrap;line-height:1.4}.user{margin-left:auto;background:#2563eb}.assistant{background:#182235;border:1px solid #26354a}.composer{position:sticky;bottom:0;background:rgba(11,17,32,.94);backdrop-filter:blur(12px);padding:12px 0;display:flex;gap:8px}.composer input{flex:1;border:1px solid #334155;background:#111827;color:#fff;border-radius:14px;padding:13px 14px;outline:none}.panel{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);padding:20px;z-index:5}.panel.open{display:flex;align-items:center;justify-content:center}.card{width:min(520px,100%);background:#111827;border:1px solid #334155;border-radius:18px;padding:18px}.grid{display:grid;gap:12px}.field{display:grid;gap:6px}.field input{background:#0b1120;color:#fff;border:1px solid #334155;border-radius:10px;padding:10px}.days{display:flex;gap:6px;flex-wrap:wrap}.day{padding:8px 10px;border-radius:10px;border:1px solid #334155;background:#0b1120;color:#cbd5e1}.day.on{background:#2563eb;color:#fff}.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}.notice{padding:12px;border-radius:12px;background:#172554;color:#bfdbfe;margin-bottom:12px}.login{display:none}.login.open{display:flex}.muted{color:#94a3b8;font-size:13px}@media(max-width:600px){.app{padding-left:10px;padding-right:10px}.msg{max-width:92%}.toolbar .label{display:none}}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header><div><h1>Personal Secretary</h1><div id="status" class="status">Загрузка…</div></div><div class="toolbar"><button class="btn" id="googleBtn">Google</button><button class="btn" id="settingsBtn"><span class="label">Настройки</span> ⚙︎</button></div></header>
+    <section id="chat" class="chat"><div class="msg assistant">Привет. Я готов работать с календарём. Напиши, например: «поставь врача завтра в 19:00».</div></section>
+    <form id="composer" class="composer"><input id="message" autocomplete="off" placeholder="Напиши поручение…"><button class="btn primary" type="submit">Отправить</button></form>
+  </main>
+
+  <div id="settingsPanel" class="panel"><div class="card"><h2>Настройки календаря</h2><div class="grid"><label class="field">Часовой пояс<input id="timezone" value="Europe/Moscow"></label><label class="field">Рабочий день<div style="display:flex;gap:8px"><input id="workStart" value="09:00"><input id="workEnd" value="18:00"></div></label><div class="field"><span>Рабочие дни</span><div id="days" class="days"></div></div><label class="field">Буфер между встречами, минут<input id="buffer" type="number" min="0" max="180" value="15"></label></div><div class="row"><button class="btn" id="closeSettings" type="button">Закрыть</button><button class="btn primary" id="saveSettings" type="button">Сохранить</button></div></div></div>
+
+  <div id="loginPanel" class="panel login"><div class="card"><h2>Вход</h2><p class="muted">Пароль нужен только если он задан в WEB_PASSWORD.</p><label class="field">Пароль<input id="password" type="password"></label><div class="row"><button class="btn primary" id="loginBtn" type="button">Войти</button></div></div></div>
+
+<script>
+const chat=document.getElementById('chat'), statusEl=document.getElementById('status');
+const settingsPanel=document.getElementById('settingsPanel'), loginPanel=document.getElementById('loginPanel');
+let workDays=[0,1,2,3,4]; const dayNames=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+function addMessage(text,who='assistant'){const el=document.createElement('div');el.className='msg '+who;el.textContent=text;chat.appendChild(el);chat.scrollTop=chat.scrollHeight}
+async function api(path,options={}){const r=await fetch(path,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});if(r.status===401){loginPanel.classList.add('open');throw new Error('unauthorized')}const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.message||data.error||'request_failed');return data}
+function renderDays(){const box=document.getElementById('days');box.innerHTML='';dayNames.forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.className='day '+(workDays.includes(i)?'on':'');b.textContent=name;b.onclick=()=>{workDays=workDays.includes(i)?workDays.filter(x=>x!==i):[...workDays,i].sort();renderDays()};box.appendChild(b)})}
+async function refresh(){try{const s=await api('/api/status');statusEl.textContent=s.google_connected?'Google Calendar подключён':'Google Calendar не подключён';document.getElementById('timezone').value=s.timezone||'Europe/Moscow';const p=s.preferences||{};document.getElementById('workStart').value=p.work_start||'09:00';document.getElementById('workEnd').value=p.work_end||'18:00';document.getElementById('buffer').value=p.buffer_minutes??15;workDays=p.work_days||[0,1,2,3,4];renderDays()}catch(e){if(e.message!=='unauthorized')statusEl.textContent='Ошибка подключения'}}
+document.getElementById('composer').onsubmit=async e=>{e.preventDefault();const input=document.getElementById('message'),text=input.value.trim();if(!text)return;addMessage(text,'user');input.value='';try{const r=await api('/api/chat',{method:'POST',body:JSON.stringify({message:text})});(r.replies||[]).forEach(x=>addMessage(x))}catch(e){if(e.message!=='unauthorized')addMessage('Ошибка: '+e.message)}};
+document.getElementById('settingsBtn').onclick=()=>settingsPanel.classList.add('open');document.getElementById('closeSettings').onclick=()=>settingsPanel.classList.remove('open');
+document.getElementById('saveSettings').onclick=async()=>{try{await api('/api/settings',{method:'POST',body:JSON.stringify({timezone:document.getElementById('timezone').value,work_start:document.getElementById('workStart').value,work_end:document.getElementById('workEnd').value,work_days:workDays,buffer_minutes:Number(document.getElementById('buffer').value)})});settingsPanel.classList.remove('open');addMessage('Настройки сохранены.');refresh()}catch(e){addMessage('Не удалось сохранить настройки: '+e.message)}};
+document.getElementById('googleBtn').onclick=async()=>{try{const r=await api('/api/google/auth');location.href=r.url}catch(e){addMessage('Google OAuth пока не настроен: '+e.message)}};
+document.getElementById('loginBtn').onclick=async()=>{try{await api('/api/login',{method:'POST',body:JSON.stringify({password:document.getElementById('password').value})});loginPanel.classList.remove('open');refresh()}catch(e){alert('Неверный пароль')}};
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});refresh();
+</script>
+</body>
+</html>
