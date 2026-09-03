@@ -108,6 +108,15 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 415)
         self.assertEqual(response.get_json()["error"], "unsupported_audio")
 
+    def test_voice_rejects_mismatched_mime_even_with_audio_extension(self):
+        self._google_session(self.client, "voice-mismatch", "mismatch@example.test", "Mismatch")
+        response = self.client.post(
+            "/api/voice",
+            data={"audio": (io.BytesIO(b"not-audio"), "voice.webm", "text/plain")},
+        )
+        self.assertEqual(response.status_code, 415)
+        self.assertEqual(response.get_json()["error"], "unsupported_audio")
+
     def test_voice_rejects_empty_transcript(self):
         self._google_session(self.client, "voice-empty", "empty@example.test", "Empty")
         with patch("web_app.transcribe_audio", return_value=""):
