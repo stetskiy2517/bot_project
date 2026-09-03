@@ -1,12 +1,13 @@
 """Multi-user Google-authenticated web/PWA entrypoint."""
 from __future__ import annotations
-import asyncio,logging,re,threading
+import asyncio,logging,re,threading,os,tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo,ZoneInfoNotFoundError
 from flask import Flask,jsonify,redirect,request,send_from_directory,session
 from config import WEB_HOST,WEB_PORT,WEB_SESSION_SECRET
 from core.db import get_google_account,get_onboarding_status,get_user_timezone,init_db,save_calendar_preferences,save_user_timezone
 from core.web_transport import WebContext,WebPlannerResult,WebUpdate
+from integrations.speech import normalize_time_format,transcribe_audio
 from modules.auth import build_web_signin_url,complete_web_signin
 from modules.router import route_text
 logger=logging.getLogger(__name__);WEB_DIR=Path(__file__).parent/"web";TIME_RE=re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$");_user_state={};_state_lock=threading.RLock()
@@ -21,12 +22,11 @@ def _require_user_id():
 def _validate_time_range(start,end):
     if not TIME_RE.fullmatch(start) or not TIME_RE.fullmatch(end):raise ValueError("Время должно быть в формате HH:MM")
     if start>=end:raise ValueError("Начало рабочего дня должно быть раньше окончания")
-def _status_payload(user_id):
-    result=get_onboarding_status(user_id);result["timezone"]=get_user_timezone(user_id,default=None);return result
 async def process_web_message(text,user_id,user_name):
     update=WebUpdate(user_id,user_name,text);context=WebContext(_state_for(user_id));handled=await route_text(update,context,text=text);replies=update.message.replies
-    if not handled and not replies:replies.append("Не понял команду. Например: «поставь врача завтра в 19:00».")
+    if not handled and not replies:replies.append("Не понял команду.")
     return WebPlannerResult(handled=handled,replies=replies)
+
 def create_web_app():
     init_db();app=Flask("personal-secretary-web",static_folder=None);app.secret_key=WEB_SESSION_SECRET
     @app.before_request
@@ -58,38 +58,33 @@ def create_web_app():
     def logout():session.clear();return {"ok":True}
     @app.get("/api/status")
     def status():
-        user_id=_require_user_id();account=get_google_account(user_id);result=_status_payload(user_id);result["user"]={"id":user_id,"email":account["email"],"name":account["name"]};return result
+        user_id=_require_user_id();account=get_google_account(user_id);result=get_onboarding_status(user_id);result["timezone"]=get_user_timezone(user_id,default=None);result["user"]={"id":user_id,"email":account["email"],"name":account["name"]};return result
     @app.post("/api/chat")
     def chat():
         user_id=_require_user_id();account=get_google_account(user_id);text=str((request.get_json(silent=True) or {}).get("message","")).strip()
         if not text:return jsonify({"error":"empty_message"}),400
-        try:result=asyncio.run(process_web_message(text,user_id,account.get("name") or account["email"]))
-        except Exception:logger.exception("Web planner request failed for user %s",user_id);return jsonify({"error":"planner_failed","replies":["Не удалось обработать сообщение."]}),500
-        return {"handled":result.handled,"replies":result.replies}
-    @app.post("/api/settings")
-    def settings():
-        user_id=_require_user_id();payload=request.get_json(silent=True) or {}
+        result=asyncio.run(process_web_message(text,user_id,account.get("name") or account["email"]));return {"handled":result.handled,"replies":result.replies}
+    @app.post("/api/voice")
+    def voice():
+        user_id=_require_user_id();account=get_google_account(user_id)
+        audio=request.files.get("audio")
+        if not audio:return jsonify({"error":"empty_audio"}),400
+        path=None
         try:
-            if "timezone" in payload:
-                timezone=str(payload["timezone"]).strip()
-                try:ZoneInfo(timezone)
-                except ZoneInfoNotFoundError as exc:raise ValueError("Неизвестный часовой пояс") from exc
-                save_user_timezone(user_id,timezone)
-            ws,we=payload.get("work_start"),payload.get("work_end")
-            if ws is not None or we is not None:
-                current=_status_payload(user_id)["preferences"];start=str(ws or current["work_start"]);end=str(we or current["work_end"]);_validate_time_range(start,end);save_calendar_preferences(user_id,work_start=start,work_end=end)
-            if "work_days" in payload:
-                days=payload["work_days"]
-                if not isinstance(days,list) or not days:raise ValueError("Нужно выбрать хотя бы один рабочий день")
-                parsed=sorted({int(day) for day in days})
-                if any(day<0 or day>6 for day in parsed):raise ValueError("Рабочие дни должны быть числами от 0 до 6")
-                save_calendar_preferences(user_id,work_days=parsed)
-            if "buffer_minutes" in payload:
-                value=int(payload["buffer_minutes"])
-                if not 0<=value<=180:raise ValueError("Буфер должен быть от 0 до 180 минут")
-                save_calendar_preferences(user_id,buffer_minutes=value)
-        except (TypeError,ValueError) as exc:return jsonify({"error":"invalid_settings","message":str(exc)}),400
-        return _status_payload(user_id)
+            suffix=Path(audio.filename or ".webm").suffix or ".webm"
+            with tempfile.NamedTemporaryFile(delete=False,suffix=suffix) as tmp:
+                audio.save(tmp.name);path=tmp.name
+            text=normalize_time_format(transcribe_audio(path))
+            if not text:return jsonify({"error":"empty_transcript"}),400
+            result=asyncio.run(process_web_message(text,user_id,account.get("name") or account["email"]))
+            return {"transcript":text,"handled":result.handled,"replies":result.replies}
+        except Exception:
+            logger.exception("Web voice processing failed")
+            return jsonify({"error":"voice_failed"}),500
+        finally:
+            if path:
+                try:os.remove(path)
+                except OSError:pass
     return app
 app=create_web_app()
 if __name__=="__main__":app.run(host=WEB_HOST,port=WEB_PORT,debug=False,threaded=True)
