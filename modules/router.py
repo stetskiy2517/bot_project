@@ -64,6 +64,7 @@ TIME_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|зачем|как|сколько|есть ли|можно ли)\b", re.IGNORECASE)
+WHEN_SEARCH_RE = re.compile(r"^\s*когда\s+(?!свобод\w*\b|я\s+свобод\w*\b|у\s+меня\b)(.+)", re.IGNORECASE)
 CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
 
 
@@ -87,6 +88,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
         return IntentResult(INTENT_SEARCH, 0.97)
+    if WHEN_SEARCH_RE.search(lower):
+        return IntentResult(INTENT_SEARCH, 0.93)
     if any(word in lower for word in VIEW_WORDS):
         return IntentResult(INTENT_VIEW, 0.96)
     if any(word in lower for word in CREATE_WORDS):
@@ -98,13 +101,8 @@ def detect_intent(text: str) -> IntentResult:
     is_question = bool(QUESTION_PREFIX_RE.search(lower))
     is_current_state = bool(CURRENT_STATE_RE.search(lower))
 
-    # Natural calendar entry: a title plus date and time is enough.
-    # No command verb or fixed event vocabulary is required.
     if has_date and has_time and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.92)
-
-    # Date-only/time-only phrases still need an event hint, and must not be
-    # questions/current-state statements.
     if has_event and (has_date or has_time) and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.86)
     return IntentResult(INTENT_UNKNOWN, 0.0)
@@ -144,6 +142,13 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     return True
 
 
+def _normalise_search_text(text: str) -> str:
+    match = WHEN_SEARCH_RE.search(text)
+    if match:
+        return f"когда у меня {match.group(1)}"
+    return text
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -161,7 +166,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             return True
         return await create_from_text(update, context, text)
     if intent.name == INTENT_SEARCH:
-        return await search_from_text(update, context, text)
+        return await search_from_text(update, context, _normalise_search_text(text))
     if intent.name == INTENT_VIEW:
         return await view_from_text(update, context, text)
     if intent.name == INTENT_UPDATE:
