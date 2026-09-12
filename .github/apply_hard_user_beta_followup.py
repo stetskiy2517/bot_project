@@ -30,7 +30,7 @@ def replace_func(path, name, new_source):
 replace_func(
     "modules/calendar.py",
     "_relative_offset",
-    '''def _relative_offset(text: str) -> timedelta | None:
+    r'''def _relative_offset(text: str) -> timedelta | None:
     lower = _normalise(text)
     if re.search(r"\bчерез\s+полчаса\b", lower):
         return timedelta(minutes=30)
@@ -68,7 +68,7 @@ replace_func(
 replace_func(
     "modules/calendar.py",
     "_parse_datetime",
-    '''def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
+    r'''def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now()
     lower = _normalise(text)
 
