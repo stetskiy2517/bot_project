@@ -4,7 +4,8 @@ set -Eeuo pipefail
 SERVICE_NAME="${SERVICE_NAME:-personal-secretary}"
 BRANCH="${BRANCH:-main}"
 TARGET_SHA="${1:-}"
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 PREVIOUS_SHA=""
 
@@ -33,7 +34,6 @@ if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
   exit 0
 fi
 
-# A delayed workflow must never roll production back over a newer deployment.
 if git merge-base --is-ancestor "$TARGET_SHA" "$PREVIOUS_SHA" 2>/dev/null; then
   log "Skipping stale deployment $TARGET_SHA; server is already at newer commit $PREVIOUS_SHA"
   exit 0
