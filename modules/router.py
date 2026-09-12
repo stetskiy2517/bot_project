@@ -1,4 +1,4 @@
-"""Central message routing for Smart Planner calendar and tasks."""
+"""Central message routing for Smart Planner calendar, reminders and tasks."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from modules.calendar_actions import create_from_text, delete_from_text, resume_
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
+from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
 from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,16 @@ PROPERTY_DELETE_RE = re.compile(
 PENDING_CONTROL_REPLIES = {
     "да", "ага", "подтверждаю", "подтвердить", "создавай", "удаляй", "меняй", "ок", "окей",
     "нет", "не надо", "отмена", "отменить", "стоп",
+}
+FORCE_CONFLICT_REPLIES = {
+    "все равно",
+    "создай все равно",
+    "создавай все равно",
+    "оставь время",
+    "оставь исходное время",
+    "несмотря на конфликт",
+    "создай несмотря на конфликт",
+    "создавай несмотря на конфликт",
 }
 
 
@@ -205,12 +216,21 @@ def _normalise_pending_reply(text: str) -> str:
     return original
 
 
+def _force_conflict_reply(text: str) -> bool:
+    candidate = text.strip(" \t\r\n.,!?;:…\"'«»")
+    return _normalise(candidate) in FORCE_CONFLICT_REPLIES
+
+
 async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     pending = _pending(context)
     if not pending:
         return False
     pending_type = str(pending.get("type") or "")
     reply_text = _normalise_pending_reply(text)
+    if pending_type == "confirm_create_conflict" and _force_conflict_reply(text):
+        reply_text = "да"
+    if pending_type.startswith("reminder_"):
+        return await resume_pending_reminder(update, context, reply_text, pending)
     if pending_type.startswith("task_"):
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
@@ -247,6 +267,11 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         return False
     if await _resume_pending(update, context, text):
         return True
+
+    reminder_intent = detect_reminder_intent(text)
+    if reminder_intent:
+        logger.info("Router reminder_intent=%s", reminder_intent)
+        return await handle_reminder_text(update, context, text, reminder_intent)
 
     task_intent = detect_task_intent(text)
     if task_intent:
