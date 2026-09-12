@@ -6,10 +6,11 @@ import base64
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from pywebpush import webpush
+from pywebpush import WebPushException, webpush
 
 from config import BASE_URL, DB_PATH, WEB_PUSH_SUBJECT, WEB_PUSH_VAPID_PRIVATE_KEY
 
@@ -67,17 +68,48 @@ def get_vapid_public_key() -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
+def _valid_vapid_subject(value: str) -> bool:
+    parsed = urlparse(value)
+    if parsed.scheme == "https":
+        return bool(parsed.hostname and parsed.hostname != "localhost")
+    if parsed.scheme == "mailto":
+        address = parsed.path.strip()
+        if "@" not in address:
+            return False
+        domain = address.rsplit("@", 1)[-1].lower()
+        return bool(domain and domain != "localhost")
+    return False
+
+
 def _vapid_subject() -> str:
     configured = str(WEB_PUSH_SUBJECT or "").strip()
     if configured:
+        if not _valid_vapid_subject(configured):
+            raise RuntimeError("WEB_PUSH_SUBJECT must be a public https:// URL or mailto: address")
         return configured
+
     base_url = str(BASE_URL or "").strip()
-    if base_url.startswith("https://"):
-        return base_url
-    return "mailto:personal-secretary@localhost"
+    if _valid_vapid_subject(base_url):
+        parsed = urlparse(base_url)
+        return f"https://{parsed.netloc}"
+
+    # Apple rejects placeholder/localhost VAPID subjects with BadJwtToken.
+    # Failing loudly is safer than accepting a subscription that can never receive pushes.
+    raise RuntimeError("Web Push requires a public BASE_URL or WEB_PUSH_SUBJECT")
 
 
-def send_web_push(subscription: dict, payload: dict) -> None:
+def web_push_error_details(exc: WebPushException) -> tuple[int | None, str | None]:
+    response = getattr(exc, "response", None)
+    status_value = getattr(response, "status_code", None)
+    try:
+        status = int(status_value) if status_value is not None else None
+    except (TypeError, ValueError):
+        status = None
+    body = str(getattr(response, "text", "") or "").strip()
+    return status, body[:500] or None
+
+
+def send_web_push(subscription: dict, payload: dict):
     subscription_info = {
         "endpoint": subscription["endpoint"],
         "keys": {
@@ -85,11 +117,13 @@ def send_web_push(subscription: dict, payload: dict) -> None:
             "auth": subscription["auth"],
         },
     }
-    webpush(
+    return webpush(
         subscription_info=subscription_info,
         data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         vapid_private_key=str(ensure_vapid_private_key()),
         vapid_claims={"sub": _vapid_subject()},
+        content_encoding="aes128gcm",
+        headers={"Urgency": "high"},
         ttl=86400,
         timeout=10,
     )

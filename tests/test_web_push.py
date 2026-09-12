@@ -64,6 +64,45 @@ class WebPushApiTests(unittest.TestCase):
         self.assertTrue(response.get_json()["ok"])
         self.assertFalse(any(item["endpoint"] == self.endpoint for item in list_push_subscriptions(self.user_id)))
 
+    def test_push_status_is_scoped_to_current_user(self):
+        self._subscribe()
+        response = self.client.get("/api/push/status")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["subscribed"])
+        self.assertEqual(payload["subscriptions"], 1)
+        self.assertEqual(len(payload["devices"]), 1)
+        self.assertNotIn("endpoint", payload["devices"][0])
+
+    def test_push_test_returns_accepted_result(self):
+        result = {
+            "ok": True,
+            "subscriptions": 1,
+            "accepted": 1,
+            "failed": 0,
+            "removed": 0,
+            "errors": [],
+        }
+        with patch("web_app.send_test_push_for_user", return_value=result) as send:
+            response = self.client.post("/api/push/test")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        send.assert_called_once_with(self.user_id)
+
+    def test_push_test_surfaces_apple_bad_jwt(self):
+        result = {
+            "ok": False,
+            "subscriptions": 1,
+            "accepted": 0,
+            "failed": 1,
+            "removed": 0,
+            "errors": ['Web Push error 403: {"reason":"BadJwtToken"}'],
+        }
+        with patch("web_app.send_test_push_for_user", return_value=result):
+            response = self.client.post("/api/push/test")
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("BadJwtToken", response.get_json()["message"])
+
     def test_foreground_poll_does_not_steal_reminder_from_push_dispatcher(self):
         self._subscribe()
         with patch("web_app.claim_due_for_user") as claim:
@@ -84,6 +123,8 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn("pushManager.subscribe", script)
         self.assertIn("Notification.requestPermission", script)
         self.assertIn("Включить уведомления", script)
+        self.assertIn("Проверить уведомления", script)
+        self.assertIn('api("/api/push/test"', script)
 
         response = self.client.get("/sw.js")
         worker = response.get_data(as_text=True)
@@ -103,6 +144,17 @@ class VapidKeyTests(unittest.TestCase):
             self.assertTrue(private_path.exists())
             self.assertEqual(first, second)
             self.assertGreater(len(first), 80)
+
+    def test_vapid_subject_uses_public_base_url_origin(self):
+        with patch.object(web_push, "WEB_PUSH_SUBJECT", None), \
+             patch.object(web_push, "BASE_URL", "https://213.171.26.210.sslip.io/path"):
+            self.assertEqual(web_push._vapid_subject(), "https://213.171.26.210.sslip.io")
+
+    def test_vapid_subject_rejects_localhost_fallback(self):
+        with patch.object(web_push, "WEB_PUSH_SUBJECT", None), \
+             patch.object(web_push, "BASE_URL", "http://localhost:8080"):
+            with self.assertRaises(RuntimeError):
+                web_push._vapid_subject()
 
 
 class ReminderPushLeaseTests(unittest.TestCase):
@@ -138,6 +190,7 @@ class ReminderDispatcherTests(unittest.TestCase):
 
         class Response:
             status_code = 410
+            text = "gone"
 
         from pywebpush import WebPushException
 
@@ -154,6 +207,22 @@ class ReminderDispatcherTests(unittest.TestCase):
         release.assert_called_once()
         self.assertEqual(stats["subscriptions_removed"], 1)
         self.assertEqual(stats["released"], 1)
+
+    def test_push_test_records_success(self):
+        subscription = {
+            "subscription_id": 3,
+            "user_id": 7,
+            "endpoint": "https://push.example.test/ok",
+            "p256dh": "key",
+            "auth": "auth",
+        }
+        with patch.object(reminder_dispatcher, "list_push_subscriptions", return_value=[subscription]), \
+             patch.object(reminder_dispatcher, "send_web_push"), \
+             patch.object(reminder_dispatcher, "mark_push_success") as success:
+            result = reminder_dispatcher.send_test_push_for_user(7)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["accepted"], 1)
+        success.assert_called_once_with(3)
 
 
 if __name__ == "__main__":
