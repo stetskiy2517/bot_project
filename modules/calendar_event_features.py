@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone as dt_timezone
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateparser
 
@@ -31,7 +32,7 @@ SAME_MONTH_DASH_RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 LOCATION_RE = re.compile(
-    r"\b(?:по\s+адресу|место\s*[:\-]|локация\s*[:\-])\s*(.+?)(?=$|\s+(?:напомни|пригласи|участники|кажд|весь\s+день))",
+    r"\b(?:по\s+адресу|место\s*[:\-]|локация\s*[:\-])\s*(.+?)(?=$|\s+(?:напомни|пригласи|участники|кажд|весь\s+день|приоритет))",
     re.IGNORECASE,
 )
 REMINDER_RE = re.compile(
@@ -39,6 +40,13 @@ REMINDER_RE = re.compile(
     r"(?P<half>полчаса)|(?P<hour>час)|(?P<day>день)|(?P<day_alias>сутки|суток)|(?P<week>недел\w*))\b",
     re.IGNORECASE,
 )
+RECURRENCE_UNTIL_RE = re.compile(
+    rf"\bдо\s+(?P<date>(?:\d{{1,2}}(?:-?го)?\s+(?:{MONTHS_PATTERN})(?:\s+\d{{4}})?)|(?:\d{{1,2}}[./-]\d{{1,2}}(?:[./-]\d{{2,4}})?))\b",
+    re.IGNORECASE,
+)
+HIGH_PRIORITY_RE = re.compile(r"\b(?:высок\w*\s+приоритет\w*|приоритет\w*\s+высок\w*|срочн\w*|важн\w*)\b", re.IGNORECASE)
+LOW_PRIORITY_RE = re.compile(r"\b(?:низк\w*\s+приоритет\w*|приоритет\w*\s+низк\w*|не\s+срочн\w*)\b", re.IGNORECASE)
+NORMAL_PRIORITY_RE = re.compile(r"\b(?:(?:обычн|средн|нормальн)\w*\s+приоритет\w*|приоритет\w*\s+(?:обычн|средн|нормальн)\w*)\b", re.IGNORECASE)
 WEEKDAY_BY_RE = {
     "понедельник": "MO", "понедельникам": "MO",
     "вторник": "TU", "вторникам": "TU",
@@ -177,6 +185,16 @@ def _recurrence_rule(text: str) -> str | None:
     return None
 
 
+def _priority_value(text: str) -> str | None:
+    if LOW_PRIORITY_RE.search(text):
+        return "low"
+    if HIGH_PRIORITY_RE.search(text):
+        return "high"
+    if NORMAL_PRIORITY_RE.search(text):
+        return "normal"
+    return None
+
+
 def _extract_location(text: str) -> str | None:
     match = LOCATION_RE.search(text)
     if not match:
@@ -192,6 +210,47 @@ def _extract_attendees(text: str) -> list[dict]:
         if normalized not in emails:
             emails.append(normalized)
     return [{"email": email} for email in emails[:20]]
+
+
+def _recurrence_until_date(text: str, relative_base: datetime | None = None):
+    match = RECURRENCE_UNTIL_RE.search(text)
+    if not match:
+        return None
+    value = re.sub(r"(\d{1,2})-?го\b", r"\1", match.group("date"), flags=re.IGNORECASE)
+    parsed = dateparser.parse(
+        value,
+        languages=["ru"],
+        settings={
+            "PREFER_DATES_FROM": "future",
+            "RELATIVE_BASE": (relative_base or datetime.now()).replace(tzinfo=None),
+            "DATE_ORDER": "DMY",
+        },
+    )
+    return parsed.date() if parsed else None
+
+
+def _append_until(rule: str, text: str, event: dict) -> str:
+    start = event.get("start") or {}
+    base = None
+    if start.get("dateTime"):
+        try:
+            base = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+        except ValueError:
+            base = None
+    until_date = _recurrence_until_date(text, base)
+    if not until_date:
+        return rule
+    if start.get("date"):
+        return rule + f";UNTIL={until_date.strftime('%Y%m%d')}"
+
+    timezone_name = start.get("timeZone")
+    try:
+        zone = ZoneInfo(timezone_name) if timezone_name else (base.tzinfo if base and base.tzinfo else dt_timezone.utc)
+    except ZoneInfoNotFoundError:
+        zone = base.tzinfo if base and base.tzinfo else dt_timezone.utc
+    local_until = datetime.combine(until_date, time(23, 59, 59), tzinfo=zone)
+    utc_until = local_until.astimezone(dt_timezone.utc)
+    return rule + f";UNTIL={utc_until.strftime('%Y%m%dT%H%M%SZ')}"
 
 
 def _clean_title(text: str) -> str:
@@ -212,13 +271,17 @@ def _clean_title(text: str) -> str:
     cleaned = re.sub(r"\bраз\s+в\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:по\s+будням|по\s+выходным|кажд\w*\s+выходн\w*|ежегодно|кажд\w*\s+год)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:ежедневно|еженедельно|ежемесячно)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = RECURRENCE_UNTIL_RE.sub(" ", cleaned)
+    cleaned = HIGH_PRIORITY_RE.sub(" ", cleaned)
+    cleaned = LOW_PRIORITY_RE.sub(" ", cleaned)
+    cleaned = NORMAL_PRIORITY_RE.sub(" ", cleaned)
     cleaned = re.sub(r"(?:^|\s)(?:и|а)(?=\s*$)", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
     return _extract_title(cleaned)
 
 
 def apply_event_features(event: dict, text: str) -> dict:
-    """Добавить напоминания, повторение, место, участников и очистить title."""
+    """Добавить напоминания, повторение, место, участников, приоритет и очистить title."""
     enriched = dict(event)
     enriched["summary"] = _clean_title(text)
 
@@ -231,7 +294,7 @@ def apply_event_features(event: dict, text: str) -> dict:
 
     recurrence = _recurrence_rule(text)
     if recurrence:
-        enriched["recurrence"] = [recurrence]
+        enriched["recurrence"] = [_append_until(recurrence, text, enriched)]
 
     location = _extract_location(text)
     if location:
@@ -240,5 +303,13 @@ def apply_event_features(event: dict, text: str) -> dict:
     attendees = _extract_attendees(text)
     if attendees:
         enriched["attendees"] = attendees
+
+    priority = _priority_value(text)
+    if priority:
+        extended = dict(enriched.get("extendedProperties") or {})
+        private = dict(extended.get("private") or {})
+        private["smartPlannerPriority"] = priority
+        extended["private"] = private
+        enriched["extendedProperties"] = extended
 
     return enriched
