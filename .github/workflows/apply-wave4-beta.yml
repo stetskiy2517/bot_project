@@ -22,6 +22,8 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Align patch with current parser
+        run: python .github/prepare_wave4_script.py
       - name: Apply final beta fixes
         run: python .github/apply_wave4_parser_fix.py
       - name: Compile Python sources
