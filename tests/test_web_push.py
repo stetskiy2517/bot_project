@@ -61,13 +61,21 @@ class WebPushApiTests(unittest.TestCase):
         self.assertFalse(any(item["endpoint"] == self.endpoint for item in list_push_subscriptions(self.user_id)))
 
     def test_pwa_shell_loads_push_client(self):
-        html = self.client.get("/").get_data(as_text=True)
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+        response.close()
         self.assertIn('<script src="/reminders.js"></script>', html)
-        script = self.client.get("/reminders.js").get_data(as_text=True)
+
+        response = self.client.get("/reminders.js")
+        script = response.get_data(as_text=True)
+        response.close()
         self.assertIn("pushManager.subscribe", script)
         self.assertIn("Notification.requestPermission", script)
         self.assertIn("Включить уведомления", script)
-        worker = self.client.get("/sw.js").get_data(as_text=True)
+
+        response = self.client.get("/sw.js")
+        worker = response.get_data(as_text=True)
+        response.close()
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
