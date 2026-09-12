@@ -46,7 +46,7 @@ set -a
 set +a
 
 log "Preparing public HTTPS address"
-PUBLIC_IP="$(curl -4fsS https://icanhazip.com | tr -d '[:space:]')" || true
+PUBLIC_IP="$(curl -4fsS --connect-timeout 5 --max-time 10 https://icanhazip.com | tr -d '[:space:]')" || true
 if ! printf '%s' "$PUBLIC_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
   fail "Could not detect the server public IPv4"
 fi
@@ -174,24 +174,27 @@ $PUBLIC_HOST {
     reverse_proxy 127.0.0.1:8080
 }
 EOF_CADDY
+sudo caddy fmt --overwrite "$CADDY_FILE"
 sudo caddy validate --config "$CADDY_FILE" --adapter caddyfile
 sudo systemctl enable caddy >/dev/null
 sudo systemctl restart caddy
 
 log "Checking local application"
 for _ in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+  if curl -fsS --connect-timeout 2 --max-time 4 http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
-curl -fsS http://127.0.0.1:8080/api/health >/dev/null \
+curl -fsS --connect-timeout 2 --max-time 4 http://127.0.0.1:8080/api/health >/dev/null \
   || { sudo journalctl -u "$SERVICE_NAME" -n 100 --no-pager; fail "Web application did not start"; }
 
-log "Checking public HTTPS"
+log "Checking HTTPS through local Caddy"
 HTTPS_READY=0
-for _ in $(seq 1 60); do
-  if curl -fsS "https://$PUBLIC_HOST/api/health" >/dev/null 2>&1; then
+for _ in $(seq 1 30); do
+  if curl -fsS --connect-timeout 3 --max-time 5 \
+      --resolve "$PUBLIC_HOST:443:127.0.0.1" \
+      "https://$PUBLIC_HOST/api/health" >/dev/null 2>&1; then
     HTTPS_READY=1
     break
   fi
@@ -199,8 +202,11 @@ for _ in $(seq 1 60); do
 done
 
 if [ "$HTTPS_READY" -ne 1 ]; then
-  sudo journalctl -u caddy -n 100 --no-pager || true
-  fail "Application is running locally, but HTTPS is not available. Check that ports 80 and 443 are open in cloud.ru."
+  printf '\nCaddy status:\n' >&2
+  sudo systemctl --no-pager --full status caddy | sed -n '1,20p' >&2 || true
+  printf '\nCaddy logs:\n' >&2
+  sudo journalctl -u caddy -n 80 --no-pager >&2 || true
+  fail "Caddy could not serve a valid HTTPS certificate. Verify inbound TCP ports 80 and 443 in cloud.ru."
 fi
 
 log "MVP is online"
