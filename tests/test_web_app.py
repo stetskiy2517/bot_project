@@ -195,7 +195,7 @@ class WebAppTests(unittest.TestCase):
         self.client.post("/api/logout")
         self.assertEqual(self.client.get("/api/status").status_code, 401)
 
-    def test_pwa_shell_contains_voice_and_calendar_controls(self):
+    def test_pwa_shell_contains_single_screen_voice_chat_controls(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
@@ -211,7 +211,10 @@ class WebAppTests(unittest.TestCase):
             "saveSettings",
             "voiceBtn",
             "chatVoiceBtn",
-            "chatBackBtn",
+            "chatCollapseBtn",
+            "composer",
+            "message",
+            "chat",
         ]:
             self.assertIn(f'id="{control}"', html)
         self.assertIn("MediaRecorder", html)
@@ -219,13 +222,19 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("Войти через Google", html)
         self.assertIn("Нажми и удерживай для записи", html)
         self.assertIn("const MIN_VOICE_DURATION_MS = 400", html)
+        self.assertIn("const CHAT_IDLE_MS = 30000", html)
         self.assertIn('form.append("duration_ms"', html)
         self.assertIn("durationMs < MIN_VOICE_DURATION_MS", html)
         self.assertIn("function bindVoiceButton(button)", html)
         self.assertIn('button.addEventListener("pointerdown", beginVoicePress)', html)
         self.assertIn('button.addEventListener("pointerup", endVoicePress)', html)
         self.assertIn("voiceButtons.forEach(bindVoiceButton)", html)
-        self.assertIn('chatBackBtn.onclick = () => app.classList.remove("chat-mode")', html)
+        self.assertIn("function showChat()", html)
+        self.assertIn("function armChatIdleTimer()", html)
+        self.assertIn('app.classList.add("chat-active")', html)
+        self.assertIn('app.classList.remove("chat-active")', html)
+        self.assertNotIn("chatBackBtn", html)
+        self.assertNotIn("chat-mode", html)
         self.assertNotIn("voiceBtn.onclick", html)
         manifest = self.client.get("/manifest.webmanifest")
         self.assertEqual(manifest.status_code, 200)
