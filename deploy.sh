@@ -11,27 +11,61 @@ git fetch origin "$BRANCH"
 git reset --hard "origin/$BRANCH"
 
 if [ ! -f .env ]; then
-  echo "ERROR: .env is missing in $PROJECT_DIR"
-  echo "Copy .env.example to .env and fill in the values first."
-  exit 1
+  cp .env.example .env
+  echo "Created .env from .env.example"
 fi
+
+set -a
+. ./.env
+set +a
+
+upsert_env() {
+  key="$1"
+  value="$2"
+  if grep -q "^${key}=" .env; then
+    sed -i "s|^${key}=.*|${key}=${value}|" .env
+  else
+    printf '%s=%s\n' "$key" "$value" >> .env
+  fi
+  export "$key=$value"
+}
+
+if [ -z "${PUBLIC_HOST:-}" ]; then
+  echo "==> Detecting public IPv4 for temporary sslip.io hostname"
+  PUBLIC_IP="$(curl -4fsS https://icanhazip.com | tr -d '[:space:]')"
+  if ! printf '%s' "$PUBLIC_IP" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+    echo "ERROR: could not detect public IPv4"
+    exit 1
+  fi
+  PUBLIC_HOST="${PUBLIC_IP}.sslip.io"
+  upsert_env PUBLIC_HOST "$PUBLIC_HOST"
+  echo "Temporary hostname: $PUBLIC_HOST"
+fi
+
+BASE_URL="${BASE_URL:-https://$PUBLIC_HOST}"
+REDIRECT_URI="${REDIRECT_URI:-$BASE_URL/oauth2callback}"
+upsert_env BASE_URL "$BASE_URL"
+upsert_env REDIRECT_URI "$REDIRECT_URI"
 
 echo "==> Validating required environment variables"
 set -a
 . ./.env
 set +a
 
-: "${PUBLIC_HOST:?PUBLIC_HOST is required in .env}"
 : "${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID is required in .env}"
 : "${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET is required in .env}"
-: "${ASSEMBLYAI_API_KEY:?ASSEMBLYAI_API_KEY is required in .env for voice recognition}"
+: "${ASSEMBLYAI_API_KEY:?ASSEMBLYAI_API_KEY is required in .env}"
 : "${WEB_SESSION_SECRET:?WEB_SESSION_SECRET is required in .env}"
 
-export BASE_URL="${BASE_URL:-https://$PUBLIC_HOST}"
-export REDIRECT_URI="${REDIRECT_URI:-$BASE_URL/oauth2callback}"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: Docker is not installed"
+  exit 1
+fi
 
-if ! grep -q '^BASE_URL=' .env; then echo "BASE_URL=$BASE_URL" >> .env; fi
-if ! grep -q '^REDIRECT_URI=' .env; then echo "REDIRECT_URI=$REDIRECT_URI" >> .env; fi
+if ! docker compose version >/dev/null 2>&1; then
+  echo "ERROR: Docker Compose plugin is not installed"
+  exit 1
+fi
 
 echo "==> Building and starting containers"
 docker compose up -d --build --remove-orphans
@@ -48,6 +82,20 @@ for i in $(seq 1 30); do
     docker compose ps
     docker compose logs --tail=100 web
     exit 1
+  fi
+  sleep 2
+done
+
+echo "==> Waiting for HTTPS"
+for i in $(seq 1 30); do
+  if curl -fsS "https://$PUBLIC_HOST/api/health" >/dev/null 2>&1; then
+    echo "HTTPS is ready"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "WARNING: app is running, but HTTPS is not ready yet"
+    docker compose logs --tail=100 caddy
+    break
   fi
   sleep 2
 done
