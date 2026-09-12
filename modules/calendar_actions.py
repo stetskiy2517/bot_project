@@ -247,11 +247,12 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             )
             return True
 
-        timing = _parse_event_timing(text)
+        zone = _user_zone(timezone)
+        local_now = datetime.now(zone).replace(tzinfo=None)
+        timing = _parse_event_timing(text, local_now)
         if not timing:
             return False
         start_naive, end_naive = timing
-        zone = _user_zone(timezone)
         start = start_naive.replace(tzinfo=zone) if start_naive.tzinfo is None else start_naive.astimezone(zone)
         end = end_naive.replace(tzinfo=zone) if end_naive.tzinfo is None else end_naive.astimezone(zone)
 

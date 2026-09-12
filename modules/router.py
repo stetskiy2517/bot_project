@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from modules.calendar import _extract_time, _relative_offset
 from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
@@ -27,6 +28,7 @@ INTENT_UNKNOWN = "unknown"
 CREATE_WORDS = (
     "добавь", "добавить", "создай", "создать", "поставь", "поставить", "запиши",
     "записать", "запланируй", "запланировать", "назначь", "назначить", "внеси",
+    "напомни", "напомнить",
 )
 SEARCH_WORDS = (
     "когда у меня", "найди встреч", "найди событ", "найди созвон", "найди звонок",
@@ -50,11 +52,32 @@ EVENT_WORDS = (
     "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
     "трениров", "зал", "кино", "ресторан", "рейс", "полет", "полёт", "поезд", "такси", "совещ",
     "планерк", "клиент", "переговор", "день рождения", "обед", "ужин",
+    "отпуск", "командиров",
+)
+ACTION_WORDS = (
+    "забрат", "отвез", "купит", "куплю", "оплат", "заех", "позвон", "сход", "поех",
+    "получ", "отправ", "подготов", "сдат", "заказ", "заброниров", "встрет", "записат",
+    "сдела", "провер", "законч",
+)
+NON_EVENT_STATEMENT_RE = re.compile(
+    r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*|"
+    r"курс\s+(?:доллар\w*|евро|юан\w*)|новост\w*)\b",
+    re.IGNORECASE,
+)
+INFO_CREATE_QUESTION_RE = re.compile(
+    r"^\s*(?:можно\s+ли|как\b|умеешь\s+ли(?:\s+ты)?|можешь\s+ли(?:\s+ты)?)",
+    re.IGNORECASE,
+)
+NEGATED_CREATE_RE = re.compile(
+    r"\b(?:не\s+(?:создавай|создай|добавляй|добавь|ставь|поставь|записывай|запиши|"
+    r"планируй|запланируй|назначай|назначь|вноси|внеси)|"
+    r"не\s+надо\s+(?:создавать|добавлять|ставить|записывать|планировать|назначать|вносить))\b",
+    re.IGNORECASE,
 )
 DATE_HINT_RE = re.compile(
     r"\b(?:сегодня|завтра|завтро|послезавтра|понедельник\w*|вторник\w*|сред\w*|"
-    r"четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|\d{1,2}[./-]\d{1,2}|"
-    r"\d{1,2}\s+(?:январ\w*|феврал\w*|март\w*|апрел\w*|ма[йя]|июн\w*|июл\w*|"
+    r"четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|пн|вт|ср|чт|пт|сб|вс|\d{1,2}[./-]\d{1,2}|"
+    r"следующ\w*\s+недел\w*|\d{1,2}(?:-?го)?\s+(?:январ\w*|феврал\w*|март\w*|апрел\w*|ма[йя]|июн\w*|июл\w*|"
     r"август\w*|сентябр\w*|октябр\w*|ноябр\w*|декабр\w*))\b",
     re.IGNORECASE,
 )
@@ -75,11 +98,24 @@ class IntentResult:
 
 
 def _normalise(text: str) -> str:
-    return text.lower().replace("ё", "е").strip()
+    normal = text.lower().replace("ё", "е").strip()
+    replacements = {
+        "сегодя": "сегодня", "севодня": "сегодня", "завтро": "завтра",
+        "послезавтро": "послезавтра", "понеделник": "понедельник",
+        "вторниик": "вторник", "четврг": "четверг", "пятнца": "пятница",
+        "пятнцу": "пятницу", "пятнитца": "пятница", "субота": "суббота",
+        "суботу": "субботу", "воскрсенье": "воскресенье", "сентебря": "сентября",
+        "встеча": "встреча", "втреча": "встреча", "созовон": "созвон",
+    }
+    for wrong, right in replacements.items():
+        normal = re.sub(rf"\b{re.escape(wrong)}\b", right, normal)
+    return normal
 
 
 def detect_intent(text: str) -> IntentResult:
     lower = _normalise(text)
+    if NEGATED_CREATE_RE.search(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
     if any(word in lower for word in DELETE_WORDS):
         return IntentResult(INTENT_DELETE, 0.98)
     if any(word in lower for word in UPDATE_WORDS):
@@ -92,26 +128,34 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_SEARCH, 0.93)
     if any(word in lower for word in VIEW_WORDS):
         return IntentResult(INTENT_VIEW, 0.96)
+    if INFO_CREATE_QUESTION_RE.search(lower) and any(word in lower for word in CREATE_WORDS):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
     if any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_CREATE, 0.99)
+    if NON_EVENT_STATEMENT_RE.search(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
 
     has_event = any(word in lower for word in EVENT_WORDS)
+    has_action = any(word in lower for word in ACTION_WORDS)
     has_date = bool(DATE_HINT_RE.search(lower))
-    has_time = bool(TIME_HINT_RE.search(lower))
-    is_question = bool(QUESTION_PREFIX_RE.search(lower))
+    has_time = _extract_time(lower) is not None or _relative_offset(lower) is not None
+    is_question = bool(QUESTION_PREFIX_RE.search(lower)) or text.rstrip().endswith("?")
     is_current_state = bool(CURRENT_STATE_RE.search(lower))
 
     if has_date and has_time and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.92)
     if has_event and (has_date or has_time) and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.86)
+    if has_action and (has_date or has_time) and not is_question and not is_current_state:
+        return IntentResult(INTENT_CREATE, 0.84)
     return IntentResult(INTENT_UNKNOWN, 0.0)
 
 
 def _needs_time(text: str) -> bool:
     if is_all_day(text):
         return False
-    return bool(DATE_HINT_RE.search(text)) and not bool(TIME_HINT_RE.search(text))
+    lower = _normalise(text)
+    return bool(DATE_HINT_RE.search(lower)) and _extract_time(lower) is None
 
 
 def _pending(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
@@ -133,12 +177,16 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
-    combined = f"{pending['text']} {text}"
+
+    reply = text.strip()
+    if not re.match(r"^(?:в|к)\b", _normalise(reply)) and _extract_time(f"в {reply}") is not None:
+        reply = f"в {reply}"
+    combined = f"{pending['text']} {reply}"
     _clear_pending(context)
     handled = await create_from_text(update, context, combined)
     if not handled:
         context.user_data["smart_planner_pending"] = pending
-        await update.message.reply_text("Не понял время. Напиши, например: 19:00 или в 7 вечера.")
+        await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или в 7 вечера.")
     return True
 
 
