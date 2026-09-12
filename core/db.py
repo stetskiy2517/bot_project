@@ -1,7 +1,10 @@
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+
+from config import DB_PATH
 
 DEFAULT_TIMEZONE = "Europe/Moscow"
 DEFAULT_WORK_START = "09:00"
@@ -10,7 +13,9 @@ DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
 DEFAULT_BUFFER_MINUTES = 15
 OAUTH_STATE_TTL_MINUTES = 15
 
-conn = sqlite3.connect("bot.db", check_same_thread=False)
+_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+os.makedirs(_db_dir, exist_ok=True)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 db_lock = threading.RLock()
 
 
