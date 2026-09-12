@@ -18,6 +18,8 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Validate deploy script
+        run: bash -n scripts/deploy_update.sh
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
       - name: Run tests
