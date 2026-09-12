@@ -60,7 +60,8 @@ ACTION_WORDS = (
     "сдела", "провер", "законч",
 )
 NON_EVENT_STATEMENT_RE = re.compile(
-    r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*)\b",
+    r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*|"
+    r"курс\s+(?:доллар\w*|евро|юан\w*)|новост\w*)\b",
     re.IGNORECASE,
 )
 INFO_CREATE_QUESTION_RE = re.compile(
@@ -68,14 +69,15 @@ INFO_CREATE_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 NEGATED_CREATE_RE = re.compile(
-    r"\bне\s+(?:создавай|создай|добавляй|добавь|ставь|поставь|записывай|запиши|"
-    r"планируй|запланируй|назначай|назначь|вноси|внеси)\b",
+    r"\b(?:не\s+(?:создавай|создай|добавляй|добавь|ставь|поставь|записывай|запиши|"
+    r"планируй|запланируй|назначай|назначь|вноси|внеси)|"
+    r"не\s+надо\s+(?:создавать|добавлять|ставить|записывать|планировать|назначать|вносить))\b",
     re.IGNORECASE,
 )
 DATE_HINT_RE = re.compile(
     r"\b(?:сегодня|завтра|завтро|послезавтра|понедельник\w*|вторник\w*|сред\w*|"
-    r"четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|\d{1,2}[./-]\d{1,2}|"
-    r"следующ\w*\s+недел\w*|\d{1,2}\s+(?:январ\w*|феврал\w*|март\w*|апрел\w*|ма[йя]|июн\w*|июл\w*|"
+    r"четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|пн|вт|ср|чт|пт|сб|вс|\d{1,2}[./-]\d{1,2}|"
+    r"следующ\w*\s+недел\w*|\d{1,2}(?:-?го)?\s+(?:январ\w*|феврал\w*|март\w*|апрел\w*|ма[йя]|июн\w*|июл\w*|"
     r"август\w*|сентябр\w*|октябр\w*|ноябр\w*|декабр\w*))\b",
     re.IGNORECASE,
 )
@@ -177,7 +179,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         return True
 
     reply = text.strip()
-    if _extract_time(reply) is None and _extract_time(f"в {reply}") is not None:
+    if not re.match(r"^(?:в|к)\b", _normalise(reply)) and _extract_time(f"в {reply}") is not None:
         reply = f"в {reply}"
     combined = f"{pending['text']} {reply}"
     _clear_pending(context)

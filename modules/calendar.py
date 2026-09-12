@@ -24,6 +24,7 @@ WEEKDAYS = {
     "пятница": 4, "пятницу": 4, "пятницы": 4,
     "суббота": 5, "субботу": 5, "субботы": 5,
     "воскресенье": 6, "воскресенья": 6,
+    "пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5, "вс": 6,
 }
 MONTHS_PATTERN = (
     r"январ[ья]|феврал[ья]|март[ае]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|"
@@ -33,7 +34,7 @@ NUMERIC_DATE_RE = re.compile(
     r"\b(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])(?:[./-]\d{2,4})?\b"
 )
 NAMED_DATE_RE = re.compile(
-    rf"\b\d{{1,2}}\s+(?:{MONTHS_PATTERN})(?:\s+\d{{4}})?\b",
+    rf"\b\d{{1,2}}(?:-?го)?\s+(?:{MONTHS_PATTERN})(?:\s+\d{{4}})?\b",
     re.IGNORECASE,
 )
 CLOCK_TIME_RE = re.compile(
@@ -48,6 +49,11 @@ SIMPLE_HOUR_RE = re.compile(
 )
 DAYPART_HOUR_RE = re.compile(
     r"\b(?:в|к)\s+(?P<hour>\d{1,2})(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d))?\s+"
+    r"(?P<part>утра|дня|вечера|ночи)\b",
+    re.IGNORECASE,
+)
+BARE_DAYPART_HOUR_RE = re.compile(
+    r"(?<!\d)(?P<hour>\d{1,2})(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d))?\s+"
     r"(?P<part>утра|дня|вечера|ночи)\b",
     re.IGNORECASE,
 )
@@ -225,6 +231,12 @@ def _extract_time(text: str) -> tuple[int, int] | None:
                 return resolved, 0
 
     daypart = DAYPART_HOUR_RE.search(lower)
+    if not daypart:
+        bare_daypart = BARE_DAYPART_HOUR_RE.search(lower)
+        if bare_daypart:
+            prefix = lower[max(0, bare_daypart.start() - 10):bare_daypart.start()]
+            if not re.search(r"\b(?:через|на|за)\s*$", prefix):
+                daypart = bare_daypart
     if daypart:
         hour = _apply_daypart(int(daypart.group("hour")), daypart.group("part"))
         if hour is not None:
@@ -295,6 +307,8 @@ def _relative_offset(text: str) -> timedelta | None:
     )
     if composite:
         return timedelta(hours=int(composite.group(1)), minutes=int(composite.group(2)))
+    if re.search(r"\bчерез\s+сутки\b", lower):
+        return timedelta(days=1)
     if re.search(r"\bчерез\s+полчаса\b", lower):
         return timedelta(minutes=30)
     if re.search(r"\bчерез\s+полтора\s+часа\b", lower):
@@ -378,8 +392,9 @@ def _date_from_text(text: str, now: datetime, hour: int, minute: int):
         return _parse_numeric_date(numeric_match.group(0), now)
     named_match = NAMED_DATE_RE.search(lower)
     if named_match:
+        date_text = re.sub(r"(\d{1,2})-?го\b", r"\1", named_match.group(0), flags=re.IGNORECASE)
         parsed = dateparser.parse(
-            named_match.group(0),
+            date_text,
             languages=["ru"],
             settings={"PREFER_DATES_FROM": "future", "RELATIVE_BASE": now, "DATE_ORDER": "DMY"},
         )
@@ -516,6 +531,7 @@ def _extract_title(text: str) -> str:
     title = SPOKEN_CLOCK_RE.sub(" ", title)
     title = PREFIX_DAYPART_RE.sub(" ", title)
     title = DAYPART_HOUR_RE.sub(" ", title)
+    title = BARE_DAYPART_HOUR_RE.sub(" ", title)
     title = WORD_CLOCK_RE.sub(" ", title)
     title = WORD_HOUR_RE.sub(" ", title)
     title = COMPACT_HHMM_RE.sub(" ", title)
@@ -544,7 +560,7 @@ def _extract_title(text: str) -> str:
     )
     title = re.sub(
         r"\b(?:в|во)?\s*(?:понедельник(?:а)?|вторник(?:а)?|среда|среду|среды|четверг(?:а)?|"
-        r"пятница|пятницу|пятницы|суббота|субботу|субботы|воскресенье|воскресенья)\b",
+        r"пятница|пятницу|пятницы|суббота|субботу|субботы|воскресенье|воскресенья|пн|вт|ср|чт|пт|сб|вс)\b",
         " ", title, flags=re.IGNORECASE,
     )
     title = re.sub(
