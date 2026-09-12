@@ -24,6 +24,7 @@ set +a
 : "${PUBLIC_HOST:?PUBLIC_HOST is required in .env}"
 : "${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID is required in .env}"
 : "${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET is required in .env}"
+: "${ASSEMBLYAI_API_KEY:?ASSEMBLYAI_API_KEY is required in .env for voice recognition}"
 : "${WEB_SESSION_SECRET:?WEB_SESSION_SECRET is required in .env}"
 
 export BASE_URL="${BASE_URL:-https://$PUBLIC_HOST}"
@@ -54,4 +55,5 @@ done
 echo "==> Deployment complete"
 echo "URL: https://$PUBLIC_HOST"
 echo "Google OAuth callback: $REDIRECT_URI"
+echo "Voice recognition: AssemblyAI configured"
 docker compose ps
