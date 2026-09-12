@@ -26,6 +26,8 @@ jobs:
         run: python .github/prepare_wave4_script.py
       - name: Apply final beta fixes
         run: python .github/apply_wave4_parser_fix.py
+      - name: Close final regressions
+        run: python .github/post_wave4_product_fix.py
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
       - name: Run full test suite
