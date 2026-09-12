@@ -16,6 +16,9 @@ WEB_USER_NAME=os.getenv("WEB_USER_NAME","Web User")
 WEB_PASSWORD=os.getenv("WEB_PASSWORD")
 WEB_SESSION_SECRET=os.getenv("WEB_SESSION_SECRET","dev-only-change-me")
 DB_PATH=os.getenv("DB_PATH","bot.db")
+WEB_PUSH_VAPID_PRIVATE_KEY=os.getenv("WEB_PUSH_VAPID_PRIVATE_KEY")
+WEB_PUSH_SUBJECT=os.getenv("WEB_PUSH_SUBJECT")
+WEB_PUSH_WORKER_INTERVAL_SECONDS=max(2,int(os.getenv("WEB_PUSH_WORKER_INTERVAL_SECONDS","5")))
 SCOPES=["openid","https://www.googleapis.com/auth/userinfo.email","https://www.googleapis.com/auth/userinfo.profile","https://www.googleapis.com/auth/calendar.events"]
 def validate_config():
     missing=[name for name,value in {"TG_TOKEN":TG_TOKEN}.items() if not value]
