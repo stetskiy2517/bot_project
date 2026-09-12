@@ -103,6 +103,10 @@ PROPERTY_DELETE_RE = re.compile(
     r"(?:у\s+)?(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b",
     re.IGNORECASE,
 )
+PENDING_CONTROL_REPLIES = {
+    "да", "ага", "подтверждаю", "подтвердить", "создавай", "удаляй", "меняй", "ок", "окей",
+    "нет", "не надо", "отмена", "отменить", "стоп",
+}
 
 
 @dataclass(frozen=True)
@@ -192,21 +196,31 @@ def _clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("smart_planner_pending", None)
 
 
+def _normalise_pending_reply(text: str) -> str:
+    original = text.strip()
+    candidate = original.strip(" \t\r\n.,!?;:…\"'«»")
+    normal = _normalise(candidate)
+    if normal in PENDING_CONTROL_REPLIES or normal.isdigit():
+        return candidate
+    return original
+
+
 async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     pending = _pending(context)
     if not pending:
         return False
     pending_type = str(pending.get("type") or "")
+    reply_text = _normalise_pending_reply(text)
     if pending_type.startswith("task_"):
-        return await resume_pending_task(update, context, text, pending)
+        return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
-        return await resume_pending_action(update, context, text, pending)
-    if _normalise(text) in {"отмена", "отменить", "не надо", "нет"}:
+        return await resume_pending_action(update, context, reply_text, pending)
+    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
 
-    reply = text.strip()
+    reply = reply_text.strip()
     if not re.match(r"^(?:в|к)\b", _normalise(reply)) and _extract_time(f"в {reply}") is not None:
         reply = f"в {reply}"
     combined = f"{pending['text']} {reply}"
