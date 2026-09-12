@@ -20,7 +20,23 @@ from modules.calendar import (
     _parse_event_timing,
 )
 from modules.calendar_availability import create_event_in_slot, format_alternatives, suggest_alternatives
-from modules.calendar_event_features import apply_event_features, build_all_day_event, is_all_day
+from modules.calendar_event_features import (
+    _append_until,
+    _extract_attendees,
+    _extract_location,
+    _priority_value,
+    _recurrence_rule,
+    _reminder_minutes,
+    apply_event_features,
+    build_all_day_event,
+    is_all_day,
+)
+from modules.calendar_recurrence import (
+    is_recurring_instance,
+    recurring_scope_from_text,
+    split_recurring_series_for_update,
+    trim_recurring_series_from,
+)
 from modules.calendar_user import (
     _event_start,
     _format_event_line,
@@ -40,9 +56,22 @@ UPDATE_PREFIX_RE = re.compile(
     r"^(?:перенеси|перенести|сдвинь|сдвинуть|измени|изменить|поменяй|поменять|сделай|переименуй)\s+",
     re.IGNORECASE,
 )
+PROPERTY_UPDATE_PREFIX_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|добавь|добавить|убери|убрать|удали|удалить|поставь|поставить)\s+"
+    r"(?:место|адрес|категори\w*|приоритет\w*|напоминани\w*|повтор\w*|участник\w*)\s*"
+    r"(?:(?:у|для|к)\s+)?",
+    re.IGNORECASE,
+)
 DATE_TAIL_RE = re.compile(
     r"\b(?:сегодня|завтра|послезавтра|в\s+понедельник\w*|во?\s+вторник\w*|в\s+сред\w*|"
     r"в\s+четверг\w*|в\s+пятниц\w*|в\s+суббот\w*|в\s+воскресень\w*)\b",
+    re.IGNORECASE,
+)
+SCOPE_PHRASE_RE = re.compile(
+    r"\b(?:только\s+(?:эту|это|одну|один)|только\s+(?:сегодня|завтра)|одно\s+событие|эту\s+встречу|"
+    r"все\s+будущ\w*|эту\s+и\s+все\s+следующ\w*|это\s+и\s+все\s+следующ\w*|с\s+этой\s+и\s+дальше|"
+    r"начиная\s+с\s+этой|все\s+следующ\w*|всю\s+серию|весь\s+цикл|все\s+повторени\w*|"
+    r"все\s+события\s+серии|все\s+встречи\s+серии)\b",
     re.IGNORECASE,
 )
 BULK_DELETE_TARGET_RE = re.compile(
@@ -67,6 +96,20 @@ FREE_CHOICE_MARKER_RE = re.compile(
     r"\s*(?:на|в)?\s*(?:(?:перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\s+)?(?:вариант\w*|(?:это|этот|это\s+же)?\s*окн\w*)\b.*$",
     re.IGNORECASE,
 )
+LOCATION_UPDATE_VALUE_RE = re.compile(
+    r"\b(?:место|адрес)\b[^\n]{0,80}?\s+на\s+(?P<value>.+?)(?=$|\s+(?:за\s+\d|напомин|приоритет|категор|повтор|участник))",
+    re.IGNORECASE,
+)
+CATEGORY_NAMES = {
+    "работ": "work",
+    "здоров": "health",
+    "отдых": "rest",
+    "поезд": "travel",
+    "путеш": "travel",
+    "сем": "family",
+    "личн": "personal",
+    "проч": "other",
+}
 
 
 def _normalise(text: str) -> str:
@@ -136,6 +179,7 @@ def _clean_date_tokens(value: str) -> str:
     value = DATE_TAIL_RE.sub(" ", value)
     value = NUMERIC_DATE_RE.sub(" ", value)
     value = NAMED_DATE_RE.sub(" ", value)
+    value = SCOPE_PHRASE_RE.sub(" ", value)
     return re.sub(r"\s+", " ", value).strip(" ,.-")
 
 
@@ -165,21 +209,39 @@ def _extract_update_target(text: str) -> str:
     rename = RENAME_RE.match(text.strip())
     if rename:
         return rename.group(1).strip()
+
+    property_match = PROPERTY_UPDATE_PREFIX_RE.match(text)
+    if property_match:
+        body = text[property_match.end():].strip().rstrip("?.!,")
+        marker = re.search(r"\s+(?:на|за)\s+|\s*:\s*", body, re.IGNORECASE)
+        if marker:
+            body = body[:marker.start()]
+        return _clean_date_tokens(body)
+
     body = UPDATE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
+    body = SCOPE_PHRASE_RE.sub(" ", body)
     duration = DURATION_RE.search(body)
     if duration:
         body = body[: duration.start()]
     else:
-        move = re.search(
-            r"\s+на\s+(?=(?:сегодня|завтра|послезавтра|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|\d))",
+        feature_tail = re.search(
+            r"\s+(?:с\s+)?(?:высок\w*|низк\w*|обычн\w*|средн\w*)\s+приоритет\w*|"
+            r"\s+(?:ежедневно|еженедельно|ежемесячно|кажд\w*\s+\w+)",
             body, re.IGNORECASE,
         )
-        if move:
-            body = body[: move.start()]
+        if feature_tail:
+            body = body[: feature_tail.start()]
         else:
-            move_time = re.search(r"\s+в\s+(?=\d{1,2}(?::|\.|\s)\d{2}\b)", body, re.IGNORECASE)
-            if move_time:
-                body = body[: move_time.start()]
+            move = re.search(
+                r"\s+на\s+(?=(?:сегодня|завтра|послезавтра|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|\d))",
+                body, re.IGNORECASE,
+            )
+            if move:
+                body = body[: move.start()]
+            else:
+                move_time = re.search(r"\s+в\s+(?=\d{1,2}(?::|\.|\s)\d{2}\b)", body, re.IGNORECASE)
+                if move_time:
+                    body = body[: move_time.start()]
     return _clean_date_tokens(body)
 
 
@@ -203,37 +265,144 @@ def _new_title_from_update(text: str) -> str | None:
     return title[:1].upper() + title[1:] if title else None
 
 
-def _build_update_patch(event: dict, text: str, timezone: str) -> dict:
+def _explicit_category(text: str) -> str | None:
+    lower = _normalise(text)
+    if "категор" not in lower:
+        return None
+    tail = lower.split("категор", 1)[1]
+    for root, category in CATEGORY_NAMES.items():
+        if root in tail:
+            return category
+    return None
+
+
+def _description_with_category(description: str | None, category: str) -> str:
+    lines = [
+        line for line in (description or "").splitlines()
+        if not line.strip().lower().startswith("ai smart planner category:")
+    ]
+    lines.append(f"AI Smart Planner category: {category}")
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _location_from_update(text: str) -> str | None:
+    direct = _extract_location(text)
+    if direct:
+        return direct
+    match = LOCATION_UPDATE_VALUE_RE.search(text)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", match.group("value")).strip(" ,.;")
+    return value[:500] if value else None
+
+
+def _priority_patch(event: dict, priority: str) -> dict:
+    extended = dict(event.get("extendedProperties") or {})
+    private = dict(extended.get("private") or {})
+    private["smartPlannerPriority"] = priority
+    extended["private"] = private
+    return extended
+
+
+def _build_update_patch(
+    event: dict,
+    text: str,
+    timezone: str,
+    category_colors: dict[str, str | None] | None = None,
+) -> dict:
     old_start, all_day = _event_start(event, timezone)
     old_end = _event_end(event, timezone)
     if not old_start or not old_end:
         return {}
+
+    patch: dict = {}
+    lower = _normalise(text)
+
     new_title = _new_title_from_update(text)
     if new_title:
-        return {"summary": new_title}
-    duration = _duration_from_update(text)
-    if duration:
-        if all_day:
-            return {}
-        return {"end": {"dateTime": (old_start + duration).isoformat(), "timeZone": timezone}}
-    if all_day:
-        return {}
+        patch["summary"] = new_title
 
+    if re.search(r"\b(?:убери|удали|без)\s+напомин", lower):
+        patch["reminders"] = {"useDefault": False, "overrides": []}
+    else:
+        reminders = _reminder_minutes(text)
+        if reminders:
+            patch["reminders"] = {
+                "useDefault": False,
+                "overrides": [{"method": "popup", "minutes": minutes} for minutes in reminders],
+            }
+
+    if re.search(r"\b(?:убери|удали)\s+(?:место|адрес)\b", lower):
+        patch["location"] = ""
+    else:
+        location = _location_from_update(text)
+        if location:
+            patch["location"] = location
+
+    attendees = _extract_attendees(text)
+    existing_attendees = list(event.get("attendees") or [])
+    if re.search(r"\b(?:убери|удали)\s+(?:всех\s+)?участник", lower) and not attendees:
+        patch["attendees"] = []
+    elif attendees:
+        if re.search(r"\b(?:убери|удали)\s+участник", lower):
+            remove = {item["email"].lower() for item in attendees}
+            patch["attendees"] = [
+                item for item in existing_attendees
+                if str(item.get("email") or "").lower() not in remove
+            ]
+        elif re.search(r"\b(?:добавь|пригласи)\b", lower):
+            merged = list(existing_attendees)
+            seen = {str(item.get("email") or "").lower() for item in merged}
+            for item in attendees:
+                if item["email"] not in seen:
+                    merged.append(item)
+                    seen.add(item["email"])
+            patch["attendees"] = merged
+        else:
+            patch["attendees"] = attendees
+
+    if re.search(r"\b(?:убери|удали|отмени)\s+(?:повтор|повторение)|\bбольше\s+не\s+повтор", lower):
+        patch["recurrence"] = []
+    else:
+        recurrence = _recurrence_rule(text)
+        if recurrence:
+            patch["recurrence"] = [_append_until(recurrence, text, event)]
+
+    priority = _priority_value(text)
+    if priority:
+        patch["extendedProperties"] = _priority_patch(event, priority)
+    elif re.search(r"\b(?:убери|сбрось)\s+приоритет", lower):
+        patch["extendedProperties"] = _priority_patch(event, "normal")
+
+    category = _explicit_category(text)
+    if category:
+        colors = category_colors or {}
+        patch["description"] = _description_with_category(event.get("description"), category)
+        patch["colorId"] = colors.get(category)
+
+    duration = _duration_from_update(text)
     parsed_time = _extract_time(text)
     now = datetime.now(_user_zone(timezone))
     new_date = _date_from_text(text, now, old_start.hour, old_start.minute)
+
+    if all_day:
+        return patch
+
     new_start = old_start
     if new_date:
         new_start = new_start.replace(year=new_date.year, month=new_date.month, day=new_date.day)
     if parsed_time:
         new_start = new_start.replace(hour=parsed_time[0], minute=parsed_time[1], second=0, microsecond=0)
-    if new_start == old_start:
-        return {}
-    old_duration = old_end - old_start
-    return {
-        "start": {"dateTime": new_start.isoformat(), "timeZone": timezone},
-        "end": {"dateTime": (new_start + old_duration).isoformat(), "timeZone": timezone},
-    }
+
+    if new_start != old_start:
+        old_duration = old_end - old_start
+        effective_duration = duration or old_duration
+        patch["start"] = {"dateTime": new_start.isoformat(), "timeZone": timezone}
+        patch["end"] = {"dateTime": (new_start + effective_duration).isoformat(), "timeZone": timezone}
+    elif duration:
+        patch["end"] = {"dateTime": (old_start + duration).isoformat(), "timeZone": timezone}
+
+    return patch
 
 
 def _patch_interval(event: dict, patch: dict, timezone: str) -> tuple[datetime, datetime] | None:
@@ -309,6 +478,10 @@ def _format_alternative_choices(slots: list[tuple[datetime, datetime]]) -> str:
     )
 
 
+def _recurring_scope_label(scope: str) -> str:
+    return {"this": "только это событие", "future": "это и все будущие", "series": "всю серию"}.get(scope, scope)
+
+
 async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
@@ -377,9 +550,48 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         extras.append(f"место: {event['location']}")
     if event.get("attendees"):
         extras.append(f"участников: {len(event['attendees'])}")
+    priority = ((event.get("extendedProperties") or {}).get("private") or {}).get("smartPlannerPriority")
+    if priority and priority != "normal":
+        extras.append("высокий приоритет" if priority == "high" else "низкий приоритет")
     suffix = " · " + ", ".join(extras) if extras else ""
     await update.message.reply_text(
         f"Событие «{event['summary']}» добавлено: {start.strftime('%d.%m.%Y %H:%M')}–{end.strftime('%H:%M')} ({timezone}){suffix}"
+    )
+    return True
+
+
+async def _prepare_delete_confirmation(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event: dict,
+    text: str,
+    timezone: str,
+    scope: str | None = None,
+) -> bool:
+    if is_recurring_instance(event):
+        scope = scope or recurring_scope_from_text(text)
+        if not scope:
+            _store_pending(context, {
+                "type": "select_recurring_delete_scope",
+                "event": event,
+                "timezone": timezone,
+            })
+            await update.message.reply_text(
+                "Это повторяющееся событие. Что удалить: только это, это и все будущие или всю серию?"
+            )
+            return True
+    else:
+        scope = "this"
+
+    _store_pending(context, {
+        "type": "confirm_delete",
+        "event": event,
+        "timezone": timezone,
+        "scope": scope,
+    })
+    suffix = f"\nОбласть: {_recurring_scope_label(scope)}." if is_recurring_instance(event) else ""
+    await update.message.reply_text(
+        "Удалить это событие?\n" + _format_event_line(event, timezone, include_date=True) + suffix + "\nОтветь «да» или «нет»."
     )
     return True
 
@@ -433,15 +645,10 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     if len(events) > 1:
         visible = events[:5]
-        _store_pending(context, {"type": "select_delete", "events": visible, "timezone": timezone})
+        _store_pending(context, {"type": "select_delete", "events": visible, "timezone": timezone, "text": text})
         await update.message.reply_text("Нашёл несколько событий. Напиши номер нужного:\n" + _format_candidates(visible, timezone))
         return True
-    event = events[0]
-    _store_pending(context, {"type": "confirm_delete", "event": event, "timezone": timezone})
-    await update.message.reply_text(
-        "Удалить это событие?\n" + _format_event_line(event, timezone, include_date=True) + "\nОтветь «да» или «нет»."
-    )
-    return True
+    return await _prepare_delete_confirmation(update, context, events[0], text, timezone)
 
 
 async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -474,14 +681,53 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     return await _prepare_update_confirmation(update, context, events[0], text, timezone)
 
 
-async def _prepare_update_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, event: dict, text: str, timezone: str) -> bool:
-    patch = _build_update_patch(event, text, timezone)
+async def _prepare_update_confirmation(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event: dict,
+    text: str,
+    timezone: str,
+    scope: str | None = None,
+) -> bool:
+    target_event = event
+    if is_recurring_instance(event):
+        scope = scope or recurring_scope_from_text(text)
+        if not scope:
+            _store_pending(context, {
+                "type": "select_recurring_update_scope",
+                "event": event,
+                "timezone": timezone,
+                "text": text,
+            })
+            await update.message.reply_text(
+                "Это повторяющееся событие. Что изменить: только это, это и все будущие или всю серию?"
+            )
+            return True
+        if scope == "series":
+            try:
+                service = _get_calendar_service(update.effective_user.id)
+                target_event = service.events().get(
+                    calendarId="primary", eventId=event["recurringEventId"]
+                ).execute()
+            except Exception:
+                logger.exception("Failed to load recurring parent for user %s", update.effective_user.id)
+                await update.message.reply_text("Не удалось загрузить серию повторяющихся событий.")
+                return True
+    else:
+        scope = "this"
+
+    patch = _build_update_patch(
+        target_event,
+        text,
+        timezone,
+        category_colors=get_category_colors(update.effective_user.id),
+    )
     if not patch:
         await update.message.reply_text("Не понял, что именно изменить в событии.")
         return True
 
     conflict_text = ""
-    interval = _patch_interval(event, patch, timezone)
+    interval = _patch_interval(target_event, patch, timezone)
     if interval and ("start" in patch or "end" in patch):
         conflicts = _find_conflicts(update.effective_user.id, interval[0], interval[1], exclude_event_id=event.get("id"))
         if conflicts:
@@ -497,11 +743,19 @@ async def _prepare_update_confirmation(update: Update, context: ContextTypes.DEF
                 f"\n{format_alternatives(alternatives)}"
             )
 
-    _store_pending(context, {"type": "confirm_update", "event": event, "patch": patch, "timezone": timezone})
+    pending_type = "confirm_update_future" if scope == "future" else "confirm_update"
+    _store_pending(context, {
+        "type": pending_type,
+        "event": event if scope == "future" else target_event,
+        "patch": patch,
+        "timezone": timezone,
+        "scope": scope,
+    })
+    scope_text = f"\nОбласть: {_recurring_scope_label(scope)}." if is_recurring_instance(event) else ""
     await update.message.reply_text(
         "Подтвердить изменение события?\n"
         f"{_format_event_line(event, timezone, include_date=True)}"
-        f"{conflict_text}\nОтветь «да» или «нет»."
+        f"{scope_text}{conflict_text}\nОтветь «да» или «нет»."
     )
     return True
 
@@ -583,6 +837,24 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Не удалось создать событие в выбранное время.")
             return True
 
+    if pending_type == "select_recurring_delete_scope":
+        scope = recurring_scope_from_text(text)
+        if not scope:
+            await update.message.reply_text("Ответь: «только эту», «все будущие» или «всю серию».")
+            return True
+        return await _prepare_delete_confirmation(
+            update, context, pending["event"], text, pending["timezone"], scope=scope
+        )
+
+    if pending_type == "select_recurring_update_scope":
+        scope = recurring_scope_from_text(text)
+        if not scope:
+            await update.message.reply_text("Ответь: «только эту», «все будущие» или «всю серию».")
+            return True
+        return await _prepare_update_confirmation(
+            update, context, pending["event"], pending["text"], pending["timezone"], scope=scope
+        )
+
     if pending_type in {"select_delete", "select_update"}:
         if not text.strip().isdigit():
             await update.message.reply_text("Напиши номер события из списка или «отмена».")
@@ -595,11 +867,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         event = events[index]
         timezone = pending["timezone"]
         if pending_type == "select_delete":
-            _store_pending(context, {"type": "confirm_delete", "event": event, "timezone": timezone})
-            await update.message.reply_text(
-                "Удалить это событие?\n" + _format_event_line(event, timezone, include_date=True) + "\nОтветь «да» или «нет»."
-            )
-            return True
+            return await _prepare_delete_confirmation(update, context, event, pending.get("text") or "", timezone)
         return await _prepare_update_confirmation(update, context, event, pending["text"], timezone)
 
     if normal not in YES_WORDS:
@@ -615,8 +883,15 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             return True
         if pending_type == "confirm_delete":
             service = _get_calendar_service(user_id)
-            service.events().delete(calendarId="primary", eventId=pending["event"]["id"]).execute()
-            await update.message.reply_text(f"Событие «{pending['event'].get('summary', 'Без названия')}» удалено.")
+            event = pending["event"]
+            scope = pending.get("scope") or "this"
+            if scope == "series" and event.get("recurringEventId"):
+                service.events().delete(calendarId="primary", eventId=event["recurringEventId"]).execute()
+            elif scope == "future" and event.get("recurringEventId"):
+                trim_recurring_series_from(service, event, pending["timezone"])
+            else:
+                service.events().delete(calendarId="primary", eventId=event["id"]).execute()
+            await update.message.reply_text(f"Событие «{event.get('summary', 'Без названия')}» удалено.")
             return True
         if pending_type == "confirm_delete_many":
             service = _get_calendar_service(user_id)
@@ -652,6 +927,22 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
             )
             return True
+        if pending_type == "confirm_update_future":
+            service = _get_calendar_service(user_id)
+            updated = split_recurring_series_for_update(
+                service,
+                pending["event"],
+                pending["patch"],
+                pending["timezone"],
+            )
+            await update.message.reply_text(
+                f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено с этого момента и дальше."
+            )
+            return True
+    except ValueError as exc:
+        logger.warning("Calendar action rejected for user %s: %s", user_id, exc)
+        await update.message.reply_text("Не удалось безопасно изменить эту серию. Попробуй изменить только это событие или всю серию.")
+        return True
     except Exception:
         logger.exception("Calendar pending action failed for user %s", user_id)
         await update.message.reply_text("Не удалось выполнить действие в Google Calendar.")
