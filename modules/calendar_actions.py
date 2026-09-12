@@ -19,7 +19,7 @@ from modules.calendar import (
     _extract_time,
     _parse_event_timing,
 )
-from modules.calendar_availability import format_alternatives, suggest_alternatives
+from modules.calendar_availability import create_event_in_slot, format_alternatives, suggest_alternatives
 from modules.calendar_event_features import apply_event_features, build_all_day_event, is_all_day
 from modules.calendar_user import (
     _event_start,
@@ -58,6 +58,15 @@ DURATION_RE = re.compile(
     re.IGNORECASE,
 )
 RENAME_RE = re.compile(r"^переименуй\s+(.+?)\s+в\s+(.+)$", re.IGNORECASE)
+CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
+FREE_CHOICE_PREFIX_RE = re.compile(
+    r"^\s*(?:поставь|поставить|создай|создать|запланируй|запланировать|назначь|назначить|добавь|добавить|займи|занять)\s*",
+    re.IGNORECASE,
+)
+FREE_CHOICE_MARKER_RE = re.compile(
+    r"\s*(?:на|в)?\s*(?:(?:перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\s+)?(?:вариант\w*|(?:это|этот|это\s+же)?\s*окн\w*)\b.*$",
+    re.IGNORECASE,
+)
 
 
 def _normalise(text: str) -> str:
@@ -254,6 +263,52 @@ def _format_candidates(events: list[dict], timezone: str) -> str:
     )
 
 
+def _choice_index(text: str) -> int | None:
+    stripped = text.strip()
+    if stripped.isdigit():
+        index = int(stripped) - 1
+        return index if index >= 0 else None
+    match = CHOICE_WORD_RE.search(text)
+    if match:
+        token = match.group(1).lower().replace("ё", "е")
+        if token.startswith("втор"):
+            return 1
+        if token.startswith("трет"):
+            return 2
+        if token.startswith("четверт"):
+            return 3
+        if token.startswith("пят"):
+            return 4
+        return 0
+    normal = _normalise(text)
+    if "это окно" in normal or "этот вариант" in normal or normal in {"займи окно", "займи это"}:
+        return 0
+    return None
+
+
+def _free_choice_title(text: str) -> str | None:
+    body = FREE_CHOICE_PREFIX_RE.sub("", text, count=1).strip()
+    body = FREE_CHOICE_MARKER_RE.sub("", body).strip(" ,.-")
+    if not body or body.isdigit() or CHOICE_WORD_RE.fullmatch(body):
+        return None
+    return body
+
+
+def _event_at_alternative(event: dict, slot: tuple[datetime, datetime], timezone: str) -> dict:
+    start, end = slot
+    moved = dict(event)
+    moved["start"] = {"dateTime": start.isoformat(), "timeZone": timezone}
+    moved["end"] = {"dateTime": end.isoformat(), "timeZone": timezone}
+    return moved
+
+
+def _format_alternative_choices(slots: list[tuple[datetime, datetime]]) -> str:
+    return "\n".join(
+        f"{index}. {start.strftime('%d.%m %H:%M')}–{end.strftime('%H:%M')}"
+        for index, (start, end) in enumerate(slots, start=1)
+    )
+
+
 async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
@@ -287,12 +342,21 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         conflicts = _find_conflicts(user_id, start, end)
         if conflicts:
             alternatives = suggest_alternatives(user_id, timezone, start, end - start, limit=3)
-            _store_pending(context, {"type": "confirm_create_conflict", "event": event})
+            _store_pending(context, {
+                "type": "confirm_create_conflict",
+                "event": event,
+                "alternatives": alternatives,
+                "timezone": timezone,
+            })
+            alternatives_text = (
+                "\nВарианты:\n" + _format_alternative_choices(alternatives)
+                if alternatives else ""
+            )
             await update.message.reply_text(
                 "В это время уже есть событие:\n"
-                f"{_format_event_line(conflicts[0], timezone, include_date=True)}\n"
-                f"{format_alternatives(alternatives)}\n"
-                "Если всё равно создать в исходное время — ответь «да». Для отмены — «нет»."
+                f"{_format_event_line(conflicts[0], timezone, include_date=True)}"
+                f"{alternatives_text}\n"
+                "Выбери номер варианта, ответь «да», чтобы оставить исходное время, или «нет» для отмены."
             )
             return True
         _create_event(user_id, event)
@@ -450,6 +514,74 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop("smart_planner_pending", None)
         await update.message.reply_text("Хорошо, отменил действие.")
         return True
+
+    if pending_type == "free_slot_title":
+        title = text.strip(" ,.-")
+        if not title:
+            await update.message.reply_text("Напиши, что поставить в это время.")
+            return True
+        slot = pending.get("slot")
+        if not slot:
+            context.user_data.pop("smart_planner_pending", None)
+            return False
+        context.user_data.pop("smart_planner_pending", None)
+        try:
+            event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
+            await update.message.reply_text(
+                f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
+            )
+        except Exception:
+            logger.exception("Free slot booking failed for user %s", update.effective_user.id)
+            await update.message.reply_text("Не удалось создать событие в выбранном окне.")
+        return True
+
+    if pending_type == "free_slot_choice":
+        index = _choice_index(text)
+        if index is None:
+            context.user_data.pop("smart_planner_pending", None)
+            return False
+        slots = pending.get("slots") or []
+        if index < 0 or index >= len(slots):
+            await update.message.reply_text("Такого варианта нет. Выбери номер из списка.")
+            return True
+        slot = slots[index]
+        title = _free_choice_title(text)
+        if title:
+            context.user_data.pop("smart_planner_pending", None)
+            try:
+                event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
+                await update.message.reply_text(
+                    f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
+                )
+            except Exception:
+                logger.exception("Free slot booking failed for user %s", update.effective_user.id)
+                await update.message.reply_text("Не удалось создать событие в выбранном окне.")
+            return True
+        _store_pending(context, {"type": "free_slot_title", "slot": slot, "timezone": pending["timezone"]})
+        await update.message.reply_text(
+            f"Выбрал {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}. Что поставить в это время?"
+        )
+        return True
+
+    if pending_type == "confirm_create_conflict":
+        index = _choice_index(text)
+        alternatives = pending.get("alternatives") or []
+        if index is not None:
+            if index < 0 or index >= len(alternatives):
+                await update.message.reply_text("Такого варианта нет. Выбери номер из списка, «да» или «нет».")
+                return True
+            context.user_data.pop("smart_planner_pending", None)
+            moved = _event_at_alternative(pending["event"], alternatives[index], pending.get("timezone") or "Europe/Moscow")
+            try:
+                _create_event(update.effective_user.id, moved)
+                slot = alternatives[index]
+                await update.message.reply_text(
+                    f"Поставил «{moved.get('summary', 'Событие')}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
+                )
+            except Exception:
+                logger.exception("Conflict alternative creation failed for user %s", update.effective_user.id)
+                await update.message.reply_text("Не удалось создать событие в выбранное время.")
+            return True
 
     if pending_type in {"select_delete", "select_update"}:
         if not text.strip().isdigit():
