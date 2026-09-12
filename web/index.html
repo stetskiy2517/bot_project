@@ -211,13 +211,43 @@
         height: 58px;
         display: flex;
         align-items: center;
-        padding: 0 68px 0 18px;
+        padding: 0 68px 0 12px;
         border-bottom: 1px solid #f0f0ee;
         background: rgba(255, 255, 255, 0.92);
         backdrop-filter: blur(16px);
         font-size: 17px;
         font-weight: 600;
         letter-spacing: -0.25px;
+      }
+      .chat-back-button {
+        width: 38px;
+        height: 38px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: transparent;
+        color: #111;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+      .chat-back-button:hover {
+        background: #f3f3f1;
+      }
+      .chat-back-button:active {
+        transform: scale(0.96);
+      }
+      .chat-back-button svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .chat-title {
+        min-width: 0;
       }
       .chat {
         flex: 1;
@@ -278,16 +308,50 @@
       .composer input::placeholder {
         color: #a0a09c;
       }
+      .composer-voice-button,
       .send-button {
         width: 36px;
         height: 36px;
         border-radius: 50%;
-        background: #111;
-        color: #fff;
         display: grid;
         place-items: center;
         cursor: pointer;
         flex: 0 0 auto;
+      }
+      .composer-voice-button {
+        background: #f0f0ed;
+        color: #111;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        transition:
+          transform 0.15s ease,
+          background 0.2s ease,
+          color 0.2s ease;
+      }
+      .composer-voice-button.recording {
+        background: #111;
+        color: #fff;
+        transform: scale(0.96);
+      }
+      .composer-voice-button svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .composer-voice-button:disabled,
+      .send-button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .send-button {
+        background: #111;
+        color: #fff;
       }
       .send-button svg {
         width: 17px;
@@ -614,7 +678,18 @@
           </div>
         </section>
         <section class="page chat-page">
-          <div class="chat-header">Чат</div>
+          <div class="chat-header">
+            <button
+              id="chatBackBtn"
+              class="chat-back-button"
+              type="button"
+              aria-label="Вернуться к голосовому вводу"
+              title="Голосовой ввод"
+            >
+              <svg viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6" /></svg>
+            </button>
+            <div class="chat-title">Чат</div>
+          </div>
           <div id="chat" class="chat">
             <div class="msg assistant">Напиши, что нужно сделать.</div>
           </div>
@@ -625,6 +700,17 @@
                 autocomplete="off"
                 placeholder="Сообщение…"
               /><button
+                id="chatVoiceBtn"
+                class="composer-voice-button"
+                type="button"
+                aria-label="Нажать и удерживать для голосового ввода"
+                title="Нажми и удерживай для записи"
+              >
+                <svg viewBox="0 0 24 24">
+                  <rect x="8" y="3" width="8" height="12" rx="4" />
+                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" />
+                </svg></button
+              ><button
                 class="send-button"
                 type="submit"
                 aria-label="Отправить"
@@ -726,14 +812,18 @@
         chat = document.getElementById("chat"),
         settingsPanel = document.getElementById("settingsPanel"),
         voiceBtn = document.getElementById("voiceBtn"),
+        chatVoiceBtn = document.getElementById("chatVoiceBtn"),
+        chatBackBtn = document.getElementById("chatBackBtn"),
         voiceCaption = document.getElementById("voiceCaption");
+      const voiceButtons = [voiceBtn, chatVoiceBtn];
       let workDays = [0, 1, 2, 3, 4],
         recorder = null,
         recordingStream = null,
         voiceChunks = [],
         sendingVoice = false,
         voicePressActive = false,
-        voicePointerId = null;
+        voicePointerId = null,
+        voiceSourceButton = null;
       const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
       const categoryNames = {
         work: "Работа",
@@ -885,10 +975,28 @@
           recordingStream = null;
         }
       }
+      function setVoiceButtonsDisabled(disabled) {
+        voiceButtons.forEach((button) => {
+          button.disabled = disabled;
+        });
+      }
       function resetVoiceButton() {
-        voiceBtn.classList.remove("recording");
-        voiceBtn.setAttribute("aria-label", "Нажать и удерживать для записи");
+        voiceButtons.forEach((button) => {
+          button.classList.remove("recording");
+          button.setAttribute(
+            "aria-label",
+            button === chatVoiceBtn
+              ? "Нажать и удерживать для голосового ввода"
+              : "Нажать и удерживать для записи",
+          );
+          if (button === chatVoiceBtn)
+            button.title = "Нажми и удерживай для записи";
+        });
         voiceCaption.textContent = "Нажми и удерживай для записи";
+      }
+      function reportVoiceError(text) {
+        voiceCaption.textContent = text;
+        if (app.classList.contains("chat-mode")) msg(text, "assistant");
       }
       function voiceExtension(mime) {
         if (mime.includes("ogg")) return "ogg";
@@ -899,12 +1007,17 @@
       }
       async function sendVoice(blob) {
         if (!blob.size) {
-          voiceCaption.textContent = "Не удалось записать звук";
+          reportVoiceError("Не удалось записать звук");
+          voiceSourceButton = null;
           return;
         }
         sendingVoice = true;
-        voiceBtn.disabled = true;
+        setVoiceButtonsDisabled(true);
         voiceCaption.textContent = "Распознаю…";
+        if (voiceSourceButton === chatVoiceBtn) {
+          chatVoiceBtn.setAttribute("aria-label", "Распознаю голос");
+          chatVoiceBtn.title = "Распознаю…";
+        }
         const form = new FormData();
         form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
         try {
@@ -914,26 +1027,28 @@
           (r.replies || []).forEach((x) => msg(x, "assistant"));
         } catch (e) {
           if (e.message !== "unauthorized")
-            voiceCaption.textContent = "Не удалось обработать голос";
+            reportVoiceError("Не удалось обработать голос");
         } finally {
           sendingVoice = false;
-          voiceBtn.disabled = false;
+          setVoiceButtonsDisabled(false);
+          voiceSourceButton = null;
           setTimeout(resetVoiceButton, 900);
         }
       }
       async function startVoice() {
-        if (sendingVoice || !voicePressActive) return;
+        if (sendingVoice || !voicePressActive || !voiceSourceButton) return;
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
           voicePressActive = false;
           voicePointerId = null;
-          voiceCaption.textContent = "Запись не поддерживается этим браузером";
+          voiceSourceButton = null;
+          reportVoiceError("Запись не поддерживается этим браузером");
           return;
         }
         try {
           recordingStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
           });
-          if (!voicePressActive) {
+          if (!voicePressActive || !voiceSourceButton) {
             stopTracks();
             resetVoiceButton();
             return;
@@ -957,9 +1072,10 @@
           recorder.onerror = () => {
             voicePressActive = false;
             voicePointerId = null;
+            voiceSourceButton = null;
             stopTracks();
             resetVoiceButton();
-            voiceCaption.textContent = "Ошибка записи";
+            reportVoiceError("Ошибка записи");
           };
           recorder.onstop = () => {
             const type =
@@ -976,29 +1092,38 @@
             sendVoice(blob);
           };
           recorder.start();
-          voiceBtn.classList.add("recording");
-          voiceBtn.setAttribute("aria-label", "Отпустить для отправки записи");
+          voiceSourceButton.classList.add("recording");
+          voiceSourceButton.setAttribute(
+            "aria-label",
+            "Отпустить для отправки записи",
+          );
+          if (voiceSourceButton === chatVoiceBtn)
+            chatVoiceBtn.title = "Отпусти, чтобы отправить";
           voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
         } catch (e) {
           voicePressActive = false;
           voicePointerId = null;
+          voiceSourceButton = null;
           stopTracks();
           resetVoiceButton();
-          voiceCaption.textContent =
+          reportVoiceError(
             e && e.name === "NotAllowedError"
               ? "Нет доступа к микрофону"
-              : "Не удалось включить микрофон";
+              : "Не удалось включить микрофон",
+          );
         }
       }
       function beginVoicePress(e) {
-        if (sendingVoice || voicePressActive || voiceBtn.disabled) return;
+        const button = e.currentTarget;
+        if (sendingVoice || voicePressActive || button.disabled) return;
         if (e.pointerType === "mouse" && e.button !== 0) return;
         e.preventDefault();
         voicePressActive = true;
         voicePointerId = e.pointerId;
-        if (voiceBtn.setPointerCapture) {
+        voiceSourceButton = button;
+        if (button.setPointerCapture) {
           try {
-            voiceBtn.setPointerCapture(e.pointerId);
+            button.setPointerCapture(e.pointerId);
           } catch (_error) {}
         }
         startVoice();
@@ -1016,33 +1141,46 @@
         voicePointerId = null;
         if (recorder && recorder.state === "recording") recorder.stop();
       }
-      voiceBtn.addEventListener("pointerdown", beginVoicePress);
-      voiceBtn.addEventListener("pointerup", endVoicePress);
-      voiceBtn.addEventListener("pointercancel", endVoicePress);
-      voiceBtn.addEventListener("lostpointercapture", (e) => {
-        if (voicePressActive && e.pointerId === voicePointerId) endVoicePress(e);
-      });
-      voiceBtn.addEventListener("contextmenu", (e) => e.preventDefault());
-      voiceBtn.addEventListener("keydown", (e) => {
-        if ((e.key === " " || e.key === "Enter") && !e.repeat) {
-          e.preventDefault();
-          if (sendingVoice || voicePressActive || voiceBtn.disabled) return;
-          voicePressActive = true;
-          voicePointerId = null;
-          startVoice();
-        }
-      });
-      voiceBtn.addEventListener("keyup", (e) => {
-        if (e.key === " " || e.key === "Enter") endVoicePress(e);
-      });
+      function bindVoiceButton(button) {
+        button.addEventListener("pointerdown", beginVoicePress);
+        button.addEventListener("pointerup", endVoicePress);
+        button.addEventListener("pointercancel", endVoicePress);
+        button.addEventListener("lostpointercapture", (e) => {
+          if (
+            voicePressActive &&
+            button === voiceSourceButton &&
+            e.pointerId === voicePointerId
+          )
+            endVoicePress(e);
+        });
+        button.addEventListener("contextmenu", (e) => e.preventDefault());
+        button.addEventListener("keydown", (e) => {
+          if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+            e.preventDefault();
+            if (sendingVoice || voicePressActive || button.disabled) return;
+            voicePressActive = true;
+            voicePointerId = null;
+            voiceSourceButton = button;
+            startVoice();
+          }
+        });
+        button.addEventListener("keyup", (e) => {
+          if (e.key === " " || e.key === "Enter") endVoicePress(e);
+        });
+      }
+      voiceButtons.forEach(bindVoiceButton);
       document.getElementById("accountBtn").onclick = () =>
         settingsPanel.classList.add("open");
       document.getElementById("closeSettings").onclick = () =>
         settingsPanel.classList.remove("open");
+      chatBackBtn.onclick = () => app.classList.remove("chat-mode");
+      function isVoiceControl(target) {
+        return voiceButtons.some((button) => button.contains(target));
+      }
       document.getElementById("pages").addEventListener(
         "touchstart",
         (e) => {
-          if (voiceBtn.contains(e.target)) {
+          if (isVoiceControl(e.target)) {
             touchStartX = null;
             touchStartY = null;
             return;
@@ -1058,7 +1196,7 @@
           if (
             touchStartX === null ||
             touchStartY === null ||
-            voiceBtn.contains(e.target)
+            isVoiceControl(e.target)
           )
             return;
           const dx = e.changedTouches[0].clientX - touchStartX,
@@ -1130,7 +1268,7 @@
         location.reload();
       };
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-        voiceBtn.disabled = true;
+        setVoiceButtonsDisabled(true);
         voiceCaption.textContent = "Микрофон недоступен";
       }
       if ("serviceWorker" in navigator)
