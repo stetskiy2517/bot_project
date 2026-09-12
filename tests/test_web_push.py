@@ -35,6 +35,15 @@ class WebPushApiTests(unittest.TestCase):
     def tearDown(self):
         delete_push_subscription(self.user_id, self.endpoint)
 
+    def _subscribe(self):
+        payload = {
+            "endpoint": self.endpoint,
+            "keys": {"p256dh": "p256dh-test", "auth": "auth-test"},
+        }
+        response = self.client.post("/api/push/subscriptions", json=payload)
+        self.assertEqual(response.status_code, 200)
+        return response
+
     def test_push_config_requires_session_and_returns_public_key(self):
         other = self.app.test_client()
         self.assertEqual(other.get("/api/push/config").status_code, 401)
@@ -44,12 +53,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertEqual(response.get_json()["public_key"], "public-key")
 
     def test_subscription_can_be_saved_and_removed_for_current_user(self):
-        payload = {
-            "endpoint": self.endpoint,
-            "keys": {"p256dh": "p256dh-test", "auth": "auth-test"},
-        }
-        response = self.client.post("/api/push/subscriptions", json=payload)
-        self.assertEqual(response.status_code, 200)
+        self._subscribe()
         subscriptions = list_push_subscriptions(self.user_id)
         self.assertTrue(any(item["endpoint"] == self.endpoint for item in subscriptions))
 
@@ -59,6 +63,14 @@ class WebPushApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["ok"])
         self.assertFalse(any(item["endpoint"] == self.endpoint for item in list_push_subscriptions(self.user_id)))
+
+    def test_foreground_poll_does_not_steal_reminder_from_push_dispatcher(self):
+        self._subscribe()
+        with patch("web_app.claim_due_for_user") as claim:
+            response = self.client.get("/api/reminders/due")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"reminders": []})
+        claim.assert_not_called()
 
     def test_pwa_shell_loads_push_client(self):
         response = self.client.get("/")
