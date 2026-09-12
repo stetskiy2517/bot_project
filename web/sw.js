@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v4";
+const CACHE = "personal-secretary-v5";
 const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js"];
 
 self.addEventListener("install", (event) => {
@@ -23,17 +23,25 @@ self.addEventListener("push", (event) => {
     payload = { body: event.data ? event.data.text() : "" };
   }
 
-  const title = payload.title || "Напоминание";
-  const body = payload.body || "У тебя есть напоминание.";
-  const tag = payload.tag || `reminder-${Date.now()}`;
-  const url = payload.url || "/";
+  // New Apple platforms can display this payload declaratively even if the
+  // Service Worker cannot run. Browsers without Declarative Web Push still
+  // receive the same JSON here and display it imperatively.
+  const notification =
+    payload && payload.web_push === 8030 && payload.notification
+      ? payload.notification
+      : payload;
+  const notificationData = notification.data || {};
+  const title = notification.title || "Напоминание";
+  const body = notification.body || "У тебя есть напоминание.";
+  const tag = notification.tag || `reminder-${Date.now()}`;
+  const url = notification.navigate || notificationData.url || payload.url || "/";
+  const reminderId = notificationData.reminder_id || payload.reminder_id || null;
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: "/icon.svg",
       tag,
-      data: { url, reminderId: payload.reminder_id || null },
+      data: { url, reminderId },
     }),
   );
 });
