@@ -22,12 +22,17 @@ from core.db import (
     save_calendar_preferences,
     save_user_timezone,
 )
-from core.push_store import delete_push_subscription, has_push_subscriptions, save_push_subscription
+from core.push_store import (
+    delete_push_subscription,
+    has_push_subscriptions,
+    list_push_subscriptions,
+    save_push_subscription,
+)
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
-from modules.reminder_dispatcher import start_reminder_push_worker
+from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.router import route_text
 
@@ -220,6 +225,41 @@ def create_web_app() -> Flask:
         except Exception:
             logger.exception("Failed to prepare VAPID key")
             return jsonify({"error": "push_not_configured", "message": "Не удалось включить push-уведомления."}), 503
+
+    @app.get("/api/push/status")
+    def push_status():
+        user_id = _require_user_id()
+        subscriptions = list_push_subscriptions(user_id)
+        devices = [
+            {
+                "updated_at": item.get("updated_at"),
+                "last_success_at": item.get("last_success_at"),
+                "last_error": item.get("last_error"),
+            }
+            for item in subscriptions
+        ]
+        return {
+            "subscribed": bool(subscriptions),
+            "subscriptions": len(subscriptions),
+            "devices": devices,
+        }
+
+    @app.post("/api/push/test")
+    def push_test():
+        user_id = _require_user_id()
+        result = send_test_push_for_user(user_id)
+        if result["ok"]:
+            result["message"] = "Тестовый push принят push-сервисом."
+            return result
+        errors = " | ".join(result.get("errors") or [])
+        if "BadJwtToken" in errors:
+            message = "Apple отклонил подпись push (BadJwtToken)."
+        elif result.get("subscriptions") == 0:
+            message = "Push-подписка не зарегистрирована на сервере."
+        else:
+            message = "Push-сервис не принял тестовое уведомление."
+        result["message"] = message
+        return jsonify(result), 502
 
     @app.post("/api/push/subscriptions")
     def create_push_subscription():
