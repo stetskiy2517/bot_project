@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from modules.calendar_availability import (
     _availability_period,
+    _availability_work_days,
     _requested_duration,
     find_free_slots,
     format_alternatives,
@@ -32,6 +33,16 @@ class CalendarAvailabilityTests(unittest.TestCase):
         self.assertEqual(start, datetime(2026, 9, 3, 0, 0, tzinfo=self.zone))
         self.assertEqual(end, datetime(2026, 9, 4, 0, 0, tzinfo=self.zone))
         self.assertEqual(label, "завтра")
+
+    def test_explicit_day_ignores_workday_filter(self):
+        self.assertEqual(
+            _availability_work_days("найди окно завтра", [0, 1, 2, 3, 4]),
+            [0, 1, 2, 3, 4, 5, 6],
+        )
+        self.assertEqual(
+            _availability_work_days("найди ближайшее окно", [0, 1, 2, 3, 4]),
+            [0, 1, 2, 3, 4],
+        )
 
     def test_requested_duration(self):
         self.assertEqual(_requested_duration("найди окно на 2 часа завтра"), timedelta(hours=2))
