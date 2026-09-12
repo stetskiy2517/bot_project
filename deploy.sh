@@ -1,55 +1,57 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# ====== Настройки ======
-GITHUB_REPO="https://github.com/stetskiy2517/bot_project.git"
-PROJECT_DIR="$HOME/bot_project"
-DOCKER_IMAGE="bot_project-bot"
-DOCKER_CONTAINER="telegram_bot"
-RENDER_WEBHOOK="https://bot-project-bdub.onrender.com/telegram/webhook"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/bot_project}"
+BRANCH="${BRANCH:-main}"
 
-# ====== 1. Обновление кода ======
-echo "📦 Обновляем код с GitHub..."
-cd $PROJECT_DIR
-git fetch origin main
-git reset --hard origin/main
+cd "$PROJECT_DIR"
 
-# ====== 2. Пересборка Docker ======
-echo "🐳 Останавливаем старый контейнер..."
-docker stop $DOCKER_CONTAINER 2>/dev/null || true
-docker rm $DOCKER_CONTAINER 2>/dev/null || true
+echo "==> Updating code"
+git fetch origin "$BRANCH"
+git reset --hard "origin/$BRANCH"
 
-echo "🔧 Собираем новый Docker образ..."
-docker build -t $DOCKER_IMAGE .
+if [ ! -f .env ]; then
+  echo "ERROR: .env is missing in $PROJECT_DIR"
+  echo "Copy .env.example to .env and fill in the values first."
+  exit 1
+fi
 
-echo "▶️ Запускаем контейнер..."
-docker run -d --name $DOCKER_CONTAINER -p 80:8080 $DOCKER_IMAGE
+echo "==> Validating required environment variables"
+set -a
+. ./.env
+set +a
 
-# ====== 3. Настройка Webhook ======
-echo "🌐 Настраиваем Telegram webhook..."
+: "${PUBLIC_HOST:?PUBLIC_HOST is required in .env}"
+: "${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID is required in .env}"
+: "${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET is required in .env}"
+: "${WEB_SESSION_SECRET:?WEB_SESSION_SECRET is required in .env}"
 
-docker exec $DOCKER_CONTAINER python3 - <<EOF
-import os
-from telegram import Bot
+export BASE_URL="${BASE_URL:-https://$PUBLIC_HOST}"
+export REDIRECT_URI="${REDIRECT_URI:-$BASE_URL/oauth2callback}"
 
-# Берем токен из переменных окружения контейнера
-TG_TOKEN = os.environ.get("TG_TOKEN")
-if not TG_TOKEN:
-    raise ValueError("Не найден TG_TOKEN в переменных окружения Docker")
+if ! grep -q '^BASE_URL=' .env; then echo "BASE_URL=$BASE_URL" >> .env; fi
+if ! grep -q '^REDIRECT_URI=' .env; then echo "REDIRECT_URI=$REDIRECT_URI" >> .env; fi
 
-# Инициализация бота
-bot = Bot(token=TG_TOKEN)
+echo "==> Building and starting containers"
+docker compose up -d --build --remove-orphans
 
-# Удаляем старый webhook
-bot.delete_webhook()
+echo "==> Waiting for web healthcheck"
+for i in $(seq 1 30); do
+  status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' personal-secretary-web 2>/dev/null || true)
+  if [ "$status" = "healthy" ]; then
+    echo "Web container is healthy"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "ERROR: web container did not become healthy"
+    docker compose ps
+    docker compose logs --tail=100 web
+    exit 1
+  fi
+  sleep 2
+done
 
-# Устанавливаем новый webhook на Render
-RENDER_WEBHOOK = os.environ.get("RENDER_WEBHOOK")
-if not RENDER_WEBHOOK:
-    raise ValueError("Не найден RENDER_WEBHOOK в переменных окружения Docker")
-
-bot.set_webhook(RENDER_WEBHOOK)
-print(f"Webhook установлен ✅ {RENDER_WEBHOOK}")
-EOF
-
-echo "✅ Деплой завершен. Бот работает на $RENDER_WEBHOOK"
+echo "==> Deployment complete"
+echo "URL: https://$PUBLIC_HOST"
+echo "Google OAuth callback: $REDIRECT_URI"
+docker compose ps
