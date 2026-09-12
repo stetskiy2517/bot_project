@@ -35,7 +35,7 @@ SEARCH_WORDS = (
     "найди запись", "найти встреч", "найти событ", "покажи когда", "покажи где",
 )
 VIEW_WORDS = (
-    "что у меня", "покажи", "покажи календар", "какие встречи", "какие события",
+    "что у меня", "что мне", "покажи", "покажи календар", "какие встречи", "какие события",
     "что запланировано", "что запланирован", "расписание", "что на неделе",
     "что на неделю", "планы на неделю", "планы на завтра",
 )
@@ -57,7 +57,7 @@ EVENT_WORDS = (
 ACTION_WORDS = (
     "забрат", "отвез", "купит", "куплю", "оплат", "заех", "позвон", "сход", "поех",
     "получ", "отправ", "подготов", "сдат", "заказ", "заброниров", "встрет", "записат",
-    "сдела", "провер", "законч",
+    "сдела", "провер", "законч", "выпит", "принят", "лекарств", "таблет",
 )
 NON_EVENT_STATEMENT_RE = re.compile(
     r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*|"
@@ -89,6 +89,7 @@ TIME_HINT_RE = re.compile(
 QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|зачем|как|сколько|есть ли|можно ли)\b", re.IGNORECASE)
 WHEN_SEARCH_RE = re.compile(r"^\s*когда\s+(?!свобод\w*\b|я\s+свобод\w*\b|у\s+меня\b)(.+)", re.IGNORECASE)
 CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
+REMIND_ME_AS_COMMAND_RE = re.compile(r"^\s*напомню\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,13 @@ def _normalise(text: str) -> str:
     return normal
 
 
+def _creation_text(text: str) -> str:
+    """Исправить безопасные разговорные/ASR-варианты только для создания события."""
+    if REMIND_ME_AS_COMMAND_RE.search(text):
+        return REMIND_ME_AS_COMMAND_RE.sub("напомни", text, count=1)
+    return text
+
+
 def detect_intent(text: str) -> IntentResult:
     lower = _normalise(text)
     if NEGATED_CREATE_RE.search(lower):
@@ -130,6 +138,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_VIEW, 0.96)
     if INFO_CREATE_QUESTION_RE.search(lower) and any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_UNKNOWN, 0.0)
+    if REMIND_ME_AS_COMMAND_RE.search(lower):
+        return IntentResult(INTENT_CREATE, 0.97)
     if any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_CREATE, 0.99)
     if NON_EVENT_STATEMENT_RE.search(lower):
@@ -208,11 +218,12 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
     if intent.name == INTENT_CREATE:
-        if _needs_time(text):
-            context.user_data["smart_planner_pending"] = {"type": "create_time", "text": text}
+        create_text = _creation_text(text)
+        if _needs_time(create_text):
+            context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
             await update.message.reply_text("Во сколько поставить событие?")
             return True
-        return await create_from_text(update, context, text)
+        return await create_from_text(update, context, create_text)
     if intent.name == INTENT_SEARCH:
         return await search_from_text(update, context, _normalise_search_text(text))
     if intent.name == INTENT_VIEW:

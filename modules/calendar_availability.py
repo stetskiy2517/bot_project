@@ -8,8 +8,9 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_calendar_preferences, get_user_timezone
-from modules.calendar import _extract_duration
+from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
+from modules.calendar import _build_event, _create_event, _extract_duration, _extract_time
+from modules.calendar_event_features import apply_event_features
 from modules.calendar_user import (
     _event_start,
     _list_events,
@@ -20,6 +21,26 @@ from modules.calendar_user import (
 DEFAULT_SLOT_DURATION = timedelta(hours=1)
 SLOT_STEP = timedelta(minutes=30)
 MAX_SUGGESTIONS = 5
+CLOCK_FRAGMENT = r"\d{1,2}(?:(?::|\.)[0-5]\d)?(?:\s+(?:утра|дня|вечера|ночи))?"
+BETWEEN_TIME_RE = re.compile(
+    rf"\bмежду\s+(?P<start>{CLOCK_FRAGMENT})\s+и\s+(?P<end>{CLOCK_FRAGMENT})\b",
+    re.IGNORECASE,
+)
+FROM_TO_TIME_RE = re.compile(
+    rf"\bс\s+(?P<start>{CLOCK_FRAGMENT})\s+до\s+(?P<end>{CLOCK_FRAGMENT})\b",
+    re.IGNORECASE,
+)
+AFTER_TIME_RE = re.compile(rf"\bпосле\s+(?P<value>{CLOCK_FRAGMENT})\b", re.IGNORECASE)
+BEFORE_TIME_RE = re.compile(rf"\bдо\s+(?P<value>{CLOCK_FRAGMENT})\b", re.IGNORECASE)
+BOOK_ACTION_RE = re.compile(
+    r"^\s*(?:поставь|поставить|создай|создать|запланируй|запланировать|назначь|назначить|добавь|добавить)\s+",
+    re.IGNORECASE,
+)
+FREE_WINDOW_MARKER_RE = re.compile(
+    r"\s+(?:в|на)\s+(?:(?:перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\s+)?свободн\w*\s+окн\w*",
+    re.IGNORECASE,
+)
+ORDINAL_INDEX_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
 
 
 def _parse_hhmm(value: str) -> time:
@@ -66,11 +87,41 @@ def _next_work_day(value: datetime, work_days: list[int]) -> datetime:
     return candidate
 
 
+def _clock_from_fragment(value: str) -> time | None:
+    parsed = _extract_time(f"в {value.strip()}")
+    return time(parsed[0], parsed[1]) if parsed else None
+
+
 def _apply_daypart_window(text: str, start: datetime, end: datetime) -> tuple[datetime, datetime]:
-    """Сузить период по простым разговорным ограничениям времени суток."""
+    """Сузить период по разговорным ограничениям времени суток и явным часам."""
     lower = text.lower().replace("ё", "е")
     zone = start.tzinfo
     day = start.date()
+
+    range_match = BETWEEN_TIME_RE.search(lower) or FROM_TO_TIME_RE.search(lower)
+    if range_match:
+        left = _clock_from_fragment(range_match.group("start"))
+        right = _clock_from_fragment(range_match.group("end"))
+        if left and right:
+            bounded_start = datetime.combine(day, left, tzinfo=zone)
+            bounded_end = datetime.combine(day, right, tzinfo=zone)
+            if bounded_end > bounded_start:
+                return max(start, bounded_start), min(end, bounded_end)
+
+    after = AFTER_TIME_RE.search(lower)
+    if after:
+        clock = _clock_from_fragment(after.group("value"))
+        if clock:
+            start = max(start, datetime.combine(day, clock, tzinfo=zone))
+            return start, end
+
+    before = BEFORE_TIME_RE.search(lower)
+    if before:
+        clock = _clock_from_fragment(before.group("value"))
+        if clock:
+            end = min(end, datetime.combine(day, clock, tzinfo=zone))
+            return start, end
+
     if re.search(r"\b(?:после\s+обеда|после\s+полудня)\b", lower):
         start = max(start, datetime.combine(day, time(13, 0), tzinfo=zone))
     elif re.search(r"\b(?:вечером|вечер)\b", lower):
@@ -231,6 +282,48 @@ def format_alternatives(slots: list[tuple[datetime, datetime]]) -> str:
     )
 
 
+def _ordinal_index(text: str, default: int = 0) -> int:
+    match = ORDINAL_INDEX_RE.search(text)
+    if not match:
+        return default
+    token = match.group(1).lower().replace("ё", "е")
+    if token.startswith("втор"):
+        return 1
+    if token.startswith("трет"):
+        return 2
+    if token.startswith("четверт"):
+        return 3
+    if token.startswith("пят"):
+        return 4
+    return 0
+
+
+def _direct_booking_title(text: str) -> str | None:
+    if not BOOK_ACTION_RE.search(text):
+        return None
+    body = BOOK_ACTION_RE.sub("", text, count=1).strip()
+    marker = FREE_WINDOW_MARKER_RE.search(body)
+    if not marker:
+        return None
+    title = body[:marker.start()].strip(" ,.-")
+    return title or None
+
+
+def create_event_in_slot(
+    user_id: int,
+    timezone: str,
+    title: str,
+    start: datetime,
+    end: datetime,
+) -> dict:
+    """Создать обычное календарное событие в уже проверенном свободном интервале."""
+    event = apply_event_features(_build_event(title, start, end, get_category_colors(user_id)), title)
+    event["start"]["timeZone"] = timezone
+    event["end"]["timeZone"] = timezone
+    _create_event(user_id, event)
+    return event
+
+
 async def free_slots_from_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -281,8 +374,31 @@ async def free_slots_from_text(
         )
         return True
 
+    booking_title = _direct_booking_title(text)
+    if booking_title:
+        index = _ordinal_index(text)
+        if index >= len(slots):
+            await update.message.reply_text("Такого свободного варианта не нашёл. Попробуй выбрать другой.")
+            return True
+        slot_start, slot_end = slots[index]
+        try:
+            event = create_event_in_slot(user_id, timezone, booking_title, slot_start, slot_end)
+        except Exception:
+            await update.message.reply_text("Нашёл окно, но не удалось создать в нём событие.")
+            return True
+        await update.message.reply_text(
+            f"Поставил «{event['summary']}» на {slot_start.strftime('%d.%m %H:%M')}–{slot_end.strftime('%H:%M')}."
+        )
+        return True
+
+    context.user_data["smart_planner_pending"] = {
+        "type": "free_slot_choice",
+        "slots": slots,
+        "timezone": timezone,
+        "label": label,
+    }
     include_date = (end - start) > timedelta(days=1)
-    lines = [f"• {_format_slot(slot, include_date=include_date)}" for slot in slots]
+    lines = [f"{index}. {_format_slot(slot, include_date=include_date)}" for index, slot in enumerate(slots, start=1)]
     await update.message.reply_text(
         f"Свободные окна {label} на {int(duration.total_seconds() // 60)} минут:\n" + "\n".join(lines)
     )
