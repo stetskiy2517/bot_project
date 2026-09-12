@@ -1,0 +1,222 @@
+name: beta-family-fix
+
+on:
+  push:
+    branches:
+      - fix/family-category-beta
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/family-category-beta
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Apply beta regression fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected block not found in {path}: {old[:80]!r}')
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one block in {path}, found {text.count(old)}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'core/db.py',
+              '    "travel": "7",\n    "personal": "5",\n',
+              '    "travel": "7",\n    "family": "4",\n    "personal": "5",\n',
+          )
+
+          replace_once(
+              'modules/calendar.py',
+              '    "travel": {"color_id": "7", "keywords": ("самолет", "самолёт", "рейс", "поезд", "вокзал", "аэропорт", "дорог", "такси", "перелет", "перелёт", "командиров", "отъезд", "прилет", "прилёт")},\n    "personal": {"color_id": "5", "keywords": ("личн", "дом", "покуп", "магазин", "семья", "родител", "ребен", "ребён", "день рождения", "забрать", "отвезти")},\n}\n\n\ndef _normalise',
+              '    "travel": {"color_id": "7", "keywords": ("самолет", "самолёт", "рейс", "поезд", "вокзал", "аэропорт", "дорог", "такси", "перелет", "перелёт", "командиров", "отъезд", "прилет", "прилёт")},\n    "family": {"color_id": "4", "keywords": ()},\n    "personal": {"color_id": "5", "keywords": ("личн", "дом", "покуп", "магазин", "день рождения", "забрать", "отвезти")},\n}\nFAMILY_RE = re.compile(\n    r"\\b(?:семь(?:я|и|е|ю|ей|ям|ями|ях)|семейн\\w*|родител\\w*|ребен\\w*|"\n    r"дет(?:и|ей|ям|ьми|ях)|сын\\w*|доч\\w*|мам\\w*|пап\\w*)\\b",\n    re.IGNORECASE,\n)\n\n\ndef _normalise',
+          )
+
+          replace_once(
+              'modules/calendar.py',
+              '    if re.search(r"\\bсемь(?:я|и|е|ю|ей|ям|ями|ях)\\b", lower):\n        return "personal", colors.get("personal")\n',
+              '    if FAMILY_RE.search(lower):\n        return "family", colors.get("family")\n',
+          )
+
+          replace_once(
+              'web/index.html',
+              '        travel: "Поездки",\n        personal: "Личное",\n',
+              '        travel: "Поездки",\n        family: "Семья",\n        personal: "Личное",\n',
+          )
+          replace_once(
+              'web/index.html',
+              '        travel: "7",\n        personal: "5",\n',
+              '        travel: "7",\n        family: "4",\n        personal: "5",\n',
+          )
+
+          replace_once(
+              'web_app.py',
+              '                if not isinstance(colors, dict) or set(colors) != set(DEFAULT_CATEGORY_COLORS):\n                    raise ValueError("Неверный набор категорий")\n                parsed_colors = {}\n                for category, color_id in colors.items():\n',
+              '                if not isinstance(colors, dict) or not colors:\n                    raise ValueError("Неверный набор категорий")\n                unknown_categories = set(colors) - set(DEFAULT_CATEGORY_COLORS)\n                if unknown_categories:\n                    raise ValueError("Неверный набор категорий")\n                parsed_colors = dict(_status_payload(user_id)["preferences"]["category_colors"])\n                for category, color_id in colors.items():\n',
+          )
+
+          replace_once(
+              'tests/test_calendar_regression_audit.py',
+              '    def test_family_is_personal_not_rest(self):\n        self.assertEqual(_detect_category("ужин с семьей"), ("personal", "5"))\n',
+              '    def test_family_has_own_category(self):\n        self.assertEqual(_detect_category("ужин с семьей"), ("family", "4"))\n',
+          )
+          replace_once(
+              'tests/test_calendar_regression_audit.py',
+              '        colors = {"work": "9", "health": "11", "rest": "2", "travel": "7", "personal": "5", "other": None}\n',
+              '        colors = {"work": "9", "health": "11", "rest": "2", "travel": "7", "family": "4", "personal": "5", "other": None}\n',
+          )
+
+          replace_once(
+              'tests/test_web_app.py',
+              '            "travel": "7", "personal": "5", "other": None,\n',
+              '            "travel": "7", "family": "4", "personal": "5", "other": None,\n',
+          )
+
+          Path('tests/test_category_beta_matrix.py').write_text(r'''from datetime import datetime
+from pathlib import Path
+import unittest
+from zoneinfo import ZoneInfo
+
+import web_app
+from core.db import DEFAULT_CATEGORY_COLORS, get_or_create_google_user
+from modules.calendar import EVENT_CATEGORIES, _detect_category
+from modules.calendar_event_features import build_all_day_event
+
+
+class CategoryBetaMatrixTests(unittest.TestCase):
+    def test_backend_category_sets_do_not_drift(self):
+        self.assertEqual(set(EVENT_CATEGORIES), set(DEFAULT_CATEGORY_COLORS) - {"other"})
+
+    def test_family_language_matrix(self):
+        cases = [
+            "ужин с семьей",
+            "встреча с семьёй завтра в 19",
+            "забрать ребенка из школы",
+            "поездка с детьми",
+            "ужин с родителями",
+            "день рождения дочери",
+            "позвонить маме",
+            "семейный ужин",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(_detect_category(text)[0], "family")
+
+    def test_family_priority_over_generic_work_and_travel_words(self):
+        self.assertEqual(_detect_category("встреча с родителями")[0], "family")
+        self.assertEqual(_detect_category("поездка с детьми")[0], "family")
+
+    def test_number_seven_does_not_trigger_family(self):
+        self.assertNotEqual(_detect_category("семь звонков клиентам")[0], "family")
+
+    def test_other_categories_still_work(self):
+        cases = {
+            "рабочая встреча с клиентом": "work",
+            "прием у невролога": "health",
+            "кино с друзьями": "rest",
+            "рейс в Москву": "travel",
+            "купить продукты": "personal",
+            "непонятное событие": "other",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(_detect_category(text)[0], expected)
+
+    def test_family_uses_user_color_override(self):
+        colors = dict(DEFAULT_CATEGORY_COLORS)
+        colors["family"] = "11"
+        self.assertEqual(_detect_category("ужин с родителями", colors), ("family", "11"))
+
+    def test_family_color_applies_to_all_day_event(self):
+        now = datetime(2026, 9, 12, 12, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+        event = build_all_day_event(
+            "день рождения дочери завтра",
+            "Europe/Moscow",
+            now,
+            category_colors=DEFAULT_CATEGORY_COLORS,
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event["colorId"], "4")
+        self.assertIn("category: family", event["description"])
+
+    def test_web_settings_expose_family(self):
+        html = Path("web/index.html").read_text(encoding="utf-8")
+        self.assertIn('family: "Семья"', html)
+        self.assertIn('family: "4"', html)
+
+
+class CategorySettingsCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        self.app = web_app.create_web_app()
+        self.client = self.app.test_client()
+        uid = get_or_create_google_user(
+            "beta-family-compat-sub",
+            "beta-family-compat@example.test",
+            "Beta Family",
+        )
+        with self.client.session_transaction() as session:
+            session["user_id"] = uid
+
+    def test_legacy_color_payload_without_family_remains_valid(self):
+        legacy = {
+            "work": "3",
+            "health": "6",
+            "rest": "10",
+            "travel": "7",
+            "personal": "5",
+            "other": None,
+        }
+        response = self.client.post("/api/settings", json={"category_colors": legacy})
+        self.assertEqual(response.status_code, 200)
+        saved = response.get_json()["preferences"]["category_colors"]
+        self.assertEqual(saved["family"], "4")
+        for category, color in legacy.items():
+            self.assertEqual(saved[category], color)
+
+    def test_family_color_can_be_changed(self):
+        response = self.client.post("/api/settings", json={"category_colors": {"family": "11"}})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["preferences"]["category_colors"]["family"], "11")
+
+    def test_unknown_category_is_rejected(self):
+        response = self.client.post("/api/settings", json={"category_colors": {"alien": "1"}})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_settings")
+
+
+if __name__ == "__main__":
+    unittest.main()
+''', encoding='utf-8')
+          PY
+      - name: Compile Python sources
+        run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
+      - name: Run full test suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Check diff whitespace
+        run: git diff --check
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/beta-family-fix.yml
+          git add core/db.py modules/calendar.py web_app.py web/index.html tests/test_calendar_regression_audit.py tests/test_web_app.py tests/test_category_beta_matrix.py
+          git commit -m "fix: restore family category and harden category settings"
+          git push origin HEAD:fix/family-category-beta
