@@ -22,6 +22,12 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
       - name: Validate deployment secrets
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -45,6 +51,19 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Upload deploy script
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/deploy_update.sh \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-deploy.sh"
+
       - name: Deploy tested commit
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -57,4 +76,4 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd ~/bot_project && bash scripts/deploy_update.sh '$TARGET_SHA'"
+            "PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-deploy.sh '$TARGET_SHA'"
