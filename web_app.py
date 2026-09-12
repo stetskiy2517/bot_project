@@ -22,9 +22,12 @@ from core.db import (
     save_calendar_preferences,
     save_user_timezone,
 )
+from core.push_store import delete_push_subscription, has_push_subscriptions, save_push_subscription
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
+from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
+from modules.reminder_dispatcher import start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.router import route_text
 
@@ -103,6 +106,10 @@ def _voice_duration_ms() -> float | None:
 
 
 def _with_due_reminders(user_id: int, replies: list[str]) -> list[str]:
+    # If this user has at least one background Push subscription, the dispatcher
+    # owns delivery. Foreground polling remains a fallback for unsubscribed devices.
+    if has_push_subscriptions(user_id):
+        return replies
     due = claim_due_for_user(user_id)
     if not due:
         return replies
@@ -122,6 +129,7 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
 
 def create_web_app() -> Flask:
     init_db()
+    start_reminder_push_worker()
     app = Flask("personal-secretary-web", static_folder=None)
     app.secret_key = WEB_SESSION_SECRET
     app.config["MAX_CONTENT_LENGTH"] = VOICE_MAX_BYTES
@@ -156,6 +164,7 @@ def create_web_app() -> Flask:
     def sw():
         response = send_from_directory(WEB_DIR, "sw.js", mimetype="application/javascript")
         response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.get("/icon.svg")
@@ -203,6 +212,40 @@ def create_web_app() -> Flask:
             "name": account["name"],
         }
         return result
+
+    @app.get("/api/push/config")
+    def push_config():
+        try:
+            return {"public_key": get_vapid_public_key()}
+        except Exception:
+            logger.exception("Failed to prepare VAPID key")
+            return jsonify({"error": "push_not_configured", "message": "Не удалось включить push-уведомления."}), 503
+
+    @app.post("/api/push/subscriptions")
+    def create_push_subscription():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        keys = payload.get("keys") or {}
+        try:
+            save_push_subscription(
+                user_id,
+                str(payload.get("endpoint") or ""),
+                str(keys.get("p256dh") or ""),
+                str(keys.get("auth") or ""),
+                user_agent=request.headers.get("User-Agent"),
+            )
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": "invalid_push_subscription", "message": str(exc)}), 400
+        return {"ok": True}
+
+    @app.delete("/api/push/subscriptions")
+    def remove_push_subscription():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        endpoint = str(payload.get("endpoint") or "").strip()
+        if not endpoint:
+            return jsonify({"error": "missing_push_endpoint"}), 400
+        return {"ok": delete_push_subscription(user_id, endpoint)}
 
     @app.get("/api/reminders/due")
     def due_reminders():
