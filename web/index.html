@@ -132,6 +132,10 @@
         place-items: center;
         box-shadow: 0 18px 46px rgba(0, 0, 0, 0.13);
         cursor: pointer;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
         transition:
           transform 0.15s ease,
           box-shadow 0.2s ease,
@@ -580,7 +584,7 @@
               id="voiceBtn"
               class="record-button"
               type="button"
-              aria-label="Начать запись"
+              aria-label="Нажать и удерживать для записи"
             >
               <svg class="mic-icon" viewBox="0 0 48 48">
                 <rect x="17" y="7" width="14" height="24" rx="7" />
@@ -600,9 +604,9 @@
               </svg>
             </button>
             <div id="voiceCaption" class="voice-caption">
-              Нажми, чтобы начать запись
+              Нажми и удерживай для записи
             </div>
-            <div class="voice-sub">Нажми ещё раз, чтобы остановить</div>
+            <div class="voice-sub">Отпусти — запись отправится на обработку</div>
           </div>
           <div class="swipe-hint">
             <span>Свайп влево — текстовый чат</span
@@ -727,7 +731,9 @@
         recorder = null,
         recordingStream = null,
         voiceChunks = [],
-        sendingVoice = false;
+        sendingVoice = false,
+        voicePressActive = false,
+        voicePointerId = null;
       const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
       const categoryNames = {
         work: "Работа",
@@ -762,8 +768,8 @@
         other: null,
       };
       let categoryColors = { ...defaultCategoryColors };
-      let touchStartX = 0,
-        touchStartY = 0;
+      let touchStartX = null,
+        touchStartY = null;
       function msg(t, w = "assistant") {
         const e = document.createElement("div");
         e.className = "msg " + w;
@@ -881,8 +887,8 @@
       }
       function resetVoiceButton() {
         voiceBtn.classList.remove("recording");
-        voiceBtn.setAttribute("aria-label", "Начать запись");
-        voiceCaption.textContent = "Нажми, чтобы начать запись";
+        voiceBtn.setAttribute("aria-label", "Нажать и удерживать для записи");
+        voiceCaption.textContent = "Нажми и удерживай для записи";
       }
       function voiceExtension(mime) {
         if (mime.includes("ogg")) return "ogg";
@@ -916,8 +922,10 @@
         }
       }
       async function startVoice() {
-        if (sendingVoice) return;
+        if (sendingVoice || !voicePressActive) return;
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+          voicePressActive = false;
+          voicePointerId = null;
           voiceCaption.textContent = "Запись не поддерживается этим браузером";
           return;
         }
@@ -925,6 +933,11 @@
           recordingStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
           });
+          if (!voicePressActive) {
+            stopTracks();
+            resetVoiceButton();
+            return;
+          }
           voiceChunks = [];
           const preferred = [
             "audio/webm;codecs=opus",
@@ -942,6 +955,8 @@
             if (e.data && e.data.size) voiceChunks.push(e.data);
           };
           recorder.onerror = () => {
+            voicePressActive = false;
+            voicePointerId = null;
             stopTracks();
             resetVoiceButton();
             voiceCaption.textContent = "Ошибка записи";
@@ -954,15 +969,19 @@
             const blob = new Blob(voiceChunks, { type });
             recorder = null;
             voiceChunks = [];
+            voicePressActive = false;
+            voicePointerId = null;
             stopTracks();
             resetVoiceButton();
             sendVoice(blob);
           };
           recorder.start();
           voiceBtn.classList.add("recording");
-          voiceBtn.setAttribute("aria-label", "Остановить запись");
-          voiceCaption.textContent = "Идёт запись…";
+          voiceBtn.setAttribute("aria-label", "Отпустить для отправки записи");
+          voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
         } catch (e) {
+          voicePressActive = false;
+          voicePointerId = null;
           stopTracks();
           resetVoiceButton();
           voiceCaption.textContent =
@@ -971,10 +990,51 @@
               : "Не удалось включить микрофон";
         }
       }
-      voiceBtn.onclick = () => {
+      function beginVoicePress(e) {
+        if (sendingVoice || voicePressActive || voiceBtn.disabled) return;
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        voicePressActive = true;
+        voicePointerId = e.pointerId;
+        if (voiceBtn.setPointerCapture) {
+          try {
+            voiceBtn.setPointerCapture(e.pointerId);
+          } catch (_error) {}
+        }
+        startVoice();
+      }
+      function endVoicePress(e) {
+        if (!voicePressActive) return;
+        if (
+          voicePointerId !== null &&
+          e.pointerId !== undefined &&
+          e.pointerId !== voicePointerId
+        )
+          return;
+        e.preventDefault();
+        voicePressActive = false;
+        voicePointerId = null;
         if (recorder && recorder.state === "recording") recorder.stop();
-        else startVoice();
-      };
+      }
+      voiceBtn.addEventListener("pointerdown", beginVoicePress);
+      voiceBtn.addEventListener("pointerup", endVoicePress);
+      voiceBtn.addEventListener("pointercancel", endVoicePress);
+      voiceBtn.addEventListener("lostpointercapture", (e) => {
+        if (voicePressActive && e.pointerId === voicePointerId) endVoicePress(e);
+      });
+      voiceBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+      voiceBtn.addEventListener("keydown", (e) => {
+        if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+          e.preventDefault();
+          if (sendingVoice || voicePressActive || voiceBtn.disabled) return;
+          voicePressActive = true;
+          voicePointerId = null;
+          startVoice();
+        }
+      });
+      voiceBtn.addEventListener("keyup", (e) => {
+        if (e.key === " " || e.key === "Enter") endVoicePress(e);
+      });
       document.getElementById("accountBtn").onclick = () =>
         settingsPanel.classList.add("open");
       document.getElementById("closeSettings").onclick = () =>
@@ -982,6 +1042,11 @@
       document.getElementById("pages").addEventListener(
         "touchstart",
         (e) => {
+          if (voiceBtn.contains(e.target)) {
+            touchStartX = null;
+            touchStartY = null;
+            return;
+          }
           touchStartX = e.changedTouches[0].clientX;
           touchStartY = e.changedTouches[0].clientY;
         },
@@ -990,8 +1055,16 @@
       document.getElementById("pages").addEventListener(
         "touchend",
         (e) => {
+          if (
+            touchStartX === null ||
+            touchStartY === null ||
+            voiceBtn.contains(e.target)
+          )
+            return;
           const dx = e.changedTouches[0].clientX - touchStartX,
             dy = e.changedTouches[0].clientY - touchStartY;
+          touchStartX = null;
+          touchStartY = null;
           if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.2) {
             if (dx < 0) app.classList.add("chat-mode");
             else app.classList.remove("chat-mode");
