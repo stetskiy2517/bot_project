@@ -250,6 +250,8 @@ def create_web_app() -> Flask:
     @app.get("/api/reminders/due")
     def due_reminders():
         user_id = _require_user_id()
+        if has_push_subscriptions(user_id):
+            return {"reminders": []}
         return {"reminders": claim_due_for_user(user_id)}
 
     @app.post("/api/chat")
