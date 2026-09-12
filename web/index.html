@@ -816,6 +816,7 @@
         chatBackBtn = document.getElementById("chatBackBtn"),
         voiceCaption = document.getElementById("voiceCaption");
       const voiceButtons = [voiceBtn, chatVoiceBtn];
+      const MIN_VOICE_DURATION_MS = 400;
       let workDays = [0, 1, 2, 3, 4],
         recorder = null,
         recordingStream = null,
@@ -823,6 +824,7 @@
         sendingVoice = false,
         voicePressActive = false,
         voicePointerId = null,
+        voiceRecordingStartedAt = 0,
         voiceSourceButton = null;
       const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
       const categoryNames = {
@@ -1005,7 +1007,7 @@
         if (mime.includes("wav")) return "wav";
         return "webm";
       }
-      async function sendVoice(blob) {
+      async function sendVoice(blob, durationMs) {
         if (!blob.size) {
           reportVoiceError("Не удалось записать звук");
           voiceSourceButton = null;
@@ -1020,6 +1022,7 @@
         }
         const form = new FormData();
         form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
+        form.append("duration_ms", String(Math.round(durationMs)));
         try {
           const r = await api("/api/voice", { method: "POST", body: form });
           app.classList.add("chat-mode");
@@ -1041,6 +1044,7 @@
           voicePressActive = false;
           voicePointerId = null;
           voiceSourceButton = null;
+          voiceRecordingStartedAt = 0;
           reportVoiceError("Запись не поддерживается этим браузером");
           return;
         }
@@ -1073,6 +1077,7 @@
             voicePressActive = false;
             voicePointerId = null;
             voiceSourceButton = null;
+            voiceRecordingStartedAt = 0;
             stopTracks();
             resetVoiceButton();
             reportVoiceError("Ошибка записи");
@@ -1083,15 +1088,24 @@
               (voiceChunks[0] && voiceChunks[0].type) ||
               "audio/webm";
             const blob = new Blob(voiceChunks, { type });
+            const durationMs = voiceRecordingStartedAt
+              ? performance.now() - voiceRecordingStartedAt
+              : 0;
             recorder = null;
             voiceChunks = [];
             voicePressActive = false;
             voicePointerId = null;
+            voiceRecordingStartedAt = 0;
             stopTracks();
             resetVoiceButton();
-            sendVoice(blob);
+            if (durationMs < MIN_VOICE_DURATION_MS) {
+              voiceSourceButton = null;
+              return;
+            }
+            sendVoice(blob, durationMs);
           };
           recorder.start();
+          voiceRecordingStartedAt = performance.now();
           voiceSourceButton.classList.add("recording");
           voiceSourceButton.setAttribute(
             "aria-label",
@@ -1104,6 +1118,7 @@
           voicePressActive = false;
           voicePointerId = null;
           voiceSourceButton = null;
+          voiceRecordingStartedAt = 0;
           stopTracks();
           resetVoiceButton();
           reportVoiceError(
@@ -1120,6 +1135,7 @@
         e.preventDefault();
         voicePressActive = true;
         voicePointerId = e.pointerId;
+        voiceRecordingStartedAt = 0;
         voiceSourceButton = button;
         if (button.setPointerCapture) {
           try {
@@ -1160,6 +1176,7 @@
             if (sendingVoice || voicePressActive || button.disabled) return;
             voicePressActive = true;
             voicePointerId = null;
+            voiceRecordingStartedAt = 0;
             voiceSourceButton = button;
             startVoice();
           }
