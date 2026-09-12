@@ -25,6 +25,7 @@ from core.db import (
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from modules.auth import build_web_signin_url, complete_web_signin
+from modules.reminders import claim_due_for_user
 from modules.router import route_text
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,13 @@ def _voice_duration_ms() -> float | None:
     if value < 0:
         raise ValueError("Некорректная длительность аудио.")
     return value
+
+
+def _with_due_reminders(user_id: int, replies: list[str]) -> list[str]:
+    due = claim_due_for_user(user_id)
+    if not due:
+        return replies
+    return [*(item["message"] for item in due), *replies]
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
@@ -190,6 +198,11 @@ def create_web_app() -> Flask:
         }
         return result
 
+    @app.get("/api/reminders/due")
+    def due_reminders():
+        user_id = _require_user_id()
+        return {"reminders": claim_due_for_user(user_id)}
+
     @app.post("/api/chat")
     def chat():
         user_id = _require_user_id()
@@ -204,7 +217,7 @@ def create_web_app() -> Flask:
         except Exception:
             logger.exception("Web command request failed for user %s", user_id)
             return jsonify({"error": "command_failed", "replies": ["Не удалось обработать сообщение."]}), 500
-        return {"handled": result.handled, "replies": result.replies}
+        return {"handled": result.handled, "replies": _with_due_reminders(user_id, result.replies)}
 
     @app.post("/api/voice")
     def voice():
@@ -236,7 +249,7 @@ def create_web_app() -> Flask:
         return {
             "transcript": text,
             "handled": result.handled,
-            "replies": result.replies,
+            "replies": _with_due_reminders(user_id, result.replies),
         }
 
     @app.post("/api/settings")
