@@ -121,7 +121,10 @@ class WebPushApiTests(unittest.TestCase):
         script = response.get_data(as_text=True)
         response.close()
         self.assertIn("pushManager.subscribe", script)
-        self.assertIn("Notification.requestPermission", script)
+        self.assertIn("applicationServerKey", script)
+        self.assertIn("directly from the user gesture", script)
+        self.assertIn("declarativePushSupported", script)
+        self.assertNotIn("const permission = await Notification.requestPermission()", script)
         self.assertIn("Включить уведомления", script)
         self.assertIn("Проверить уведомления", script)
         self.assertIn('api("/api/push/test"', script)
@@ -132,6 +135,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
+        self.assertIn('personal-secretary-v4', worker)
 
 
 class VapidKeyTests(unittest.TestCase):
