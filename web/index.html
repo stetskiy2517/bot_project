@@ -18,12 +18,9 @@
         color: #111;
         background: #f7f7f5;
         --bg: #f7f7f5;
-        --card: #fff;
         --text: #111;
         --muted: #8a8a8a;
         --line: #e6e6e3;
-        --soft: #efefec;
-        --black: #111;
       }
       * {
         box-sizing: border-box;
@@ -55,7 +52,7 @@
       }
       .topbar {
         position: absolute;
-        z-index: 20;
+        z-index: 30;
         top: 0;
         left: 0;
         right: 0;
@@ -87,35 +84,38 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .pages {
-        height: 100%;
-        display: flex;
-        width: 200%;
-        transform: translateX(0);
-        transition: transform 0.36s cubic-bezier(0.22, 0.8, 0.24, 1);
-        touch-action: pan-y;
+      .workspace {
+        position: absolute;
+        inset: 0;
       }
-      .app.chat-mode .pages {
-        transform: translateX(-50%);
-      }
-      .page {
-        width: 50%;
-        height: 100%;
-        flex: 0 0 50%;
-        position: relative;
-      }
-      .voice-page {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 100px 24px 88px;
+      .voice-shell,
+      .chat-shell {
+        position: absolute;
+        inset: calc(env(safe-area-inset-top) + 76px) 0
+          calc(env(safe-area-inset-bottom) + 82px);
+        transition:
+          opacity 0.3s ease,
+          transform 0.36s cubic-bezier(0.22, 0.8, 0.24, 1),
+          visibility 0s linear 0.36s;
       }
       .voice-shell {
-        text-align: center;
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
         transform: translateY(-2vh);
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition-delay: 0s;
+      }
+      .app.chat-active .voice-shell {
+        opacity: 0;
+        transform: translateY(-2vh) scale(0.94);
+        visibility: hidden;
+        pointer-events: none;
       }
       .voice-title {
         font-size: 17px;
@@ -178,89 +178,78 @@
         font-size: 13px;
         color: var(--muted);
       }
-      .swipe-hint {
-        position: absolute;
-        bottom: calc(env(safe-area-inset-bottom) + 26px);
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        color: #9a9a96;
-        font-size: 12px;
-        letter-spacing: 0.02em;
-      }
-      .swipe-hint svg {
-        width: 15px;
-        height: 15px;
-        stroke: currentColor;
-        fill: none;
-        stroke-width: 1.6;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-      .chat-page {
-        background: #fff;
-        border-left: 1px solid var(--line);
+      .chat-shell {
         display: flex;
         flex-direction: column;
-        padding-top: calc(env(safe-area-inset-top) + 14px);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(14px);
       }
-      .chat-header {
-        height: 58px;
+      .app.chat-active .chat-shell {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: translateY(0);
+        transition-delay: 0s;
+      }
+      .chat-tools {
+        height: 42px;
+        flex: 0 0 42px;
+        padding: 0 16px;
         display: flex;
         align-items: center;
-        padding: 0 68px 0 12px;
-        border-bottom: 1px solid #f0f0ee;
-        background: rgba(255, 255, 255, 0.92);
-        backdrop-filter: blur(16px);
-        font-size: 17px;
-        font-weight: 600;
-        letter-spacing: -0.25px;
+        justify-content: space-between;
       }
-      .chat-back-button {
-        width: 38px;
-        height: 38px;
-        margin-right: 6px;
+      .chat-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: #6f6f6b;
+      }
+      .collapse-chat {
+        width: 34px;
+        height: 34px;
         border-radius: 50%;
         background: transparent;
-        color: #111;
+        color: #777773;
         display: grid;
         place-items: center;
         cursor: pointer;
-        flex: 0 0 auto;
       }
-      .chat-back-button:hover {
-        background: #f3f3f1;
+      .collapse-chat:hover {
+        background: #ececea;
       }
-      .chat-back-button:active {
-        transform: scale(0.96);
-      }
-      .chat-back-button svg {
-        width: 20px;
-        height: 20px;
+      .collapse-chat svg {
+        width: 18px;
+        height: 18px;
         fill: none;
         stroke: currentColor;
         stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .chat-title {
-        min-width: 0;
-      }
       .chat {
         flex: 1;
+        min-height: 0;
         overflow: auto;
-        padding: 22px 16px 112px;
+        padding: 4px 16px 20px;
         scroll-behavior: smooth;
+        overscroll-behavior: contain;
+      }
+      .chat:empty::before {
+        content: "Диалог появится здесь";
+        display: block;
+        padding-top: 24px;
+        text-align: center;
+        color: #aaa9a5;
+        font-size: 13px;
       }
       .msg {
         max-width: min(82%, 560px);
         padding: 11px 14px;
         margin: 9px 0;
         border-radius: 20px;
-        background: #f0f0ed;
+        background: #ececea;
         color: #171717;
         font-size: 15px;
         line-height: 1.42;
@@ -277,11 +266,12 @@
       }
       .composer-wrap {
         position: absolute;
+        z-index: 25;
         left: 0;
         right: 0;
         bottom: 0;
         padding: 8px 12px calc(env(safe-area-inset-bottom) + 12px);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0), #fff 24%);
+        background: linear-gradient(180deg, rgba(247, 247, 245, 0), #f7f7f5 24%);
       }
       .composer {
         max-width: 760px;
@@ -294,6 +284,13 @@
         border-radius: 25px;
         background: #fff;
         box-shadow: 0 4px 22px rgba(0, 0, 0, 0.06);
+        transition:
+          box-shadow 0.2s ease,
+          border-color 0.2s ease;
+      }
+      .composer:focus-within {
+        border-color: #c9c9c5;
+        box-shadow: 0 5px 28px rgba(0, 0, 0, 0.08);
       }
       .composer input {
         flex: 1;
@@ -640,88 +637,72 @@
           </svg>
         </button>
       </div>
-      <div id="pages" class="pages">
-        <section class="page voice-page">
-          <div class="voice-shell">
-            <h1 class="voice-title">Говори, я слушаю</h1>
-            <button
-              id="voiceBtn"
-              class="record-button"
-              type="button"
-              aria-label="Нажать и удерживать для записи"
-            >
-              <svg class="mic-icon" viewBox="0 0 48 48">
-                <rect x="17" y="7" width="14" height="24" rx="7" />
-                <path
-                  d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11"
-                /></svg
-              ><svg class="stop-icon" viewBox="0 0 48 48">
-                <rect
-                  x="17"
-                  y="17"
-                  width="14"
-                  height="14"
-                  rx="2"
-                  fill="#fff"
-                  stroke="none"
-                />
-              </svg>
-            </button>
-            <div id="voiceCaption" class="voice-caption">
-              Нажми и удерживай для записи
-            </div>
-            <div class="voice-sub">Отпусти — запись отправится на обработку</div>
-          </div>
-          <div class="swipe-hint">
-            <span>Свайп влево — текстовый чат</span
-            ><svg viewBox="0 0 20 20"><path d="M13 4 7 10l6 6" /></svg>
-          </div>
+
+      <div class="workspace">
+        <section id="voiceShell" class="voice-shell" aria-label="Голосовой ввод">
+          <h1 class="voice-title">Говори, я слушаю</h1>
+          <button
+            id="voiceBtn"
+            class="record-button"
+            type="button"
+            aria-label="Нажать и удерживать для записи"
+          >
+            <svg class="mic-icon" viewBox="0 0 48 48">
+              <rect x="17" y="7" width="14" height="24" rx="7" />
+              <path d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11" />
+            </svg>
+            <svg class="stop-icon" viewBox="0 0 48 48">
+              <rect x="17" y="17" width="14" height="14" rx="2" fill="#fff" stroke="none" />
+            </svg>
+          </button>
+          <div id="voiceCaption" class="voice-caption">Нажми и удерживай для записи</div>
+          <div class="voice-sub">Отпусти — запись отправится на обработку</div>
         </section>
-        <section class="page chat-page">
-          <div class="chat-header">
+
+        <section id="chatShell" class="chat-shell" aria-label="Чат">
+          <div class="chat-tools">
+            <span class="chat-label">Чат</span>
             <button
-              id="chatBackBtn"
-              class="chat-back-button"
+              id="chatCollapseBtn"
+              class="collapse-chat"
               type="button"
-              aria-label="Вернуться к голосовому вводу"
-              title="Голосовой ввод"
+              aria-label="Свернуть чат"
+              title="Вернуться к голосовому вводу"
             >
-              <svg viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6" /></svg>
+              <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
             </button>
-            <div class="chat-title">Чат</div>
           </div>
-          <div id="chat" class="chat">
-            <div class="msg assistant">Напиши, что нужно сделать.</div>
-          </div>
-          <div class="composer-wrap">
-            <form id="composer" class="composer">
-              <input
-                id="message"
-                autocomplete="off"
-                placeholder="Сообщение…"
-              /><button
-                id="chatVoiceBtn"
-                class="composer-voice-button"
-                type="button"
-                aria-label="Нажать и удерживать для голосового ввода"
-                title="Нажми и удерживай для записи"
-              >
-                <svg viewBox="0 0 24 24">
-                  <rect x="8" y="3" width="8" height="12" rx="4" />
-                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" />
-                </svg></button
-              ><button
-                class="send-button"
-                type="submit"
-                aria-label="Отправить"
-              >
-                <svg viewBox="0 0 20 20"><path d="M10 15V5M6 9l4-4 4 4" /></svg>
-              </button>
-            </form>
-          </div>
+          <div id="chat" class="chat"></div>
         </section>
       </div>
+
+      <div class="composer-wrap">
+        <form id="composer" class="composer">
+          <input
+            id="message"
+            autocomplete="off"
+            placeholder="Сообщение…"
+            aria-label="Сообщение"
+          />
+          <button
+            id="chatVoiceBtn"
+            class="composer-voice-button"
+            type="button"
+            aria-label="Нажать и удерживать для голосового ввода"
+            title="Нажми и удерживай для записи"
+          >
+            <svg viewBox="0 0 24 24">
+              <rect x="8" y="3" width="8" height="12" rx="4" />
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" />
+            </svg>
+          </button>
+          <button class="send-button" type="submit" aria-label="Отправить">
+            <svg viewBox="0 0 20 20"><path d="M10 15V5M6 9l4-4 4 4" /></svg>
+          </button>
+        </form>
+      </div>
     </main>
+
     <div id="login" class="login">
       <div class="login-card">
         <div class="login-mark">
@@ -737,6 +718,7 @@
         <button id="googleLogin" class="google-btn">Войти через Google</button>
       </div>
     </div>
+
     <div id="settingsPanel" class="panel">
       <div class="sheet">
         <div class="handle"></div>
@@ -761,27 +743,22 @@
           <label class="field"
             >Часовой пояс<select id="timezone">
               <option value="Europe/Moscow">Москва — Europe/Moscow</option>
-              <option value="Europe/Amsterdam">
-                Амстердам — Europe/Amsterdam
-              </option>
+              <option value="Europe/Amsterdam">Амстердам — Europe/Amsterdam</option>
               <option value="Europe/Tallinn">Таллин — Europe/Tallinn</option>
-              <option value="Europe/Helsinki">
-                Хельсинки — Europe/Helsinki
-              </option>
+              <option value="Europe/Helsinki">Хельсинки — Europe/Helsinki</option>
               <option value="Europe/Berlin">Берлин — Europe/Berlin</option>
               <option value="Europe/London">Лондон — Europe/London</option>
               <option value="Asia/Dubai">Дубай — Asia/Dubai</option>
               <option value="Asia/Almaty">Алматы — Asia/Almaty</option>
             </select></label
-          ><label class="field"
+          >
+          <label class="field"
             >Рабочий день
             <div class="row">
-              <input id="workStart" type="time" value="09:00" /><input
-                id="workEnd"
-                type="time"
-                value="18:00"
-              /></div
-          ></label>
+              <input id="workStart" type="time" value="09:00" />
+              <input id="workEnd" type="time" value="18:00" />
+            </div>
+          </label>
           <div class="field">
             <span>Рабочие дни</span>
             <div id="days" class="days"></div>
@@ -799,33 +776,39 @@
         <div id="categoryColors" class="grid"></div>
         <p class="settings-help">Цвет применяется к новым событиям.</p>
         <div class="sheet-actions">
-          <button id="logout" class="action danger" type="button">Выйти</button
-          ><button id="saveSettings" class="action primary" type="button">
-            Сохранить
-          </button>
+          <button id="logout" class="action danger" type="button">Выйти</button>
+          <button id="saveSettings" class="action primary" type="button">Сохранить</button>
         </div>
       </div>
     </div>
+
     <script>
       const app = document.getElementById("app"),
         login = document.getElementById("login"),
         chat = document.getElementById("chat"),
+        messageInput = document.getElementById("message"),
         settingsPanel = document.getElementById("settingsPanel"),
         voiceBtn = document.getElementById("voiceBtn"),
         chatVoiceBtn = document.getElementById("chatVoiceBtn"),
-        chatBackBtn = document.getElementById("chatBackBtn"),
+        chatCollapseBtn = document.getElementById("chatCollapseBtn"),
         voiceCaption = document.getElementById("voiceCaption");
+
       const voiceButtons = [voiceBtn, chatVoiceBtn];
       const MIN_VOICE_DURATION_MS = 400;
+      const CHAT_IDLE_MS = 30000;
+
       let workDays = [0, 1, 2, 3, 4],
         recorder = null,
         recordingStream = null,
         voiceChunks = [],
         sendingVoice = false,
+        sendingChat = false,
         voicePressActive = false,
         voicePointerId = null,
         voiceRecordingStartedAt = 0,
-        voiceSourceButton = null;
+        voiceSourceButton = null,
+        chatIdleTimer = null;
+
       const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
       const categoryNames = {
         work: "Работа",
@@ -860,46 +843,98 @@
         other: null,
       };
       let categoryColors = { ...defaultCategoryColors };
-      let touchStartX = null,
-        touchStartY = null;
-      function msg(t, w = "assistant") {
-        const e = document.createElement("div");
-        e.className = "msg " + w;
-        e.textContent = t;
-        chat.appendChild(e);
+
+      function msg(text, who = "assistant") {
+        const item = document.createElement("div");
+        item.className = "msg " + who;
+        item.textContent = text;
+        chat.appendChild(item);
         chat.scrollTop = chat.scrollHeight;
-        return e;
+        return item;
       }
-      async function api(p, o = {}) {
-        const headers = { ...(o.headers || {}) };
-        if (!(o.body instanceof FormData) && !headers["Content-Type"])
+
+      function clearChatIdleTimer() {
+        if (chatIdleTimer) {
+          clearTimeout(chatIdleTimer);
+          chatIdleTimer = null;
+        }
+      }
+
+      function canAutoHideChat() {
+        return (
+          app.classList.contains("chat-active") &&
+          !sendingVoice &&
+          !sendingChat &&
+          !voicePressActive &&
+          document.activeElement !== messageInput &&
+          !messageInput.value.trim() &&
+          !settingsPanel.classList.contains("open") &&
+          !login.classList.contains("open")
+        );
+      }
+
+      function hideChat(force = false) {
+        if (!force && !canAutoHideChat()) return false;
+        clearChatIdleTimer();
+        app.classList.remove("chat-active");
+        return true;
+      }
+
+      function armChatIdleTimer() {
+        clearChatIdleTimer();
+        if (!canAutoHideChat()) return;
+        chatIdleTimer = setTimeout(() => {
+          if (!hideChat()) armChatIdleTimer();
+        }, CHAT_IDLE_MS);
+      }
+
+      function showChat() {
+        clearChatIdleTimer();
+        app.classList.add("chat-active");
+        requestAnimationFrame(() => {
+          chat.scrollTop = chat.scrollHeight;
+        });
+      }
+
+      function noteChatActivity() {
+        clearChatIdleTimer();
+        if (app.classList.contains("chat-active")) armChatIdleTimer();
+      }
+
+      async function api(path, options = {}) {
+        const headers = { ...(options.headers || {}) };
+        if (!(options.body instanceof FormData) && !headers["Content-Type"])
           headers["Content-Type"] = "application/json";
-        const r = await fetch(p, { ...o, headers });
-        if (r.status === 401) {
+        const response = await fetch(path, { ...options, headers });
+        if (response.status === 401) {
           login.classList.add("open");
+          clearChatIdleTimer();
           throw Error("unauthorized");
         }
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw Error(d.message || d.error || "request_failed");
-        return d;
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw Error(data.message || data.error || "request_failed");
+        return data;
       }
+
       function renderDays() {
         const box = document.getElementById("days");
         box.innerHTML = "";
-        dayNames.forEach((name, i) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "day " + (workDays.includes(i) ? "on" : "");
-          b.textContent = name;
-          b.onclick = () => {
-            workDays = workDays.includes(i)
-              ? workDays.filter((x) => x !== i)
-              : [...workDays, i].sort();
+        dayNames.forEach((name, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "day " + (workDays.includes(index) ? "on" : "");
+          button.textContent = name;
+          button.onclick = () => {
+            workDays = workDays.includes(index)
+              ? workDays.filter((item) => item !== index)
+              : [...workDays, index].sort();
             renderDays();
           };
-          box.appendChild(b);
+          box.appendChild(button);
         });
       }
+
       function renderCategoryColors() {
         const box = document.getElementById("categoryColors");
         box.innerHTML = "";
@@ -921,9 +956,7 @@
           });
           select.value = categoryColors[category] || "";
           const updateDot = () => {
-            const color = googleColors.find(
-              ([value]) => value === select.value,
-            );
+            const color = googleColors.find(([value]) => value === select.value);
             dot.style.setProperty("--category-color", color[2]);
           };
           select.onchange = () => {
@@ -935,53 +968,66 @@
           box.appendChild(row);
         });
       }
-      function loadSettings(s) {
-        const p = s.preferences || {};
+
+      function loadSettings(status) {
+        const preferences = status.preferences || {};
         document.getElementById("timezone").value =
-          s.timezone || "Europe/Moscow";
-        document.getElementById("workStart").value = p.work_start || "09:00";
-        document.getElementById("workEnd").value = p.work_end || "18:00";
-        document.getElementById("buffer").value = p.buffer_minutes ?? 15;
-        workDays = p.work_days || [0, 1, 2, 3, 4];
+          status.timezone || "Europe/Moscow";
+        document.getElementById("workStart").value =
+          preferences.work_start || "09:00";
+        document.getElementById("workEnd").value =
+          preferences.work_end || "18:00";
+        document.getElementById("buffer").value =
+          preferences.buffer_minutes ?? 15;
+        workDays = preferences.work_days || [0, 1, 2, 3, 4];
         renderDays();
         categoryColors = {
           ...defaultCategoryColors,
-          ...(p.category_colors || {}),
+          ...(preferences.category_colors || {}),
         };
         renderCategoryColors();
-        const name = (s.user && s.user.name) || "Пользователь",
-          email = (s.user && s.user.email) || "Google Calendar";
+        const name = (status.user && status.user.name) || "Пользователь";
+        const email = (status.user && status.user.email) || "Google Calendar";
         document.getElementById("accountName").textContent = name;
         document.getElementById("accountEmail").textContent = email;
         document.getElementById("avatar").textContent =
           (name || email).trim().charAt(0).toUpperCase() || "A";
       }
+
       async function refresh() {
         try {
-          const s = await api("/api/status");
+          const status = await api("/api/status");
           login.classList.remove("open");
-          loadSettings(s);
-          if (!s.timezone_set) {
+          loadSettings(status);
+          if (!status.timezone_set) {
             document.getElementById("onboardingNotice").style.display = "block";
             settingsPanel.classList.add("open");
-          } else
+            clearChatIdleTimer();
+          } else {
             document.getElementById("onboardingNotice").style.display = "none";
-        } catch (e) {
-          if (e.message !== "unauthorized")
+          }
+        } catch (error) {
+          if (error.message !== "unauthorized") {
+            showChat();
             msg("Не удалось подключиться к серверу.");
+            armChatIdleTimer();
+          }
         }
       }
+
       function stopTracks() {
         if (recordingStream) {
-          recordingStream.getTracks().forEach((t) => t.stop());
+          recordingStream.getTracks().forEach((track) => track.stop());
           recordingStream = null;
         }
       }
+
       function setVoiceButtonsDisabled(disabled) {
         voiceButtons.forEach((button) => {
           button.disabled = disabled;
         });
       }
+
       function resetVoiceButton() {
         voiceButtons.forEach((button) => {
           button.classList.remove("recording");
@@ -996,10 +1042,16 @@
         });
         voiceCaption.textContent = "Нажми и удерживай для записи";
       }
+
       function reportVoiceError(text) {
         voiceCaption.textContent = text;
-        if (app.classList.contains("chat-mode")) msg(text, "assistant");
+        if (app.classList.contains("chat-active") || voiceSourceButton === chatVoiceBtn) {
+          showChat();
+          msg(text, "assistant");
+          armChatIdleTimer();
+        }
       }
+
       function voiceExtension(mime) {
         if (mime.includes("ogg")) return "ogg";
         if (mime.includes("mp4")) return "m4a";
@@ -1007,6 +1059,7 @@
         if (mime.includes("wav")) return "wav";
         return "webm";
       }
+
       async function sendVoice(blob, durationMs) {
         if (!blob.size) {
           reportVoiceError("Не удалось записать звук");
@@ -1014,6 +1067,8 @@
           return;
         }
         sendingVoice = true;
+        clearChatIdleTimer();
+        showChat();
         setVoiceButtonsDisabled(true);
         voiceCaption.textContent = "Распознаю…";
         if (voiceSourceButton === chatVoiceBtn) {
@@ -1024,22 +1079,24 @@
         form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
         form.append("duration_ms", String(Math.round(durationMs)));
         try {
-          const r = await api("/api/voice", { method: "POST", body: form });
-          app.classList.add("chat-mode");
-          msg(r.transcript || "Голосовое сообщение", "user");
-          (r.replies || []).forEach((x) => msg(x, "assistant"));
-        } catch (e) {
-          if (e.message !== "unauthorized")
-            reportVoiceError("Не удалось обработать голос");
+          const result = await api("/api/voice", { method: "POST", body: form });
+          msg(result.transcript || "Голосовое сообщение", "user");
+          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+        } catch (error) {
+          if (error.message !== "unauthorized")
+            msg("Не удалось обработать голос", "assistant");
         } finally {
           sendingVoice = false;
           setVoiceButtonsDisabled(false);
           voiceSourceButton = null;
           setTimeout(resetVoiceButton, 900);
+          armChatIdleTimer();
         }
       }
+
       async function startVoice() {
         if (sendingVoice || !voicePressActive || !voiceSourceButton) return;
+        clearChatIdleTimer();
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
           voicePressActive = false;
           voicePointerId = null;
@@ -1049,9 +1106,7 @@
           return;
         }
         try {
-          recordingStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-          });
+          recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           if (!voicePressActive || !voiceSourceButton) {
             stopTracks();
             resetVoiceButton();
@@ -1064,23 +1119,23 @@
             "audio/mp4",
           ];
           const mime = preferred.find(
-            (x) =>
-              MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(x),
+            (item) =>
+              MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(item),
           );
           recorder = mime
             ? new MediaRecorder(recordingStream, { mimeType: mime })
             : new MediaRecorder(recordingStream);
-          recorder.ondataavailable = (e) => {
-            if (e.data && e.data.size) voiceChunks.push(e.data);
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size) voiceChunks.push(event.data);
           };
           recorder.onerror = () => {
             voicePressActive = false;
             voicePointerId = null;
-            voiceSourceButton = null;
             voiceRecordingStartedAt = 0;
             stopTracks();
             resetVoiceButton();
             reportVoiceError("Ошибка записи");
+            voiceSourceButton = null;
           };
           recorder.onstop = () => {
             const type =
@@ -1100,6 +1155,7 @@
             resetVoiceButton();
             if (durationMs < MIN_VOICE_DURATION_MS) {
               voiceSourceButton = null;
+              armChatIdleTimer();
               return;
             }
             sendVoice(blob, durationMs);
@@ -1114,151 +1170,144 @@
           if (voiceSourceButton === chatVoiceBtn)
             chatVoiceBtn.title = "Отпусти, чтобы отправить";
           voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
-        } catch (e) {
+        } catch (error) {
+          const sourceButton = voiceSourceButton;
           voicePressActive = false;
           voicePointerId = null;
-          voiceSourceButton = null;
           voiceRecordingStartedAt = 0;
           stopTracks();
           resetVoiceButton();
+          voiceSourceButton = sourceButton;
           reportVoiceError(
-            e && e.name === "NotAllowedError"
+            error && error.name === "NotAllowedError"
               ? "Нет доступа к микрофону"
               : "Не удалось включить микрофон",
           );
+          voiceSourceButton = null;
         }
       }
-      function beginVoicePress(e) {
-        const button = e.currentTarget;
+
+      function beginVoicePress(event) {
+        const button = event.currentTarget;
         if (sendingVoice || voicePressActive || button.disabled) return;
-        if (e.pointerType === "mouse" && e.button !== 0) return;
-        e.preventDefault();
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        event.preventDefault();
         voicePressActive = true;
-        voicePointerId = e.pointerId;
+        voicePointerId = event.pointerId;
         voiceRecordingStartedAt = 0;
         voiceSourceButton = button;
+        clearChatIdleTimer();
         if (button.setPointerCapture) {
           try {
-            button.setPointerCapture(e.pointerId);
+            button.setPointerCapture(event.pointerId);
           } catch (_error) {}
         }
         startVoice();
       }
-      function endVoicePress(e) {
+
+      function endVoicePress(event) {
         if (!voicePressActive) return;
         if (
           voicePointerId !== null &&
-          e.pointerId !== undefined &&
-          e.pointerId !== voicePointerId
+          event.pointerId !== undefined &&
+          event.pointerId !== voicePointerId
         )
           return;
-        e.preventDefault();
+        event.preventDefault();
         voicePressActive = false;
         voicePointerId = null;
         if (recorder && recorder.state === "recording") recorder.stop();
       }
+
       function bindVoiceButton(button) {
         button.addEventListener("pointerdown", beginVoicePress);
         button.addEventListener("pointerup", endVoicePress);
         button.addEventListener("pointercancel", endVoicePress);
-        button.addEventListener("lostpointercapture", (e) => {
+        button.addEventListener("lostpointercapture", (event) => {
           if (
             voicePressActive &&
             button === voiceSourceButton &&
-            e.pointerId === voicePointerId
+            event.pointerId === voicePointerId
           )
-            endVoicePress(e);
+            endVoicePress(event);
         });
-        button.addEventListener("contextmenu", (e) => e.preventDefault());
-        button.addEventListener("keydown", (e) => {
-          if ((e.key === " " || e.key === "Enter") && !e.repeat) {
-            e.preventDefault();
+        button.addEventListener("contextmenu", (event) => event.preventDefault());
+        button.addEventListener("keydown", (event) => {
+          if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+            event.preventDefault();
             if (sendingVoice || voicePressActive || button.disabled) return;
             voicePressActive = true;
             voicePointerId = null;
             voiceRecordingStartedAt = 0;
             voiceSourceButton = button;
+            clearChatIdleTimer();
             startVoice();
           }
         });
-        button.addEventListener("keyup", (e) => {
-          if (e.key === " " || e.key === "Enter") endVoicePress(e);
+        button.addEventListener("keyup", (event) => {
+          if (event.key === " " || event.key === "Enter") endVoicePress(event);
         });
       }
+
       voiceButtons.forEach(bindVoiceButton);
-      document.getElementById("accountBtn").onclick = () =>
+
+      document.getElementById("accountBtn").onclick = () => {
         settingsPanel.classList.add("open");
-      document.getElementById("closeSettings").onclick = () =>
+        clearChatIdleTimer();
+      };
+      document.getElementById("closeSettings").onclick = () => {
         settingsPanel.classList.remove("open");
-      chatBackBtn.onclick = () => app.classList.remove("chat-mode");
-      function isVoiceControl(target) {
-        return voiceButtons.some((button) => button.contains(target));
-      }
-      document.getElementById("pages").addEventListener(
-        "touchstart",
-        (e) => {
-          if (isVoiceControl(e.target)) {
-            touchStartX = null;
-            touchStartY = null;
-            return;
-          }
-          touchStartX = e.changedTouches[0].clientX;
-          touchStartY = e.changedTouches[0].clientY;
-        },
-        { passive: true },
-      );
-      document.getElementById("pages").addEventListener(
-        "touchend",
-        (e) => {
-          if (
-            touchStartX === null ||
-            touchStartY === null ||
-            isVoiceControl(e.target)
-          )
-            return;
-          const dx = e.changedTouches[0].clientX - touchStartX,
-            dy = e.changedTouches[0].clientY - touchStartY;
-          touchStartX = null;
-          touchStartY = null;
-          if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-            if (dx < 0) app.classList.add("chat-mode");
-            else app.classList.remove("chat-mode");
-          }
-        },
-        { passive: true },
-      );
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "ArrowLeft") app.classList.add("chat-mode");
-        if (e.key === "ArrowRight") app.classList.remove("chat-mode");
+        armChatIdleTimer();
+      };
+      chatCollapseBtn.onclick = () => {
+        messageInput.blur();
+        if (!sendingVoice && !sendingChat && !voicePressActive) hideChat(true);
+      };
+
+      chat.addEventListener("pointerdown", noteChatActivity, { passive: true });
+      chat.addEventListener("scroll", noteChatActivity, { passive: true });
+      messageInput.addEventListener("focus", clearChatIdleTimer);
+      messageInput.addEventListener("input", clearChatIdleTimer);
+      messageInput.addEventListener("blur", armChatIdleTimer);
+      document.getElementById("composer").addEventListener("pointerdown", clearChatIdleTimer, {
+        passive: true,
       });
+
       document.getElementById("googleLogin").onclick = async () => {
         try {
-          const r = await fetch("/api/google/login");
-          const d = await r.json();
-          if (!r.ok) throw Error(d.message || d.error);
-          location.href = d.url;
-        } catch (e) {
-          alert("Не удалось начать вход через Google: " + e.message);
+          const response = await fetch("/api/google/login");
+          const data = await response.json();
+          if (!response.ok) throw Error(data.message || data.error);
+          location.href = data.url;
+        } catch (error) {
+          alert("Не удалось начать вход через Google: " + error.message);
         }
       };
-      document.getElementById("composer").onsubmit = async (e) => {
-        e.preventDefault();
-        const i = document.getElementById("message"),
-          t = i.value.trim();
-        if (!t) return;
-        msg(t, "user");
-        i.value = "";
+
+      document.getElementById("composer").onsubmit = async (event) => {
+        event.preventDefault();
+        const text = messageInput.value.trim();
+        if (!text || sendingChat) return;
+        showChat();
+        sendingChat = true;
+        clearChatIdleTimer();
+        msg(text, "user");
+        messageInput.value = "";
         try {
-          const r = await api("/api/chat", {
+          const result = await api("/api/chat", {
             method: "POST",
-            body: JSON.stringify({ message: t }),
+            body: JSON.stringify({ message: text }),
           });
-          (r.replies || []).forEach((x) => msg(x, "assistant"));
-        } catch (e) {
-          if (e.message !== "unauthorized")
-            msg("Ошибка: " + e.message, "assistant");
+          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+        } catch (error) {
+          if (error.message !== "unauthorized")
+            msg("Ошибка: " + error.message, "assistant");
+        } finally {
+          sendingChat = false;
+          armChatIdleTimer();
         }
       };
+
       document.getElementById("saveSettings").onclick = async () => {
         try {
           await api("/api/settings", {
@@ -1274,22 +1323,26 @@
           });
           settingsPanel.classList.remove("open");
           await refresh();
-        } catch (e) {
-          alert("Не удалось сохранить настройки: " + e.message);
+          armChatIdleTimer();
+        } catch (error) {
+          alert("Не удалось сохранить настройки: " + error.message);
         }
       };
+
       document.getElementById("logout").onclick = async () => {
         try {
           await api("/api/logout", { method: "POST" });
-        } catch (e) {}
+        } catch (_error) {}
         location.reload();
       };
+
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         setVoiceButtonsDisabled(true);
         voiceCaption.textContent = "Микрофон недоступен";
       }
       if ("serviceWorker" in navigator)
         navigator.serviceWorker.register("/sw.js").catch(() => {});
+
       renderDays();
       renderCategoryColors();
       refresh();
