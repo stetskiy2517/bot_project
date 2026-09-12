@@ -109,13 +109,14 @@
         opacity: 1;
         visibility: visible;
         pointer-events: auto;
-        transition-delay: 0s;
+        transition-delay: 0s, 0s, 0s;
       }
       .app.chat-active .voice-shell {
         opacity: 0;
         transform: translateY(-2vh) scale(0.94);
         visibility: hidden;
         pointer-events: none;
+        transition-delay: 0s, 0s, 0.36s;
       }
       .voice-title {
         font-size: 17px;
@@ -866,7 +867,6 @@
           !sendingVoice &&
           !sendingChat &&
           !voicePressActive &&
-          document.activeElement !== messageInput &&
           !messageInput.value.trim() &&
           !settingsPanel.classList.contains("open") &&
           !login.classList.contains("open")
@@ -1266,10 +1266,13 @@
 
       chat.addEventListener("pointerdown", noteChatActivity, { passive: true });
       chat.addEventListener("scroll", noteChatActivity, { passive: true });
-      messageInput.addEventListener("focus", clearChatIdleTimer);
-      messageInput.addEventListener("input", clearChatIdleTimer);
+      messageInput.addEventListener("focus", noteChatActivity);
+      messageInput.addEventListener("input", () => {
+        clearChatIdleTimer();
+        if (!messageInput.value.trim()) armChatIdleTimer();
+      });
       messageInput.addEventListener("blur", armChatIdleTimer);
-      document.getElementById("composer").addEventListener("pointerdown", clearChatIdleTimer, {
+      document.getElementById("composer").addEventListener("pointerdown", noteChatActivity, {
         passive: true,
       });
 
