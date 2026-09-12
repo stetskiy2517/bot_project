@@ -100,6 +100,7 @@ LOCATION_UPDATE_VALUE_RE = re.compile(
     r"\b(?:место|адрес)\b[^\n]{0,80}?\s+на\s+(?P<value>.+?)(?=$|\s+(?:за\s+\d|напомин|приоритет|категор|повтор|участник))",
     re.IGNORECASE,
 )
+EMAIL_TOKEN_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 CATEGORY_NAMES = {
     "работ": "work",
     "здоров": "health",
@@ -213,9 +214,23 @@ def _extract_update_target(text: str) -> str:
     property_match = PROPERTY_UPDATE_PREFIX_RE.match(text)
     if property_match:
         body = text[property_match.end():].strip().rstrip("?.!,")
+        cut_points: list[int] = []
         marker = re.search(r"\s+(?:на|за)\s+|\s*:\s*", body, re.IGNORECASE)
         if marker:
-            body = body[:marker.start()]
+            cut_points.append(marker.start())
+        email = EMAIL_TOKEN_RE.search(body)
+        if email:
+            cut_points.append(email.start())
+        feature_tail = re.search(
+            r"\s+(?:ежедневно|еженедельно|ежемесячно|кажд\w*\s+\w+|"
+            r"высок\w*|низк\w*|обычн\w*|средн\w*)\b",
+            body,
+            re.IGNORECASE,
+        )
+        if feature_tail:
+            cut_points.append(feature_tail.start())
+        if cut_points:
+            body = body[:min(cut_points)]
         return _clean_date_tokens(body)
 
     body = UPDATE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
@@ -918,11 +933,14 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             return True
         if pending_type == "confirm_update":
             service = _get_calendar_service(user_id)
-            updated = service.events().patch(
-                calendarId="primary",
-                eventId=pending["event"]["id"],
-                body=pending["patch"],
-            ).execute()
+            patch_kwargs = {
+                "calendarId": "primary",
+                "eventId": pending["event"]["id"],
+                "body": pending["patch"],
+            }
+            if "attendees" in pending["patch"]:
+                patch_kwargs["sendUpdates"] = "all"
+            updated = service.events().patch(**patch_kwargs).execute()
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
             )
