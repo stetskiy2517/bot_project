@@ -90,6 +90,18 @@ QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|�
 WHEN_SEARCH_RE = re.compile(r"^\s*когда\s+(?!свобод\w*\b|я\s+свобод\w*\b|у\s+меня\b)(.+)", re.IGNORECASE)
 CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
 REMIND_ME_AS_COMMAND_RE = re.compile(r"^\s*напомню\b", re.IGNORECASE)
+PROPERTY_UPDATE_RE = re.compile(
+    r"^\s*(?:добавь|добавить|убери|убрать|удали|удалить|поставь|поставить)\s+"
+    r"(?=[^.!?]{0,100}\b(?:напоминани\w*|место|адрес|участник\w*|повтор\w*|приоритет\w*|категори\w*)\b)"
+    r"[^.!?]{0,120}\b(?:у|для|к)\s+(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b",
+    re.IGNORECASE,
+)
+PROPERTY_DELETE_RE = re.compile(
+    r"^\s*(?:убери|убрать|удали|удалить|отмени|отменить)\s+"
+    r"(?:напоминани\w*|место|адрес|участник\w*|повтор\w*|приоритет\w*|категори\w*)\s+"
+    r"(?:у\s+)?(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -124,6 +136,8 @@ def detect_intent(text: str) -> IntentResult:
     lower = _normalise(text)
     if NEGATED_CREATE_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)
+    if PROPERTY_UPDATE_RE.search(lower) or PROPERTY_DELETE_RE.search(lower):
+        return IntentResult(INTENT_UPDATE, 0.98)
     if any(word in lower for word in DELETE_WORDS):
         return IntentResult(INTENT_DELETE, 0.98)
     if any(word in lower for word in UPDATE_WORDS):
