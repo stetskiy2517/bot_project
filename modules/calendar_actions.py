@@ -45,6 +45,14 @@ DATE_TAIL_RE = re.compile(
     r"в\s+четверг\w*|в\s+пятниц\w*|в\s+суббот\w*|в\s+воскресень\w*)\b",
     re.IGNORECASE,
 )
+BULK_DELETE_TARGET_RE = re.compile(
+    r"^(?:все|всё|всю|весь)\s*(?:встреч\w*|событ\w*|созвон\w*|звонк\w*|запис\w*|дел\w*)?$",
+    re.IGNORECASE,
+)
+DELETE_WEEK_PERIOD_RE = re.compile(
+    r"\b(?:на\s+)?(?:эт\w*|текущ\w*|следующ\w*)\s+недел\w*\b",
+    re.IGNORECASE,
+)
 DURATION_RE = re.compile(
     r"\bна\s+(?:(полчаса)|(полтора\s+часа)|(\d+)\s*(минут\w*|час\w*))\b",
     re.IGNORECASE,
@@ -125,6 +133,23 @@ def _clean_date_tokens(value: str) -> str:
 def _extract_delete_query(text: str) -> str:
     query = DELETE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
     return _clean_date_tokens(query)
+
+
+def _is_bulk_delete_request(text: str) -> bool:
+    body = DELETE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"))
+    body = DELETE_WEEK_PERIOD_RE.sub(" ", body)
+    body = _clean_date_tokens(body)
+    body = re.sub(r"\s+", " ", body).strip(" ,.-")
+    return bool(BULK_DELETE_TARGET_RE.fullmatch(body))
+
+
+def _has_explicit_delete_period(text: str) -> bool:
+    return bool(
+        DATE_TAIL_RE.search(text)
+        or NUMERIC_DATE_RE.search(text)
+        or NAMED_DATE_RE.search(text)
+        or DELETE_WEEK_PERIOD_RE.search(text)
+    )
 
 
 def _extract_update_target(text: str) -> str:
@@ -301,12 +326,22 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     if not timezone:
         await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
+
+    bulk_delete = _is_bulk_delete_request(text)
+    if bulk_delete and not _has_explicit_delete_period(text):
+        await update.message.reply_text("Укажи день или дату, за которую удалить все события.")
+        return True
+
     query = _extract_delete_query(text)
-    if not query:
+    if not query and not bulk_delete:
         await update.message.reply_text("Какое событие удалить?")
         return True
     try:
-        events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
+        if bulk_delete:
+            start, end = _parse_search_period(text, timezone)
+            events = _list_events(user_id, start, end)
+        else:
+            events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -314,9 +349,24 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         logger.exception("Calendar delete search failed for user %s", user_id)
         await update.message.reply_text("Не удалось найти событие для удаления.")
         return True
+
     if not events:
-        await update.message.reply_text(f"Не нашёл событие «{query}».")
+        if bulk_delete:
+            await update.message.reply_text("На указанный период событий нет.")
+        else:
+            await update.message.reply_text(f"Не нашёл событие «{query}».")
         return True
+
+    if bulk_delete:
+        preview = _format_candidates(events, timezone)
+        suffix = f"\n…и ещё {len(events) - 5}." if len(events) > 5 else ""
+        _store_pending(context, {"type": "confirm_delete_many", "events": events, "timezone": timezone})
+        await update.message.reply_text(
+            f"Удалить все события за указанный период ({len(events)})?\n"
+            f"{preview}{suffix}\nОтветь «да» или «нет»."
+        )
+        return True
+
     if len(events) > 1:
         visible = events[:5]
         _store_pending(context, {"type": "select_delete", "events": visible, "timezone": timezone})
@@ -435,6 +485,29 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             service = _get_calendar_service(user_id)
             service.events().delete(calendarId="primary", eventId=pending["event"]["id"]).execute()
             await update.message.reply_text(f"Событие «{pending['event'].get('summary', 'Без названия')}» удалено.")
+            return True
+        if pending_type == "confirm_delete_many":
+            service = _get_calendar_service(user_id)
+            events = pending.get("events") or []
+            deleted = 0
+            failed = 0
+            for event in events:
+                event_id = event.get("id")
+                if not event_id:
+                    failed += 1
+                    continue
+                try:
+                    service.events().delete(calendarId="primary", eventId=event_id).execute()
+                    deleted += 1
+                except Exception:
+                    failed += 1
+                    logger.exception("Failed to bulk-delete calendar event %s for user %s", event_id, user_id)
+            if failed:
+                await update.message.reply_text(
+                    f"Удалено событий: {deleted}. Не удалось удалить: {failed}."
+                )
+            else:
+                await update.message.reply_text(f"Удалил все события за указанный период: {deleted}.")
             return True
         if pending_type == "confirm_update":
             service = _get_calendar_service(user_id)
