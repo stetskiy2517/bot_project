@@ -161,7 +161,7 @@ class WebAppTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         response.close()
         for control in [
-            "settingsBtn",
+            "accountBtn",
             "timezone",
             "workStart",
             "workEnd",
