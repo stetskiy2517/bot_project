@@ -5,12 +5,26 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import re
 
-from modules.calendar import _date_from_text, _detect_category, _extract_title
+import dateparser
+
+from modules.calendar import MONTHS_PATTERN, _date_from_text, _detect_category, _extract_time, _extract_title
 from modules.calendar_user import _user_zone
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 ALL_DAY_RE = re.compile(r"\b(?:весь\s+день|на\s+весь\s+день|целый\s+день)\b", re.IGNORECASE)
 BIRTHDAY_RE = re.compile(r"\bдень\s+рождени[яе]\b", re.IGNORECASE)
+SPAN_EVENT_RE = re.compile(r"\b(?:отпуск|командировк\w*)\b", re.IGNORECASE)
+NEXT_WEEK_RE = re.compile(r"\b(?:на\s+)?следующ\w*\s+недел\w*\b", re.IGNORECASE)
+CROSS_MONTH_RANGE_RE = re.compile(
+    rf"\bс\s+(?P<start_day>\d{{1,2}})\s+(?P<start_month>(?:{MONTHS_PATTERN}))\s+"
+    rf"по\s+(?P<end_day>\d{{1,2}})\s+(?P<end_month>(?:{MONTHS_PATTERN}))\b",
+    re.IGNORECASE,
+)
+SAME_MONTH_RANGE_RE = re.compile(
+    rf"\bс\s+(?P<start_day>\d{{1,2}})\s+по\s+(?P<end_day>\d{{1,2}})\s+"
+    rf"(?P<month>(?:{MONTHS_PATTERN}))\b",
+    re.IGNORECASE,
+)
 LOCATION_RE = re.compile(
     r"\b(?:по\s+адресу|место\s*[:\-]|локация\s*[:\-])\s*(.+?)(?=$|\s+(?:напомни|пригласи|участники|кажд|весь\s+день))",
     re.IGNORECASE,
@@ -32,27 +46,65 @@ WEEKDAY_BY_RE = {
 
 
 def is_all_day(text: str) -> bool:
-    """Явный all-day или день рождения без указанного времени."""
+    """Явный all-day, день рождения без времени или многодневный тип без часов."""
     if ALL_DAY_RE.search(text):
         return True
     if BIRTHDAY_RE.search(text):
-        has_time = bool(re.search(r"\b(?:в|к)\s+\d{1,2}(?:(?::|\.|\s)\d{2})?\b", text, re.IGNORECASE))
-        return not has_time
+        return _extract_time(text) is None
+    if SPAN_EVENT_RE.search(text):
+        return _extract_time(text) is None
     return False
 
 
 def build_all_day_event(text: str, timezone: str, now: datetime | None = None, category_colors: dict[str, str | None] | None = None) -> dict | None:
     zone = _user_zone(timezone)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
-    event_date = _date_from_text(text, local_now.replace(tzinfo=None), 12, 0)
-    if not event_date:
+    naive_now = local_now.replace(tzinfo=None)
+
+    def parse_fragment(value: str):
+        parsed = dateparser.parse(
+            value,
+            languages=["ru"],
+            settings={"PREFER_DATES_FROM": "future", "RELATIVE_BASE": naive_now, "DATE_ORDER": "DMY"},
+        )
+        return parsed.date() if parsed else None
+
+    start_date = None
+    end_date = None
+    if NEXT_WEEK_RE.search(text):
+        days_to_next_monday = 7 - local_now.weekday()
+        start_date = local_now.date() + timedelta(days=days_to_next_monday)
+        end_date = start_date + timedelta(days=7)
+    else:
+        cross = CROSS_MONTH_RANGE_RE.search(text)
+        same = SAME_MONTH_RANGE_RE.search(text)
+        if cross:
+            start_date = parse_fragment(f"{cross.group('start_day')} {cross.group('start_month')}")
+            end_inclusive = parse_fragment(f"{cross.group('end_day')} {cross.group('end_month')}")
+            if start_date and end_inclusive and end_inclusive < start_date:
+                try:
+                    end_inclusive = end_inclusive.replace(year=end_inclusive.year + 1)
+                except ValueError:
+                    return None
+            end_date = end_inclusive + timedelta(days=1) if end_inclusive else None
+        elif same:
+            start_date = parse_fragment(f"{same.group('start_day')} {same.group('month')}")
+            end_inclusive = parse_fragment(f"{same.group('end_day')} {same.group('month')}")
+            if start_date and end_inclusive and end_inclusive < start_date:
+                return None
+            end_date = end_inclusive + timedelta(days=1) if end_inclusive else None
+        else:
+            start_date = _date_from_text(text, naive_now, 12, 0)
+            end_date = start_date + timedelta(days=1) if start_date else None
+
+    if not start_date or not end_date:
         return None
     category, color_id = _detect_category(text, category_colors)
     event = {
         "summary": _clean_title(text),
         "description": f"AI Smart Planner category: {category}",
-        "start": {"date": event_date.isoformat()},
-        "end": {"date": (event_date + timedelta(days=1)).isoformat()},
+        "start": {"date": start_date.isoformat()},
+        "end": {"date": end_date.isoformat()},
     }
     if color_id:
         event["colorId"] = color_id
@@ -84,6 +136,12 @@ def _reminder_minutes(text: str) -> list[int]:
 
 def _recurrence_rule(text: str) -> str | None:
     lower = text.lower().replace("ё", "е")
+    if re.search(r"\b(?:по\s+будням|кажд\w*\s+будн\w*\s+день)\b", lower):
+        return "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+    if re.search(r"\b(?:кажд\w*\s+выходн\w*|по\s+выходным)\b", lower):
+        return "RRULE:FREQ=WEEKLY;BYDAY=SA,SU"
+    if re.search(r"\b(?:ежегодно|кажд\w*\s+год)\b", lower):
+        return "RRULE:FREQ=YEARLY"
     if re.search(r"\bкажд(?:ый|ую|ое)\s+день\b|\bежедневно\b", lower):
         return "RRULE:FREQ=DAILY"
 
@@ -129,6 +187,9 @@ def _clean_title(text: str) -> str:
     cleaned = text
     cleaned = ALL_DAY_RE.sub(" ", cleaned)
     cleaned = LOCATION_RE.sub(" ", cleaned)
+    cleaned = CROSS_MONTH_RANGE_RE.sub(" ", cleaned)
+    cleaned = SAME_MONTH_RANGE_RE.sub(" ", cleaned)
+    cleaned = NEXT_WEEK_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b(?:напомни|напоминание)\s*(?:мне\s*)?", " ", cleaned, flags=re.IGNORECASE)
     cleaned = REMINDER_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b(?:пригласи|участники\s*[:\-]?)\s*", " ", cleaned, flags=re.IGNORECASE)
@@ -137,6 +198,7 @@ def _clean_title(text: str) -> str:
     cleaned = re.sub(r"\bкажд\w*\s+(?:день|недел\w*|месяц\w*|понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bпо\s+(?:понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bраз\s+в\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:по\s+будням|по\s+выходным|кажд\w*\s+выходн\w*|ежегодно|кажд\w*\s+год)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:ежедневно|еженедельно|ежемесячно)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"(?:^|\s)(?:и|а)(?=\s*$)", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")

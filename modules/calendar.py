@@ -67,6 +67,10 @@ SPOKEN_CLOCK_RE = re.compile(
     r"(?P<minute>[0-5]?\d)\s*(?:мин|минут\w*)\b",
     re.IGNORECASE,
 )
+EXPLICIT_CLOCK_TOKEN_RE = re.compile(
+    r"\b(?:в|к)\s*(?P<hour>\d{1,2})(?::|\.|-)(?P<minute>\d{2})\b",
+    re.IGNORECASE,
+)
 
 HOUR_WORDS = {
     "один": 1, "час": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5,
@@ -74,6 +78,7 @@ HOUR_WORDS = {
     "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14,
     "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18,
     "девятнадцать": 19, "двадцать": 20,
+    "двадцать один": 21, "двадцать два": 22, "двадцать три": 23,
 }
 HOUR_WORDS_GENITIVE = {
     "первого": 1, "второго": 2, "третьего": 3, "четвертого": 4,
@@ -81,6 +86,12 @@ HOUR_WORDS_GENITIVE = {
     "девятого": 9, "десятого": 10, "одиннадцатого": 11, "двенадцатого": 12,
 }
 HOUR_WORD_PATTERN = "|".join(sorted((re.escape(word) for word in HOUR_WORDS), key=len, reverse=True))
+MINUTE_WORDS = {"пятнадцать": 15, "тридцать": 30, "сорок пять": 45}
+MINUTE_WORD_PATTERN = "|".join(sorted((re.escape(word) for word in MINUTE_WORDS), key=len, reverse=True))
+WORD_CLOCK_RE = re.compile(
+    rf"\b(?:в|к)\s+(?P<hour>{HOUR_WORD_PATTERN})\s+(?P<minute>{MINUTE_WORD_PATTERN})\b",
+    re.IGNORECASE,
+)
 WORD_HOUR_RE = re.compile(
     rf"\b(?:в|к)\s+(?P<word>{HOUR_WORD_PATTERN})(?:\s+(?P<part>утра|дня|вечера|ночи))?\b",
     re.IGNORECASE,
@@ -103,6 +114,10 @@ COMMON_TEXT_REPLACEMENTS = {
     "субота": "суббота",
     "суботу": "субботу",
     "воскрсенье": "воскресенье",
+    "сентебря": "сентября",
+    "встеча": "встреча",
+    "втреча": "встреча",
+    "созовон": "созвон",
 }
 EVENT_CATEGORIES = {
     "work": {"color_id": "3", "keywords": ("работ", "встреч", "созвон", "совещ", "клиент", "офис", "проект", "презентац", "отчет", "отчёт", "коммерчес", "переговор", "планерк")},
@@ -149,6 +164,13 @@ def _apply_daypart(hour: int, part: str) -> int | None:
 
 def _extract_time(text: str) -> tuple[int, int] | None:
     lower = _normalise(_strip_explicit_dates(text))
+
+    explicit_clock = EXPLICIT_CLOCK_TOKEN_RE.search(lower)
+    if explicit_clock:
+        hour = int(explicit_clock.group("hour"))
+        minute = int(explicit_clock.group("minute"))
+        if hour > 23 or minute > 59:
+            return None
 
     range_match = RANGE_RE.search(lower)
     if range_match:
@@ -232,6 +254,10 @@ def _extract_time(text: str) -> tuple[int, int] | None:
             base = _apply_daypart(base, quarter_past.group(2))
         if base is not None:
             return base, 15
+
+    word_clock = WORD_CLOCK_RE.search(lower)
+    if word_clock:
+        return HOUR_WORDS[word_clock.group("hour")], MINUTE_WORDS[word_clock.group("minute")]
 
     word_hour = WORD_HOUR_RE.search(lower)
     if word_hour:
@@ -347,9 +373,13 @@ def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now()
     lower = _normalise(text)
 
-    # Явная невозможная дата должна быть ошибкой, а не молчаливым переносом
-    # на ближайшее время. При этом диапазоны времени вроде 14:00-16:00
-    # не являются датами и исключаются из этой проверки.
+    explicit_clock = EXPLICIT_CLOCK_TOKEN_RE.search(lower)
+    if explicit_clock:
+        hour_value = int(explicit_clock.group("hour"))
+        minute_value = int(explicit_clock.group("minute"))
+        if hour_value > 23 or minute_value > 59:
+            return None
+
     compact_range = COMPACT_RANGE_RE.search(lower)
     for match in DATE_LIKE_RE.finditer(lower):
         if compact_range and compact_range.start() <= match.start() and match.end() <= compact_range.end():
@@ -367,7 +397,7 @@ def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
 
     parsed_time = _extract_time(text)
     relative = _relative_offset(text)
-    if relative and relative < timedelta(days=1) and not parsed_time:
+    if relative and not parsed_time:
         return (now + relative).replace(second=0, microsecond=0)
     if not parsed_time:
         return None
@@ -413,14 +443,23 @@ def _extract_range_end(text: str, start: datetime) -> datetime | None:
     if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
         return None
     end = start.replace(hour=end_hour, minute=end_minute)
-    return end + timedelta(days=1) if end <= start else end
+    if end > start:
+        return end
+    if start.hour >= 20 and end_hour <= 6:
+        return end + timedelta(days=1)
+    return None
 
 
 def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetime, datetime] | None:
     start = _parse_datetime(text, now)
     if not start:
         return None
-    return start, (_extract_range_end(text, start) or start + _extract_duration(text))
+    lower = _normalise(_strip_explicit_dates(text))
+    has_range = bool(RANGE_RE.search(lower) or COMPACT_RANGE_RE.search(lower))
+    range_end = _extract_range_end(text, start)
+    if has_range and not range_end:
+        return None
+    return start, (range_end or start + _extract_duration(text))
 
 
 def _detect_category(text: str, category_colors: dict[str, str | None] | None = None) -> tuple[str, str | None]:
@@ -441,6 +480,7 @@ def _extract_title(text: str) -> str:
     title = SPOKEN_CLOCK_RE.sub(" ", title)
     title = PREFIX_DAYPART_RE.sub(" ", title)
     title = DAYPART_HOUR_RE.sub(" ", title)
+    title = WORD_CLOCK_RE.sub(" ", title)
     title = WORD_HOUR_RE.sub(" ", title)
     title = CLOCK_TIME_RE.sub(" ", title)
     title = SIMPLE_HOUR_RE.sub(" ", title)
@@ -457,7 +497,7 @@ def _extract_title(text: str) -> str:
     title = re.sub(r"\b(?:сегодня|завтра|завтро|послезавтра|после\s*завтра|вчера)\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(
         r"\bчерез\s+(?:полчаса|полтора\s+часа|пару\s+час\w*|"
-        r"(?:\d+|один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)\s*"
+        r"(?:\d+|один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)?\s*"
         r"(?:мин(?:ут\w*)?|ч(?:ас\w*)?|дн\w*|день|дня|недел\w*))\b",
         " ", title, flags=re.IGNORECASE,
     )
@@ -476,6 +516,7 @@ def _extract_title(text: str) -> str:
     )
     title = re.sub(r"\s+", " ", title).strip(" ,.-")
     title = re.sub(r"^(?:(?:пожалуйста|плиз)\s*,?\s*)+", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:не\s+забудь(?:те)?\s+)", "", title, flags=re.IGNORECASE)
     title = re.sub(r"^(?:можешь|можно|давай)\s+(?:мне\s+)?", "", title, flags=re.IGNORECASE)
     title = re.sub(
         r"^(?:добавь|добавить|создай|создать|поставь|поставить|запиши|записать|"
