@@ -16,7 +16,8 @@ LOCATION_RE = re.compile(
     re.IGNORECASE,
 )
 REMINDER_RE = re.compile(
-    r"\bза\s+(?:(\d+)\s*(минут\w*|час\w*|дн\w*)|(полчаса)|(час)|(день))\b",
+    r"\bза\s+(?:(?P<amount>\d+)\s*(?P<unit>мин(?:ут\w*)?|ч(?:ас\w*)?|дн\w*)|"
+    r"(?P<half>полчаса)|(?P<hour>час)|(?P<day>день)|(?P<day_alias>сутки|суток))\b",
     re.IGNORECASE,
 )
 WEEKDAY_BY_RE = {
@@ -61,18 +62,18 @@ def build_all_day_event(text: str, timezone: str, now: datetime | None = None, c
 def _reminder_minutes(text: str) -> list[int]:
     values: list[int] = []
     for match in REMINDER_RE.finditer(text):
-        if match.group(3):
+        if match.group("half"):
             minutes = 30
-        elif match.group(4):
+        elif match.group("hour"):
             minutes = 60
-        elif match.group(5):
+        elif match.group("day") or match.group("day_alias"):
             minutes = 1440
         else:
-            amount = int(match.group(1))
-            unit = match.group(2).lower()
-            if unit.startswith("минут"):
+            amount = int(match.group("amount"))
+            unit = match.group("unit").lower()
+            if unit.startswith("мин"):
                 minutes = amount
-            elif unit.startswith("час"):
+            elif unit == "ч" or unit.startswith("час"):
                 minutes = amount * 60
             else:
                 minutes = amount * 1440
@@ -85,13 +86,25 @@ def _recurrence_rule(text: str) -> str | None:
     lower = text.lower().replace("ё", "е")
     if re.search(r"\bкажд(?:ый|ую|ое)\s+день\b|\bежедневно\b", lower):
         return "RRULE:FREQ=DAILY"
-    if re.search(r"\bкажд(?:ую|ой)\s+недел\w*\b|\bеженедельно\b", lower):
-        return "RRULE:FREQ=WEEKLY"
-    if re.search(r"\bкажд(?:ый|ого)\s+месяц\w*\b|\bежемесячно\b", lower):
-        return "RRULE:FREQ=MONTHLY"
+
+    interval = re.search(r"\bкажд\w*\s+(\d+)\s+недел\w*\b", lower)
+    if interval:
+        rule = f"RRULE:FREQ=WEEKLY;INTERVAL={int(interval.group(1))}"
+        for word, code in WEEKDAY_BY_RE.items():
+            if re.search(rf"\b(?:в\s+)?{word}\b", lower):
+                return rule + f";BYDAY={code}"
+        return rule
+
     for word, code in WEEKDAY_BY_RE.items():
         if re.search(rf"\bкажд\w*\s+{word}\b", lower):
             return f"RRULE:FREQ=WEEKLY;BYDAY={code}"
+        if re.search(rf"\bпо\s+{word}\b", lower):
+            return f"RRULE:FREQ=WEEKLY;BYDAY={code}"
+
+    if re.search(r"\bкажд(?:ую|ой)\s+недел\w*\b|\bеженедельно\b|\bраз\s+в\s+недел\w*\b", lower):
+        return "RRULE:FREQ=WEEKLY"
+    if re.search(r"\bкажд(?:ый|ого)\s+месяц\w*\b|\bежемесячно\b", lower):
+        return "RRULE:FREQ=MONTHLY"
     return None
 
 
@@ -120,7 +133,10 @@ def _clean_title(text: str) -> str:
     cleaned = REMINDER_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b(?:пригласи|участники\s*[:\-]?)\s*", " ", cleaned, flags=re.IGNORECASE)
     cleaned = EMAIL_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"\bкажд\w*\s+\d+\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bкажд\w*\s+(?:день|недел\w*|месяц\w*|понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bпо\s+(?:понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bраз\s+в\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b(?:ежедневно|еженедельно|ежемесячно)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"(?:^|\s)(?:и|а)(?=\s*$)", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")

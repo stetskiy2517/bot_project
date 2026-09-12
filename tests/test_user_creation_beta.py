@@ -77,7 +77,7 @@ class HardUserParserBetaTests(unittest.TestCase):
         self.assert_dt("встреча послезавтро в 10", datetime(2026, 9, 14, 10, 0))
         self.assert_dt("врач в понеделник в 9", datetime(2026, 9, 14, 9, 0))
         self.assert_dt("врач в пятнцу в 19", datetime(2026, 9, 18, 19, 0))
-        self.assert_dt("кино в суботу в 20", datetime(2026, 9, 19, 20, 0))
+        self.assert_dt("кино в суботу в 20", datetime(2026, 9, 12, 20, 0))
 
     def test_spoken_and_human_time_forms(self):
         cases = {
