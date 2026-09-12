@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timezone
 from time import sleep
 
 from pywebpush import WebPushException
@@ -17,7 +18,7 @@ from core.push_store import (
     mark_push_success,
 )
 from core.reminder_store import claim_due_for_push, complete_push_delivery, release_push_delivery
-from integrations.web_push import send_web_push
+from integrations.web_push import send_web_push, web_push_error_details
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,79 @@ _worker_lock = threading.Lock()
 _worker_started = False
 
 
-def _push_status_code(exc: WebPushException) -> int | None:
-    response = getattr(exc, "response", None)
-    value = getattr(response, "status_code", None)
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
+def _push_error_message(exc: WebPushException) -> tuple[int | None, str]:
+    status_code, body = web_push_error_details(exc)
+    label = f"Web Push error {status_code or 'unknown'}"
+    if body:
+        label = f"{label}: {body}"
+    return status_code, label[:1000]
+
+
+def send_test_push_for_user(user_id: int) -> dict:
+    """Send an immediate diagnostic notification without touching reminder state."""
+    subscriptions = list_push_subscriptions(user_id)
+    if not subscriptions:
+        return {
+            "ok": False,
+            "subscriptions": 0,
+            "accepted": 0,
+            "failed": 0,
+            "errors": ["На этом устройстве нет активной push-подписки."],
+        }
+
+    accepted = 0
+    failed = 0
+    removed = 0
+    errors: list[str] = []
+    payload = {
+        "type": "push_test",
+        "title": "Уведомления работают",
+        "body": "Тестовый push от Личного секретаря.",
+        "tag": f"push-test-{int(datetime.now(timezone.utc).timestamp())}",
+        "url": "/",
+    }
+
+    for subscription in subscriptions:
+        subscription_id = subscription["subscription_id"]
+        try:
+            send_web_push(subscription, payload)
+        except WebPushException as exc:
+            status_code, message = _push_error_message(exc)
+            if status_code in {404, 410}:
+                delete_push_subscription_by_id(subscription_id)
+                removed += 1
+            else:
+                mark_push_error(subscription_id, message)
+            failed += 1
+            errors.append(message)
+            logger.warning(
+                "Web Push test failed for subscription %s user %s: %s",
+                subscription_id,
+                user_id,
+                message,
+            )
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {str(exc)[:400]}"
+            mark_push_error(subscription_id, message)
+            failed += 1
+            errors.append(message)
+            logger.exception(
+                "Unexpected Web Push test failure for subscription %s user %s",
+                subscription_id,
+                user_id,
+            )
+        else:
+            accepted += 1
+            mark_push_success(subscription_id)
+
+    return {
+        "ok": accepted > 0,
+        "subscriptions": len(subscriptions),
+        "accepted": accepted,
+        "failed": failed,
+        "removed": removed,
+        "errors": errors[:3],
+    }
 
 
 def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
@@ -68,8 +135,7 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
             try:
                 send_web_push(subscription, payload)
             except WebPushException as exc:
-                status_code = _push_status_code(exc)
-                last_error = f"Web Push error {status_code or 'unknown'}"
+                status_code, last_error = _push_error_message(exc)
                 if status_code in {404, 410}:
                     delete_push_subscription_by_id(subscription_id)
                     removed += 1
@@ -89,7 +155,7 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
                     )
             except Exception as exc:
                 transient_failures += 1
-                last_error = type(exc).__name__
+                last_error = f"{type(exc).__name__}: {str(exc)[:400]}"
                 mark_push_error(subscription_id, last_error)
                 logger.exception(
                     "Unexpected Web Push failure for subscription %s user %s",
