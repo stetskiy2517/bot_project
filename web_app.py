@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).parent / "web"
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 VOICE_MAX_BYTES = 25 * 1024 * 1024
+VOICE_MIN_DURATION_MS = 400
 VOICE_MIME_SUFFIXES = {
     "audio/webm": ".webm",
     "audio/ogg": ".ogg",
@@ -85,6 +86,19 @@ def _valid_voice_upload(audio) -> bool:
     if mimetype and mimetype != "application/octet-stream":
         return False
     return suffix in VOICE_SUFFIXES
+
+
+def _voice_duration_ms() -> float | None:
+    raw = request.form.get("duration_ms")
+    if raw in {None, ""}:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректная длительность аудио.") from exc
+    if value < 0:
+        raise ValueError("Некорректная длительность аудио.")
+    return value
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
@@ -201,6 +215,12 @@ def create_web_app() -> Flask:
             return jsonify({"error": "empty_audio"}), 400
         if not _valid_voice_upload(audio):
             return jsonify({"error": "unsupported_audio", "message": "Неподдерживаемый формат аудио."}), 415
+        try:
+            duration_ms = _voice_duration_ms()
+        except ValueError as exc:
+            return jsonify({"error": "invalid_audio_duration", "message": str(exc)}), 400
+        if duration_ms is not None and duration_ms < VOICE_MIN_DURATION_MS:
+            return jsonify({"error": "audio_too_short", "message": "Слишком короткая запись."}), 400
 
         try:
             text = normalize_time_format(transcribe_audio(audio.stream))

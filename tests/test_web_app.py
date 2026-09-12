@@ -112,7 +112,10 @@ class WebAppTests(unittest.TestCase):
             with patch("web_app.route_text", side_effect=fake_route):
                 response = self.client.post(
                     "/api/voice",
-                    data={"audio": (io.BytesIO(b"fake-audio"), "voice.webm", "audio/webm")},
+                    data={
+                        "duration_ms": "950",
+                        "audio": (io.BytesIO(b"fake-audio"), "voice.webm", "audio/webm"),
+                    },
                 )
 
         self.assertEqual(response.status_code, 200)
@@ -121,6 +124,20 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(payload["replies"], ["Готово"])
         self.assertEqual(seen, [(user_id, "встреча завтра в 19:30")])
         transcribe.assert_called_once()
+
+    def test_voice_rejects_sub_400ms_before_transcription(self):
+        self._google_session(self.client, "voice-short", "short@example.test", "Short")
+        with patch("web_app.transcribe_audio") as transcribe:
+            response = self.client.post(
+                "/api/voice",
+                data={
+                    "duration_ms": "399",
+                    "audio": (io.BytesIO(b"fake-audio"), "voice.webm", "audio/webm"),
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "audio_too_short")
+        transcribe.assert_not_called()
 
     def test_voice_rejects_unsupported_upload(self):
         self._google_session(self.client, "voice-format", "format@example.test", "Format")
@@ -201,6 +218,9 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("/api/voice", html)
         self.assertIn("Войти через Google", html)
         self.assertIn("Нажми и удерживай для записи", html)
+        self.assertIn("const MIN_VOICE_DURATION_MS = 400", html)
+        self.assertIn('form.append("duration_ms"', html)
+        self.assertIn("durationMs < MIN_VOICE_DURATION_MS", html)
         self.assertIn("function bindVoiceButton(button)", html)
         self.assertIn('button.addEventListener("pointerdown", beginVoicePress)', html)
         self.assertIn('button.addEventListener("pointerup", endVoicePress)', html)
