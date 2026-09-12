@@ -258,9 +258,12 @@ def create_web_app() -> Flask:
 
             if "category_colors" in payload:
                 colors = payload["category_colors"]
-                if not isinstance(colors, dict) or set(colors) != set(DEFAULT_CATEGORY_COLORS):
+                if not isinstance(colors, dict) or not colors:
                     raise ValueError("Неверный набор категорий")
-                parsed_colors = {}
+                unknown_categories = set(colors) - set(DEFAULT_CATEGORY_COLORS)
+                if unknown_categories:
+                    raise ValueError("Неверный набор категорий")
+                parsed_colors = dict(_status_payload(user_id)["preferences"]["category_colors"])
                 for category, color_id in colors.items():
                     if color_id in {None, ""}:
                         parsed_colors[category] = None

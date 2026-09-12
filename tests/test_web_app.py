@@ -66,7 +66,7 @@ class WebAppTests(unittest.TestCase):
         self._google_session(b, "colors-b", "colors-b@example.test", "B")
         colors = {
             "work": "9", "health": "11", "rest": "2",
-            "travel": "7", "personal": "5", "other": None,
+            "travel": "7", "family": "4", "personal": "5", "other": None,
         }
         self.assertEqual(a.post("/api/settings", json={"category_colors": colors}).status_code, 200)
         self.assertEqual(a.get("/api/status").get_json()["preferences"]["category_colors"], colors)
@@ -76,7 +76,7 @@ class WebAppTests(unittest.TestCase):
         self._google_session(self.client, "colors-invalid", "invalid@example.test", "Invalid")
         colors = {
             "work": "99", "health": "6", "rest": "10",
-            "travel": "7", "personal": "5", "other": None,
+            "travel": "7", "family": "4", "personal": "5", "other": None,
         }
         response = self.client.post("/api/settings", json={"category_colors": colors})
         self.assertEqual(response.status_code, 400)
