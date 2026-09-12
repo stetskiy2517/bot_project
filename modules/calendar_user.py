@@ -19,6 +19,7 @@ from modules.calendar import (
     _build_event,
     _create_event,
     _date_from_text,
+    _extract_time,
     _parse_event_timing,
 )
 
@@ -67,6 +68,17 @@ SEARCH_DATE_RE = re.compile(
     r"в\s+четверг\w*|в\s+пятниц\w*|в\s+суббот\w*|в\s+воскресень\w*)\b",
     re.IGNORECASE,
 )
+CLOCK_FRAGMENT = r"\d{1,2}(?:(?::|\.)[0-5]\d)?(?:\s+(?:утра|дня|вечера|ночи))?"
+BETWEEN_TIME_RE = re.compile(
+    rf"\bмежду\s+(?P<start>{CLOCK_FRAGMENT})\s+и\s+(?P<end>{CLOCK_FRAGMENT})\b",
+    re.IGNORECASE,
+)
+FROM_TO_TIME_RE = re.compile(
+    rf"\bс\s+(?P<start>{CLOCK_FRAGMENT})\s+до\s+(?P<end>{CLOCK_FRAGMENT})\b",
+    re.IGNORECASE,
+)
+AFTER_TIME_RE = re.compile(rf"\bпосле\s+(?P<value>{CLOCK_FRAGMENT})\b", re.IGNORECASE)
+BEFORE_TIME_RE = re.compile(rf"\bдо\s+(?P<value>{CLOCK_FRAGMENT})\b", re.IGNORECASE)
 
 
 def _get_calendar_service(user_id: int):
@@ -134,6 +146,61 @@ def _parse_view_period(
         return start, start + timedelta(days=1), WEEKDAY_LABELS[weekday]
 
     return today, today + timedelta(days=1), "сегодня"
+
+
+def _clock_from_fragment(value: str) -> tuple[int, int] | None:
+    return _extract_time(f"в {value.strip()}")
+
+
+def _combine_clock(day: datetime, clock: tuple[int, int]) -> datetime:
+    return day.replace(hour=clock[0], minute=clock[1], second=0, microsecond=0)
+
+
+def _parse_view_window(
+    text: str,
+    timezone: str,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime, str]:
+    """Сузить просмотр одного дня до конкретного времени или диапазона."""
+    start, end, label = _parse_view_period(text, timezone, now)
+    if end - start > timedelta(days=1):
+        return start, end, label
+
+    range_match = BETWEEN_TIME_RE.search(text) or FROM_TO_TIME_RE.search(text)
+    if range_match:
+        start_clock = _clock_from_fragment(range_match.group("start"))
+        end_clock = _clock_from_fragment(range_match.group("end"))
+        if start_clock and end_clock:
+            window_start = _combine_clock(start, start_clock)
+            window_end = _combine_clock(start, end_clock)
+            if window_end > window_start:
+                return (
+                    window_start,
+                    window_end,
+                    f"{label} с {window_start.strftime('%H:%M')} до {window_end.strftime('%H:%M')}",
+                )
+
+    after = AFTER_TIME_RE.search(text)
+    if after:
+        clock = _clock_from_fragment(after.group("value"))
+        if clock:
+            window_start = _combine_clock(start, clock)
+            return window_start, end, f"{label} после {window_start.strftime('%H:%M')}"
+
+    before = BEFORE_TIME_RE.search(text)
+    if before:
+        clock = _clock_from_fragment(before.group("value"))
+        if clock:
+            window_end = _combine_clock(start, clock)
+            if window_end > start:
+                return start, window_end, f"{label} до {window_end.strftime('%H:%M')}"
+
+    exact = _extract_time(text)
+    if exact:
+        point = _combine_clock(start, exact)
+        return point, point + timedelta(minutes=1), f"{label} в {point.strftime('%H:%M')}"
+
+    return start, end, label
 
 
 def _list_events(user_id: int, start: datetime, end: datetime, query: str | None = None) -> list[dict]:
@@ -283,7 +350,7 @@ async def view_from_text(
         return True
 
     try:
-        start, end, label = _parse_view_period(text, timezone)
+        start, end, label = _parse_view_window(text, timezone)
         events = _list_events(user_id, start, end)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
