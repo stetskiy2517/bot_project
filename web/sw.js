@@ -1,5 +1,5 @@
-const CACHE = "personal-secretary-v2";
-const STATIC = ["/", "/manifest.webmanifest", "/icon.svg"];
+const CACHE = "personal-secretary-v3";
+const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC)));
@@ -13,6 +13,45 @@ self.addEventListener("activate", (event) => {
     ),
   );
   self.clients.claim();
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (_error) {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+
+  const title = payload.title || "Напоминание";
+  const body = payload.body || "У тебя есть напоминание.";
+  const tag = payload.tag || `reminder-${Date.now()}`;
+  const url = payload.url || "/";
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon.svg",
+      tag,
+      data: { url, reminderId: payload.reminder_id || null },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          if ("navigate" in client) client.navigate(targetUrl).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    }),
+  );
 });
 
 self.addEventListener("fetch", (event) => {

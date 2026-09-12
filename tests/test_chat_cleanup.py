@@ -47,13 +47,13 @@ class ChatCleanupTests(unittest.TestCase):
         self.assertEqual(response.get_json()["reminders"], [reminder])
         claim.assert_called_once_with(user_id)
 
-    def test_reminder_script_keeps_polling_and_browser_notifications(self):
+    def test_reminder_script_keeps_polling_and_persistent_notifications(self):
         response = self.client.get("/reminders.js")
         script = response.get_data(as_text=True)
         response.close()
 
         self.assertIn('api("/api/reminders/due")', script)
-        self.assertIn('new Notification("Напоминание"', script)
+        self.assertIn('registration.showNotification("Напоминание"', script)
         self.assertIn("window.setInterval(pollDueReminders, REMINDER_POLL_MS)", script)
 
 
