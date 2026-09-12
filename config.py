@@ -15,6 +15,7 @@ WEB_USER_ID=int(os.getenv("WEB_USER_ID","1"))
 WEB_USER_NAME=os.getenv("WEB_USER_NAME","Web User")
 WEB_PASSWORD=os.getenv("WEB_PASSWORD")
 WEB_SESSION_SECRET=os.getenv("WEB_SESSION_SECRET","dev-only-change-me")
+DB_PATH=os.getenv("DB_PATH","bot.db")
 SCOPES=["openid","https://www.googleapis.com/auth/userinfo.email","https://www.googleapis.com/auth/userinfo.profile","https://www.googleapis.com/auth/calendar.events"]
 def validate_config():
     missing=[name for name,value in {"TG_TOKEN":TG_TOKEN}.items() if not value]
