@@ -1,11 +1,15 @@
 (() => {
   const REMINDER_POLL_MS = 15000;
   const CHAT_CLEAR_DELAY_MS = 400;
-  const PUSH_SELF_TEST_KEY = "personal-secretary-push-self-test-v1";
+  const PUSH_SELF_TEST_KEY = "personal-secretary-push-self-test-v2";
+
   let reminderPollBusy = false;
   let chatClearTimer = null;
   let pushConfig = null;
+  let pushManager = null;
   let pushSubscription = null;
+  let pushSetupReady = false;
+  let pushSetupError = null;
   let reminderEnablePromptShown = false;
 
   const isIos =
@@ -14,10 +18,12 @@
   const isStandalone =
     window.matchMedia?.("(display-mode: standalone)").matches ||
     window.navigator.standalone === true;
+  const notificationsSupported = "Notification" in window;
+  const serviceWorkerSupported = "serviceWorker" in navigator;
+  const declarativePushSupported = Boolean(window.pushManager?.subscribe);
+  const classicPushSupported = serviceWorkerSupported && "PushManager" in window;
   const pushSupported =
-    "serviceWorker" in navigator &&
-    "PushManager" in window &&
-    "Notification" in window;
+    notificationsSupported && (declarativePushSupported || classicPushSupported);
 
   function installTransientChatCleanup() {
     const appNode = document.getElementById("app");
@@ -27,7 +33,6 @@
     let wasActive = appNode.classList.contains("chat-active");
     const observer = new MutationObserver(() => {
       const isActive = appNode.classList.contains("chat-active");
-
       if (wasActive && !isActive) {
         if (chatClearTimer) window.clearTimeout(chatClearTimer);
         chatClearTimer = window.setTimeout(() => {
@@ -38,10 +43,8 @@
         window.clearTimeout(chatClearTimer);
         chatClearTimer = null;
       }
-
       wasActive = isActive;
     });
-
     observer.observe(appNode, { attributes: true, attributeFilter: ["class"] });
   }
 
@@ -52,8 +55,27 @@
     return Uint8Array.from(raw, (char) => char.charCodeAt(0));
   }
 
-  async function getRegistration() {
-    return navigator.serviceWorker.ready;
+  function setPushStatus(value) {
+    const status = document.getElementById("pushNotificationStatus");
+    if (status) status.textContent = value;
+  }
+
+  function readablePushError(error) {
+    const name = String(error?.name || "");
+    const message = String(error?.message || "").trim();
+    if (name === "NotAllowedError") {
+      if (Notification.permission === "granted") {
+        return "Разрешение есть, но браузер не создал push-подписку. Нажми «Подключить push» ещё раз.";
+      }
+      return "Браузер не дал создать push-подписку. Разреши уведомления и повтори.";
+    }
+    if (name === "InvalidStateError") {
+      return "Старая push-подписка несовместима. Перезапусти приложение и подключи уведомления снова.";
+    }
+    if (name === "AbortError") {
+      return "Сервис push временно недоступен. Повтори подключение через несколько секунд.";
+    }
+    return message || name || "Не удалось подключить push-уведомления.";
   }
 
   async function syncSubscription(subscription) {
@@ -77,18 +99,58 @@
     }
   }
 
-  function setPushStatus(value) {
-    const status = document.getElementById("pushNotificationStatus");
-    if (status) status.textContent = value;
+  async function preparePushEnvironment() {
+    if (!pushSupported || (isIos && !isStandalone)) {
+      pushSetupReady = true;
+      updatePushUi();
+      return;
+    }
+
+    setPushStatus("Готовлю push-уведомления…");
+    try {
+      // Fetch everything that may require network access BEFORE the user taps the
+      // subscribe button. Safari requires pushManager.subscribe() to be called
+      // directly from the user gesture; awaiting network/Service Worker setup in
+      // the click handler loses that gesture and leaves permission granted but
+      // the PushSubscription missing.
+      pushConfig = await api("/api/push/config");
+
+      let registration = null;
+      if (serviceWorkerSupported) {
+        registration = await navigator.serviceWorker.register("/sw.js");
+      }
+
+      if (declarativePushSupported) {
+        pushManager = window.pushManager;
+      } else {
+        registration = registration || (await navigator.serviceWorker.ready);
+        if (!registration.active) registration = await navigator.serviceWorker.ready;
+        pushManager = registration.pushManager;
+      }
+
+      pushSubscription = await pushManager.getSubscription();
+      if (pushSubscription) await syncSubscription(pushSubscription);
+      pushSetupError = null;
+    } catch (error) {
+      pushSetupError = readablePushError(error);
+      console.warn("Push preparation failed", error);
+    } finally {
+      pushSetupReady = true;
+      updatePushUi();
+    }
   }
 
   function pushStatusText() {
     if (!pushSupported) return "Этот браузер не поддерживает push-уведомления.";
     if (isIos && !isStandalone)
-      return "На iPhone сначала добавь сайт на экран «Домой» и открой его как приложение.";
+      return "На iPhone добавь сайт на экран «Домой» и открой его как приложение.";
     if (Notification.permission === "denied")
       return "Уведомления запрещены в настройках устройства или браузера.";
+    if (pushSetupError) return `Ошибка push: ${pushSetupError}`;
+    if (!pushSetupReady) return "Готовлю push-уведомления…";
     if (pushSubscription) return "Включены на этом устройстве.";
+    if (Notification.permission === "granted")
+      return "Разрешение выдано. Осталось подключить push на этом устройстве.";
     return "Выключены на этом устройстве.";
   }
 
@@ -100,7 +162,7 @@
       setPushStatus("Тестовый push отправлен. Он должен появиться на экране сейчас.");
       if (announce) {
         showChat();
-        msg("Тестовый push отправлен. Если системного уведомления нет — напиши мне, разберём следующий уровень.", "assistant");
+        msg("Тестовый push отправлен. Если системного уведомления нет — напиши мне.", "assistant");
         armChatIdleTimer();
       }
       try {
@@ -108,6 +170,7 @@
       } catch (_error) {}
       return result;
     } catch (error) {
+      pushSetupError = error.message;
       setPushStatus(`Ошибка push: ${error.message}`);
       if (announce) {
         showChat();
@@ -142,17 +205,6 @@
     button.className = "action primary";
     button.type = "button";
     button.style.width = "100%";
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        if (pushSubscription) await disablePushNotifications();
-        else await enablePushNotifications(true);
-      } catch (error) {
-        setPushStatus(`Ошибка push: ${error.message}`);
-      } finally {
-        updatePushUi();
-      }
-    });
 
     const testButton = document.createElement("button");
     testButton.id = "pushNotificationTest";
@@ -161,6 +213,60 @@
     testButton.style.width = "100%";
     testButton.style.marginTop = "8px";
     testButton.textContent = "Проверить уведомления";
+
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      pushSetupError = null;
+
+      if (pushSubscription) {
+        disablePushNotifications()
+          .catch((error) => {
+            pushSetupError = readablePushError(error);
+          })
+          .finally(updatePushUi);
+        return;
+      }
+
+      if (!pushManager || !pushConfig) {
+        pushSetupError = "Push ещё не готов. Закрой настройки, открой снова и повтори.";
+        updatePushUi();
+        return;
+      }
+
+      // IMPORTANT: do not await Notification.requestPermission(), fetch(), or
+      // navigator.serviceWorker.ready here. Safari requires subscribe() itself to
+      // happen in this click task. subscribe() will show the permission prompt.
+      let subscribePromise;
+      try {
+        subscribePromise = pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlToUint8Array(pushConfig.public_key),
+        });
+        setPushStatus("Подключаю push…");
+      } catch (error) {
+        pushSetupError = readablePushError(error);
+        updatePushUi();
+        return;
+      }
+
+      Promise.resolve(subscribePromise)
+        .then(async (subscription) => {
+          await syncSubscription(subscription);
+          pushSubscription = subscription;
+          pushSetupError = null;
+          updatePushUi();
+          try {
+            await runPushTest({ announce: false });
+          } catch (_error) {}
+        })
+        .catch((error) => {
+          pushSetupError = readablePushError(error);
+          console.warn("Push subscribe failed", error);
+          updatePushUi();
+        });
+    });
+
     testButton.addEventListener("click", async () => {
       testButton.disabled = true;
       try {
@@ -184,9 +290,7 @@
     const testButton = document.getElementById("pushNotificationTest");
     if (!status || !button) return;
 
-    if (!status.textContent.startsWith("Ошибка push:") && !status.textContent.startsWith("Тестовый push"))
-      status.textContent = pushStatusText();
-    button.disabled = false;
+    status.textContent = pushStatusText();
     if (testButton) testButton.hidden = !pushSubscription;
 
     if (!pushSupported) {
@@ -204,46 +308,22 @@
       button.disabled = true;
       return;
     }
+    if (!pushSetupReady) {
+      button.textContent = "Готовлю…";
+      button.disabled = true;
+      return;
+    }
+    if (!pushManager || !pushConfig) {
+      button.textContent = "Повторить подготовку";
+      button.disabled = false;
+      return;
+    }
     button.textContent = pushSubscription
       ? "Отключить уведомления"
-      : "Включить уведомления";
-  }
-
-  async function enablePushNotifications(fromUserGesture = false) {
-    if (!pushSupported) throw Error("push_unsupported");
-    if (isIos && !isStandalone) {
-      updatePushUi();
-      return false;
-    }
-
-    if (Notification.permission !== "granted") {
-      if (!fromUserGesture) return false;
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        updatePushUi();
-        return false;
-      }
-    }
-
-    if (!pushConfig) pushConfig = await api("/api/push/config");
-    const registration = await getRegistration();
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: base64UrlToUint8Array(pushConfig.public_key),
-      });
-    }
-    await syncSubscription(subscription);
-    pushSubscription = subscription;
-    updatePushUi();
-
-    // Permission alone is not enough. Verify the full server -> push service -> PWA
-    // path immediately so a broken iPhone subscription is visible at setup time.
-    try {
-      await runPushTest({ announce: false });
-    } catch (_error) {}
-    return true;
+      : Notification.permission === "granted"
+        ? "Подключить push"
+        : "Включить уведомления";
+    button.disabled = false;
   }
 
   async function disablePushNotifications() {
@@ -257,13 +337,12 @@
     try {
       localStorage.removeItem(PUSH_SELF_TEST_KEY);
     } catch (_error) {}
-    updatePushUi();
   }
 
   async function showSystemNotification(reminder) {
-    if (!pushSupported || Notification.permission !== "granted") return;
+    if (!notificationsSupported || Notification.permission !== "granted") return;
     try {
-      const registration = await getRegistration();
+      const registration = await navigator.serviceWorker.ready;
       await registration.showNotification("Напоминание", {
         body: reminder.text,
         icon: "/icon.svg",
@@ -314,32 +393,11 @@
       text.textContent = "Этот браузер не умеет получать push-уведомления.";
       item.appendChild(text);
     } else if (Notification.permission === "denied") {
-      text.textContent = "Уведомления запрещены. Разреши их для приложения в настройках устройства или браузера.";
+      text.textContent = "Уведомления запрещены. Разреши их в настройках устройства или браузера.";
       item.appendChild(text);
     } else {
-      text.textContent = "Чтобы напоминание пришло на экран, включи уведомления на этом устройстве.";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = "Включить уведомления";
-      button.style.cssText =
-        "margin-top:10px;border:0;border-radius:10px;padding:9px 12px;background:#111;color:#fff;font:inherit;cursor:pointer";
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        try {
-          const enabled = await enablePushNotifications(true);
-          if (enabled) {
-            button.textContent = "Уведомления включены";
-            msg("Уведомления включены на этом устройстве. Отправил тестовый push для проверки.", "assistant");
-          } else {
-            button.disabled = false;
-          }
-        } catch (error) {
-          console.warn("Push enable failed", error);
-          button.disabled = false;
-          button.textContent = "Не удалось включить — попробуй ещё раз";
-        }
-      });
-      item.append(text, button);
+      text.textContent = "Чтобы напоминание пришло на экран, включи уведомления в настройках приложения.";
+      item.appendChild(text);
     }
 
     chatNode.appendChild(item);
@@ -382,42 +440,25 @@
     };
   }
 
-  async function initPushNotifications() {
-    ensurePushSettingsUi();
-    if (!pushSupported || (isIos && !isStandalone)) {
-      updatePushUi();
-      return;
-    }
+  async function maybeRunOneTimeSelfTest() {
+    if (!pushSubscription || Notification.permission !== "granted") return;
+    let done = false;
     try {
-      const registration = await getRegistration();
-      pushSubscription = await registration.pushManager.getSubscription();
-      if (pushSubscription) {
-        await syncSubscription(pushSubscription);
-      } else if (Notification.permission === "granted") {
-        await enablePushNotifications(false);
-      }
-
-      let selfTestDone = false;
-      try {
-        selfTestDone = localStorage.getItem(PUSH_SELF_TEST_KEY) === "ok";
-      } catch (_error) {}
-      if (pushSubscription && Notification.permission === "granted" && !selfTestDone) {
-        window.setTimeout(() => runPushTest({ announce: false }).catch(() => {}), 500);
-      }
-    } catch (error) {
-      if (error.message !== "unauthorized") {
-        console.warn("Push initialization failed", error);
-        setPushStatus(`Ошибка push: ${error.message}`);
-      }
-    }
-    updatePushUi();
+      done = localStorage.getItem(PUSH_SELF_TEST_KEY) === "ok";
+    } catch (_error) {}
+    if (done) return;
+    try {
+      await runPushTest({ announce: false });
+    } catch (_error) {}
   }
 
   installTransientChatCleanup();
   ensurePushSettingsUi();
   watchReminderCreation();
   wrapLogout();
-  initPushNotifications();
+  preparePushEnvironment().then(() => {
+    if (pushSubscription) window.setTimeout(maybeRunOneTimeSelfTest, 500);
+  });
   window.setInterval(pollDueReminders, REMINDER_POLL_MS);
   window.setTimeout(pollDueReminders, 1500);
 })();
