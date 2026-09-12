@@ -135,7 +135,10 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v4', worker)
+        self.assertIn('personal-secretary-v5', worker)
+        self.assertIn("payload.web_push === 8030", worker)
+        self.assertIn("payload.notification", worker)
+        self.assertNotIn('icon: "/icon.svg"', worker)
 
 
 class VapidKeyTests(unittest.TestCase):
@@ -182,6 +185,22 @@ class ReminderPushLeaseTests(unittest.TestCase):
 
 
 class ReminderDispatcherTests(unittest.TestCase):
+    def test_declarative_payload_has_browser_fallback_content(self):
+        with patch.object(reminder_dispatcher, "BASE_URL", "https://assistant.example"):
+            payload = reminder_dispatcher._notification_payload(
+                title="Напоминание",
+                body="Проверить отчёт",
+                tag="reminder-12",
+                reminder_id=12,
+            )
+        self.assertEqual(payload["web_push"], 8030)
+        notification = payload["notification"]
+        self.assertEqual(notification["title"], "Напоминание")
+        self.assertEqual(notification["body"], "Проверить отчёт")
+        self.assertEqual(notification["navigate"], "https://assistant.example/")
+        self.assertFalse(notification["silent"])
+        self.assertEqual(notification["data"]["reminder_id"], 12)
+
     def test_expired_subscription_is_removed_and_reminder_released(self):
         reminder = {"reminder_id": 44, "user_id": 7, "text": "Тест"}
         subscription = {
@@ -212,7 +231,7 @@ class ReminderDispatcherTests(unittest.TestCase):
         self.assertEqual(stats["subscriptions_removed"], 1)
         self.assertEqual(stats["released"], 1)
 
-    def test_push_test_records_success(self):
+    def test_push_test_records_success_and_uses_declarative_payload(self):
         subscription = {
             "subscription_id": 3,
             "user_id": 7,
@@ -220,13 +239,19 @@ class ReminderDispatcherTests(unittest.TestCase):
             "p256dh": "key",
             "auth": "auth",
         }
-        with patch.object(reminder_dispatcher, "list_push_subscriptions", return_value=[subscription]), \
-             patch.object(reminder_dispatcher, "send_web_push"), \
+        with patch.object(reminder_dispatcher, "BASE_URL", "https://assistant.example"), \
+             patch.object(reminder_dispatcher, "list_push_subscriptions", return_value=[subscription]), \
+             patch.object(reminder_dispatcher, "send_web_push") as send, \
              patch.object(reminder_dispatcher, "mark_push_success") as success:
             result = reminder_dispatcher.send_test_push_for_user(7)
         self.assertTrue(result["ok"])
         self.assertEqual(result["accepted"], 1)
         success.assert_called_once_with(3)
+        send.assert_called_once()
+        payload = send.call_args.args[1]
+        self.assertEqual(payload["web_push"], 8030)
+        self.assertEqual(payload["notification"]["title"], "Уведомления работают")
+        self.assertEqual(payload["notification"]["navigate"], "https://assistant.example/")
 
 
 if __name__ == "__main__":
