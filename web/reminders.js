@@ -1,6 +1,7 @@
 (() => {
   const REMINDER_POLL_MS = 15000;
   const CHAT_CLEAR_DELAY_MS = 400;
+  const PUSH_SELF_TEST_KEY = "personal-secretary-push-self-test-v1";
   let reminderPollBusy = false;
   let chatClearTimer = null;
   let pushConfig = null;
@@ -76,6 +77,11 @@
     }
   }
 
+  function setPushStatus(value) {
+    const status = document.getElementById("pushNotificationStatus");
+    if (status) status.textContent = value;
+  }
+
   function pushStatusText() {
     if (!pushSupported) return "Этот браузер не поддерживает push-уведомления.";
     if (isIos && !isStandalone)
@@ -84,6 +90,32 @@
       return "Уведомления запрещены в настройках устройства или браузера.";
     if (pushSubscription) return "Включены на этом устройстве.";
     return "Выключены на этом устройстве.";
+  }
+
+  async function runPushTest({ announce = true } = {}) {
+    if (!pushSubscription) throw Error("Push-подписка не создана.");
+    setPushStatus("Проверяю доставку push…");
+    try {
+      const result = await api("/api/push/test", { method: "POST" });
+      setPushStatus("Тестовый push отправлен. Он должен появиться на экране сейчас.");
+      if (announce) {
+        showChat();
+        msg("Тестовый push отправлен. Если системного уведомления нет — напиши мне, разберём следующий уровень.", "assistant");
+        armChatIdleTimer();
+      }
+      try {
+        localStorage.setItem(PUSH_SELF_TEST_KEY, "ok");
+      } catch (_error) {}
+      return result;
+    } catch (error) {
+      setPushStatus(`Ошибка push: ${error.message}`);
+      if (announce) {
+        showChat();
+        msg(`Push не прошёл: ${error.message}`, "assistant");
+        armChatIdleTimer();
+      }
+      throw error;
+    }
   }
 
   function ensurePushSettingsUi() {
@@ -115,12 +147,31 @@
       try {
         if (pushSubscription) await disablePushNotifications();
         else await enablePushNotifications(true);
+      } catch (error) {
+        setPushStatus(`Ошибка push: ${error.message}`);
       } finally {
         updatePushUi();
       }
     });
 
-    field.append(status, button);
+    const testButton = document.createElement("button");
+    testButton.id = "pushNotificationTest";
+    testButton.className = "action";
+    testButton.type = "button";
+    testButton.style.width = "100%";
+    testButton.style.marginTop = "8px";
+    testButton.textContent = "Проверить уведомления";
+    testButton.addEventListener("click", async () => {
+      testButton.disabled = true;
+      try {
+        await runPushTest({ announce: true });
+      } catch (_error) {
+      } finally {
+        testButton.disabled = false;
+      }
+    });
+
+    field.append(status, button, testButton);
     grid.appendChild(field);
     actions.parentNode.insertBefore(title, actions);
     actions.parentNode.insertBefore(grid, actions);
@@ -130,10 +181,13 @@
   function updatePushUi() {
     const status = document.getElementById("pushNotificationStatus");
     const button = document.getElementById("pushNotificationToggle");
+    const testButton = document.getElementById("pushNotificationTest");
     if (!status || !button) return;
 
-    status.textContent = pushStatusText();
+    if (!status.textContent.startsWith("Ошибка push:") && !status.textContent.startsWith("Тестовый push"))
+      status.textContent = pushStatusText();
     button.disabled = false;
+    if (testButton) testButton.hidden = !pushSubscription;
 
     if (!pushSupported) {
       button.textContent = "Недоступно";
@@ -183,6 +237,12 @@
     await syncSubscription(subscription);
     pushSubscription = subscription;
     updatePushUi();
+
+    // Permission alone is not enough. Verify the full server -> push service -> PWA
+    // path immediately so a broken iPhone subscription is visible at setup time.
+    try {
+      await runPushTest({ announce: false });
+    } catch (_error) {}
     return true;
   }
 
@@ -194,6 +254,9 @@
       await subscription.unsubscribe();
     } catch (_error) {}
     pushSubscription = null;
+    try {
+      localStorage.removeItem(PUSH_SELF_TEST_KEY);
+    } catch (_error) {}
     updatePushUi();
   }
 
@@ -266,7 +329,7 @@
           const enabled = await enablePushNotifications(true);
           if (enabled) {
             button.textContent = "Уведомления включены";
-            msg("Уведомления включены на этом устройстве.", "assistant");
+            msg("Уведомления включены на этом устройстве. Отправил тестовый push для проверки.", "assistant");
           } else {
             button.disabled = false;
           }
@@ -333,9 +396,19 @@
       } else if (Notification.permission === "granted") {
         await enablePushNotifications(false);
       }
+
+      let selfTestDone = false;
+      try {
+        selfTestDone = localStorage.getItem(PUSH_SELF_TEST_KEY) === "ok";
+      } catch (_error) {}
+      if (pushSubscription && Notification.permission === "granted" && !selfTestDone) {
+        window.setTimeout(() => runPushTest({ announce: false }).catch(() => {}), 500);
+      }
     } catch (error) {
-      if (error.message !== "unauthorized")
+      if (error.message !== "unauthorized") {
         console.warn("Push initialization failed", error);
+        setPushStatus(`Ошибка push: ${error.message}`);
+      }
     }
     updatePushUi();
   }
