@@ -1,4 +1,4 @@
-"""Central message routing and calendar intent handling."""
+"""Central message routing for Smart Planner calendar and tasks."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from modules.calendar_actions import create_from_text, delete_from_text, resume_
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
+from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,10 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     pending = _pending(context)
     if not pending:
         return False
-    if pending.get("type") != "create_time":
+    pending_type = str(pending.get("type") or "")
+    if pending_type.startswith("task_"):
+        return await resume_pending_task(update, context, text, pending)
+    if pending_type != "create_time":
         return await resume_pending_action(update, context, text, pending)
     if _normalise(text) in {"отмена", "отменить", "не надо", "нет"}:
         _clear_pending(context)
@@ -229,6 +233,12 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         return False
     if await _resume_pending(update, context, text):
         return True
+
+    task_intent = detect_task_intent(text)
+    if task_intent:
+        logger.info("Router task_intent=%s", task_intent)
+        return await handle_task_text(update, context, text, task_intent)
+
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
     if intent.name == INTENT_CREATE:
@@ -257,7 +267,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if handled:
             return
         if update.message:
-            await update.message.reply_text("Не понял команду календаря. Например: «врач завтра в 19:00».")
+            await update.message.reply_text("Не понял команду. Например: «врач завтра в 19:00» или «добавь задачу купить билеты».")
     except Exception:
         logger.exception("Unhandled error in text router")
         if update.message:
