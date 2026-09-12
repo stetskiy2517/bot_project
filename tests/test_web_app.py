@@ -193,14 +193,19 @@ class WebAppTests(unittest.TestCase):
             "categoryColors",
             "saveSettings",
             "voiceBtn",
+            "chatVoiceBtn",
+            "chatBackBtn",
         ]:
             self.assertIn(f'id="{control}"', html)
         self.assertIn("MediaRecorder", html)
         self.assertIn("/api/voice", html)
         self.assertIn("Войти через Google", html)
         self.assertIn("Нажми и удерживай для записи", html)
-        self.assertIn('voiceBtn.addEventListener("pointerdown", beginVoicePress)', html)
-        self.assertIn('voiceBtn.addEventListener("pointerup", endVoicePress)', html)
+        self.assertIn("function bindVoiceButton(button)", html)
+        self.assertIn('button.addEventListener("pointerdown", beginVoicePress)', html)
+        self.assertIn('button.addEventListener("pointerup", endVoicePress)', html)
+        self.assertIn("voiceButtons.forEach(bindVoiceButton)", html)
+        self.assertIn('chatBackBtn.onclick = () => app.classList.remove("chat-mode")', html)
         self.assertNotIn("voiceBtn.onclick", html)
         manifest = self.client.get("/manifest.webmanifest")
         self.assertEqual(manifest.status_code, 200)
