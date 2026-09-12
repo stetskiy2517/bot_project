@@ -22,7 +22,7 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Apply family category fix
+      - name: Apply family category fix v2
         run: python .github/apply_family_fix.py
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
