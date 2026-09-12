@@ -59,6 +59,10 @@ ACTION_WORDS = (
     "получ", "отправ", "подготов", "сдат", "заказ", "заброниров", "встрет", "записат",
     "сдела", "провер", "законч",
 )
+NON_EVENT_STATEMENT_RE = re.compile(
+    r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*)\b",
+    re.IGNORECASE,
+)
 INFO_CREATE_QUESTION_RE = re.compile(
     r"^\s*(?:можно\s+ли|как\b|умеешь\s+ли(?:\s+ты)?|можешь\s+ли(?:\s+ты)?)",
     re.IGNORECASE,
@@ -126,6 +130,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_UNKNOWN, 0.0)
     if any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_CREATE, 0.99)
+    if NON_EVENT_STATEMENT_RE.search(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
 
     has_event = any(word in lower for word in EVENT_WORDS)
     has_action = any(word in lower for word in ACTION_WORDS)

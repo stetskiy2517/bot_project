@@ -71,6 +71,10 @@ EXPLICIT_CLOCK_TOKEN_RE = re.compile(
     r"\b(?:в|к)\s*(?P<hour>\d{1,2})(?::|\.|-)(?P<minute>\d{2})\b",
     re.IGNORECASE,
 )
+COMPACT_HHMM_RE = re.compile(
+    r"\b(?:в|к)\s*(?P<digits>\d{3,4})(?!\s*(?:г(?:\.|оду)?))\b",
+    re.IGNORECASE,
+)
 
 HOUR_WORDS = {
     "один": 1, "час": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5,
@@ -171,6 +175,15 @@ def _extract_time(text: str) -> tuple[int, int] | None:
         minute = int(explicit_clock.group("minute"))
         if hour > 23 or minute > 59:
             return None
+
+    compact_hhmm = COMPACT_HHMM_RE.search(lower)
+    if compact_hhmm:
+        digits = compact_hhmm.group("digits")
+        hour = int(digits[:-2])
+        minute = int(digits[-2:])
+        if hour <= 23 and minute <= 59:
+            return hour, minute
+        return None
 
     range_match = RANGE_RE.search(lower)
     if range_match:
@@ -276,6 +289,12 @@ def _extract_time(text: str) -> tuple[int, int] | None:
 
 def _relative_offset(text: str) -> timedelta | None:
     lower = _normalise(text)
+    composite = re.search(
+        r"\bчерез\s+(\d+)\s*(?:ч|час\w*)\s+(\d+)\s*(?:мин|минут\w*)\b",
+        lower,
+    )
+    if composite:
+        return timedelta(hours=int(composite.group(1)), minutes=int(composite.group(2)))
     if re.search(r"\bчерез\s+полчаса\b", lower):
         return timedelta(minutes=30)
     if re.search(r"\bчерез\s+полтора\s+часа\b", lower):
@@ -406,11 +425,28 @@ def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
     if base_date is None:
         candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         return candidate + timedelta(days=1) if candidate <= now else candidate
-    return datetime.combine(base_date, datetime.min.time()).replace(hour=hour, minute=minute)
+    candidate = now.replace(
+        year=base_date.year,
+        month=base_date.month,
+        day=base_date.day,
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0,
+    )
+    if re.search(r"\bсегодня\b", lower) and candidate <= now:
+        return None
+    return candidate
 
 
 def _extract_duration(text: str) -> timedelta:
     lower = _normalise(text)
+    composite = re.search(
+        r"\bна\s+(\d+)\s*(?:ч|час\w*)\s+(\d+)\s*(?:мин|минут\w*)\b",
+        lower,
+    )
+    if composite:
+        return timedelta(hours=int(composite.group(1)), minutes=int(composite.group(2)))
     if re.search(r"\bна\s+полчаса\b", lower):
         return timedelta(minutes=30)
     if re.search(r"\bна\s+полтора\s+часа\b", lower):
@@ -482,6 +518,7 @@ def _extract_title(text: str) -> str:
     title = DAYPART_HOUR_RE.sub(" ", title)
     title = WORD_CLOCK_RE.sub(" ", title)
     title = WORD_HOUR_RE.sub(" ", title)
+    title = COMPACT_HHMM_RE.sub(" ", title)
     title = CLOCK_TIME_RE.sub(" ", title)
     title = SIMPLE_HOUR_RE.sub(" ", title)
     title = re.sub(r"\b(?:в\s+)?(?:полдень|полночь)\b", " ", title, flags=re.IGNORECASE)
@@ -496,7 +533,7 @@ def _extract_title(text: str) -> str:
     )
     title = re.sub(r"\b(?:сегодня|завтра|завтро|послезавтра|после\s*завтра|вчера)\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(
-        r"\bчерез\s+(?:полчаса|полтора\s+часа|пару\s+час\w*|"
+        r"\bчерез\s+(?:\d+\s*(?:ч|час\w*)\s+\d+\s*(?:мин|минут\w*)|полчаса|полтора\s+часа|пару\s+час\w*|"
         r"(?:\d+|один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)?\s*"
         r"(?:мин(?:ут\w*)?|ч(?:ас\w*)?|дн\w*|день|дня|недел\w*))\b",
         " ", title, flags=re.IGNORECASE,
@@ -511,7 +548,7 @@ def _extract_title(text: str) -> str:
         " ", title, flags=re.IGNORECASE,
     )
     title = re.sub(
-        r"\bна\s+(?:полчаса|полтора\s+часа|час|\d+(?:[.,]\d+)?\s*(?:мин(?:ут\w*)?|ч(?:ас\w*)?))\b",
+        r"\bна\s+(?:\d+\s*(?:ч|час\w*)\s+\d+\s*(?:мин|минут\w*)|полчаса|полтора\s+часа|час|\d+(?:[.,]\d+)?\s*(?:мин(?:ут\w*)?|ч(?:ас\w*)?))\b",
         " ", title, flags=re.IGNORECASE,
     )
     title = re.sub(r"\s+", " ", title).strip(" ,.-")

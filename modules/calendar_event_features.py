@@ -25,13 +25,18 @@ SAME_MONTH_RANGE_RE = re.compile(
     rf"(?P<month>(?:{MONTHS_PATTERN}))\b",
     re.IGNORECASE,
 )
+SAME_MONTH_DASH_RANGE_RE = re.compile(
+    rf"\b(?P<start_day>\d{{1,2}})\s*[-–—]\s*(?P<end_day>\d{{1,2}})\s+"
+    rf"(?P<month>(?:{MONTHS_PATTERN}))\b",
+    re.IGNORECASE,
+)
 LOCATION_RE = re.compile(
     r"\b(?:по\s+адресу|место\s*[:\-]|локация\s*[:\-])\s*(.+?)(?=$|\s+(?:напомни|пригласи|участники|кажд|весь\s+день))",
     re.IGNORECASE,
 )
 REMINDER_RE = re.compile(
-    r"\bза\s+(?:(?P<amount>\d+)\s*(?P<unit>мин(?:ут\w*)?|ч(?:ас\w*)?|дн\w*)|"
-    r"(?P<half>полчаса)|(?P<hour>час)|(?P<day>день)|(?P<day_alias>сутки|суток))\b",
+    r"\bза\s+(?:(?P<amount>\d+)\s*(?P<unit>мин(?:ут\w*)?|ч(?:ас\w*)?|день|дня|дн\w*|недел\w*)|"
+    r"(?P<half>полчаса)|(?P<hour>час)|(?P<day>день)|(?P<day_alias>сутки|суток)|(?P<week>недел\w*))\b",
     re.IGNORECASE,
 )
 WEEKDAY_BY_RE = {
@@ -78,6 +83,7 @@ def build_all_day_event(text: str, timezone: str, now: datetime | None = None, c
     else:
         cross = CROSS_MONTH_RANGE_RE.search(text)
         same = SAME_MONTH_RANGE_RE.search(text)
+        dash = SAME_MONTH_DASH_RANGE_RE.search(text)
         if cross:
             start_date = parse_fragment(f"{cross.group('start_day')} {cross.group('start_month')}")
             end_inclusive = parse_fragment(f"{cross.group('end_day')} {cross.group('end_month')}")
@@ -87,9 +93,10 @@ def build_all_day_event(text: str, timezone: str, now: datetime | None = None, c
                 except ValueError:
                     return None
             end_date = end_inclusive + timedelta(days=1) if end_inclusive else None
-        elif same:
-            start_date = parse_fragment(f"{same.group('start_day')} {same.group('month')}")
-            end_inclusive = parse_fragment(f"{same.group('end_day')} {same.group('month')}")
+        elif same or dash:
+            match = same or dash
+            start_date = parse_fragment(f"{match.group('start_day')} {match.group('month')}")
+            end_inclusive = parse_fragment(f"{match.group('end_day')} {match.group('month')}")
             if start_date and end_inclusive and end_inclusive < start_date:
                 return None
             end_date = end_inclusive + timedelta(days=1) if end_inclusive else None
@@ -120,6 +127,8 @@ def _reminder_minutes(text: str) -> list[int]:
             minutes = 60
         elif match.group("day") or match.group("day_alias"):
             minutes = 1440
+        elif match.group("week"):
+            minutes = 10080
         else:
             amount = int(match.group("amount"))
             unit = match.group("unit").lower()
@@ -127,6 +136,8 @@ def _reminder_minutes(text: str) -> list[int]:
                 minutes = amount
             elif unit == "ч" or unit.startswith("час"):
                 minutes = amount * 60
+            elif unit.startswith("недел"):
+                minutes = amount * 10080
             else:
                 minutes = amount * 1440
         if 0 <= minutes <= 40320 and minutes not in values:
@@ -189,6 +200,7 @@ def _clean_title(text: str) -> str:
     cleaned = LOCATION_RE.sub(" ", cleaned)
     cleaned = CROSS_MONTH_RANGE_RE.sub(" ", cleaned)
     cleaned = SAME_MONTH_RANGE_RE.sub(" ", cleaned)
+    cleaned = SAME_MONTH_DASH_RANGE_RE.sub(" ", cleaned)
     cleaned = NEXT_WEEK_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b(?:напомни|напоминание)\s*(?:мне\s*)?", " ", cleaned, flags=re.IGNORECASE)
     cleaned = REMINDER_RE.sub(" ", cleaned)
