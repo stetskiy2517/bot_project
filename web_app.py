@@ -13,6 +13,8 @@ from flask import Flask, jsonify, redirect, request, send_from_directory, sessio
 
 from config import WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
+    DEFAULT_CATEGORY_COLORS,
+    GOOGLE_EVENT_COLOR_IDS,
     get_google_account,
     get_onboarding_status,
     get_user_timezone,
@@ -253,6 +255,20 @@ def create_web_app() -> Flask:
                 if not 0 <= value <= 180:
                     raise ValueError("Буфер должен быть от 0 до 180 минут")
                 save_calendar_preferences(user_id, buffer_minutes=value)
+
+            if "category_colors" in payload:
+                colors = payload["category_colors"]
+                if not isinstance(colors, dict) or set(colors) != set(DEFAULT_CATEGORY_COLORS):
+                    raise ValueError("Неверный набор категорий")
+                parsed_colors = {}
+                for category, color_id in colors.items():
+                    if color_id in {None, ""}:
+                        parsed_colors[category] = None
+                    elif str(color_id) in GOOGLE_EVENT_COLOR_IDS:
+                        parsed_colors[category] = str(color_id)
+                    else:
+                        raise ValueError("Неизвестный цвет категории")
+                save_calendar_preferences(user_id, category_colors=parsed_colors)
         except (TypeError, ValueError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
         return _status_payload(user_id)

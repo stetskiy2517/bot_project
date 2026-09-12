@@ -1,26 +1,1068 @@
 <!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f7f7f5">
-  <title>Personal Secretary</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <style>
-    :root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#111;background:#f7f7f5;--bg:#f7f7f5;--card:#fff;--text:#111;--muted:#8a8a8a;--line:#e6e6e3;--soft:#efefec;--black:#111}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);overflow:hidden}button,input,select{font:inherit}button{appearance:none;border:0}.app{position:relative;width:100%;height:100dvh;overflow:hidden;background:var(--bg)}.topbar{position:absolute;z-index:20;top:0;left:0;right:0;height:88px;padding:calc(env(safe-area-inset-top) + 14px) 18px 12px;display:flex;align-items:flex-start;justify-content:flex-end;pointer-events:none}.account-button{pointer-events:auto;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.9);border:1px solid var(--line);display:grid;place-items:center;box-shadow:0 5px 18px rgba(0,0,0,.05);cursor:pointer}.account-button svg{width:21px;height:21px;stroke:#111;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}.pages{height:100%;display:flex;width:200%;transform:translateX(0);transition:transform .36s cubic-bezier(.22,.8,.24,1);touch-action:pan-y}.app.chat-mode .pages{transform:translateX(-50%)}.page{width:50%;height:100%;flex:0 0 50%;position:relative}.voice-page{display:flex;align-items:center;justify-content:center;padding:100px 24px 88px}.voice-shell{text-align:center;display:flex;flex-direction:column;align-items:center;transform:translateY(-2vh)}.voice-title{font-size:17px;font-weight:600;letter-spacing:-.2px;margin:0 0 28px}.record-button{width:148px;height:148px;border-radius:50%;background:#111;display:grid;place-items:center;box-shadow:0 18px 46px rgba(0,0,0,.13);cursor:pointer;transition:transform .15s ease,box-shadow .2s ease,background .2s ease}.record-button:active{transform:scale(.97)}.record-button.recording{background:#2b2b2b;box-shadow:0 0 0 10px #e4e4e1,0 18px 46px rgba(0,0,0,.14)}.record-button svg{width:48px;height:48px;fill:none;stroke:#fff;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}.record-button.recording .mic-icon{display:none}.record-button .stop-icon{display:none}.record-button.recording .stop-icon{display:block}.voice-caption{margin-top:20px;font-size:15px;font-weight:500}.voice-sub{margin-top:7px;font-size:13px;color:var(--muted)}.swipe-hint{position:absolute;bottom:calc(env(safe-area-inset-bottom) + 26px);left:0;right:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#9a9a96;font-size:12px;letter-spacing:.02em}.swipe-hint svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.chat-page{background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;padding-top:calc(env(safe-area-inset-top) + 14px)}.chat-header{height:58px;display:flex;align-items:center;padding:0 68px 0 18px;border-bottom:1px solid #f0f0ee;background:rgba(255,255,255,.92);backdrop-filter:blur(16px);font-size:17px;font-weight:600;letter-spacing:-.25px}.chat{flex:1;overflow:auto;padding:22px 16px 112px;scroll-behavior:smooth}.msg{max-width:min(82%,560px);padding:11px 14px;margin:9px 0;border-radius:20px;background:#f0f0ed;color:#171717;font-size:15px;line-height:1.42;white-space:pre-wrap}.msg.user{margin-left:auto;background:#111;color:#fff;border-bottom-right-radius:7px}.msg.assistant{border-bottom-left-radius:7px}.composer-wrap{position:absolute;left:0;right:0;bottom:0;padding:8px 12px calc(env(safe-area-inset-bottom) + 12px);background:linear-gradient(180deg,rgba(255,255,255,0),#fff 24%)}.composer{max-width:760px;margin:auto;display:flex;align-items:flex-end;gap:8px;padding:7px 7px 7px 14px;border:1px solid #dededb;border-radius:25px;background:#fff;box-shadow:0 4px 22px rgba(0,0,0,.06)}.composer input{flex:1;min-width:0;border:0;outline:none;background:transparent;padding:9px 2px;color:#111;font-size:15px}.composer input::placeholder{color:#a0a09c}.send-button{width:36px;height:36px;border-radius:50%;background:#111;color:#fff;display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.send-button svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}.panel,.login{position:fixed;inset:0;z-index:50;background:rgba(247,247,245,.84);backdrop-filter:blur(22px);display:none;align-items:flex-end;justify-content:center;padding:12px}.panel.open,.login.open{display:flex}.sheet{width:min(560px,100%);max-height:88dvh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:28px;padding:10px 18px calc(env(safe-area-inset-bottom) + 20px);box-shadow:0 22px 70px rgba(0,0,0,.12)}.handle{width:38px;height:4px;border-radius:4px;background:#d9d9d6;margin:2px auto 18px}.sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.sheet-head h2{font-size:22px;letter-spacing:-.55px;margin:0}.close-button{width:34px;height:34px;border-radius:50%;background:#f1f1ef;display:grid;place-items:center;cursor:pointer}.close-button svg{width:16px;height:16px;stroke:#555;stroke-width:1.8}.account-card{display:flex;align-items:center;gap:12px;padding:14px 0 18px;border-bottom:1px solid #ececea}.avatar{width:46px;height:46px;border-radius:50%;background:#111;color:#fff;display:grid;place-items:center;font-weight:600}.account-name{font-size:15px;font-weight:600}.account-email{font-size:13px;color:var(--muted);margin-top:3px}.section-title{margin:22px 0 8px;font-size:12px;color:#92928e;text-transform:uppercase;letter-spacing:.07em}.grid{display:grid;gap:1px;background:#ececea;border:1px solid #ececea;border-radius:16px;overflow:hidden}.field{background:#fff;padding:13px 14px;display:grid;gap:8px;font-size:14px}.field input,.field select{width:100%;border:0;outline:0;background:#f5f5f3;border-radius:10px;padding:10px;color:#111}.row{display:flex;gap:8px}.days{display:flex;gap:6px;flex-wrap:wrap}.day{background:#f2f2f0;border-radius:9px;padding:8px 9px;color:#666}.day.on{background:#111;color:#fff}.sheet-actions{display:flex;gap:8px;margin-top:18px}.action{flex:1;border-radius:13px;padding:12px 14px;background:#efefed;color:#111;cursor:pointer}.action.primary{background:#111;color:#fff}.action.danger{color:#7a7a76}.notice{padding:12px 13px;border-radius:12px;background:#f2f2f0;color:#555;font-size:13px;margin:10px 0}.login{align-items:center}.login-card{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:28px;padding:28px;text-align:center;box-shadow:0 20px 70px rgba(0,0,0,.10)}.login-mark{width:72px;height:72px;border-radius:50%;background:#111;margin:0 auto 20px;display:grid;place-items:center}.login-mark svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.login-card h1{font-size:25px;margin:0 0 8px;letter-spacing:-.7px}.muted{color:var(--muted);font-size:14px;line-height:1.45}.google-btn{width:100%;margin-top:22px;border-radius:14px;padding:13px;background:#111;color:#fff;font-weight:600;cursor:pointer}@media(min-width:760px){.app{max-width:520px;height:min(900px,calc(100dvh - 36px));margin:18px auto;border-radius:32px;border:1px solid #e2e2df;box-shadow:0 24px 80px rgba(0,0,0,.09)}body{display:grid;place-items:center}.panel,.login{border-radius:32px}.record-button{width:160px;height:160px}}
-  </style>
-</head>
-<body>
-  <main id="app" class="app">
-    <div class="topbar"><button id="accountBtn" class="account-button" aria-label="Аккаунт и настройки" title="Аккаунт и настройки"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.8 18.4c.8-3 3-4.6 6.2-4.6s5.4 1.6 6.2 4.6"/><circle cx="18.5" cy="5.5" r="2.1" fill="#fff"/><path d="M18.5 2.5v1M18.5 7.5v1M15.5 5.5h1M20.5 5.5h1"/></svg></button></div>
-    <div id="pages" class="pages">
-      <section class="page voice-page"><div class="voice-shell"><h1 class="voice-title">Говори, я слушаю</h1><button id="voiceBtn" class="record-button" type="button" aria-label="Начать запись"><svg class="mic-icon" viewBox="0 0 48 48"><rect x="17" y="7" width="14" height="24" rx="7"/><path d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11"/></svg><svg class="stop-icon" viewBox="0 0 48 48"><rect x="17" y="17" width="14" height="14" rx="2" fill="#fff" stroke="none"/></svg></button><div id="voiceCaption" class="voice-caption">Нажми, чтобы начать запись</div><div class="voice-sub">Нажми ещё раз, чтобы остановить</div></div><div class="swipe-hint"><span>Свайп влево — текстовый чат</span><svg viewBox="0 0 20 20"><path d="M13 4 7 10l6 6"/></svg></div></section>
-      <section class="page chat-page"><div class="chat-header">Чат</div><div id="chat" class="chat"><div class="msg assistant">Напиши, что нужно сделать.</div></div><div class="composer-wrap"><form id="composer" class="composer"><input id="message" autocomplete="off" placeholder="Сообщение…"><button class="send-button" type="submit" aria-label="Отправить"><svg viewBox="0 0 20 20"><path d="M10 15V5M6 9l4-4 4 4"/></svg></button></form></div></section>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f7f7f5" />
+    <title>Personal Secretary</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+          "Helvetica Neue", Arial, sans-serif;
+        color: #111;
+        background: #f7f7f5;
+        --bg: #f7f7f5;
+        --card: #fff;
+        --text: #111;
+        --muted: #8a8a8a;
+        --line: #e6e6e3;
+        --soft: #efefec;
+        --black: #111;
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        appearance: none;
+        border: 0;
+      }
+      .app {
+        position: relative;
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      .topbar {
+        position: absolute;
+        z-index: 20;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 88px;
+        padding: calc(env(safe-area-inset-top) + 14px) 18px 12px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        pointer-events: none;
+      }
+      .account-button {
+        pointer-events: auto;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.05);
+        cursor: pointer;
+      }
+      .account-button svg {
+        width: 21px;
+        height: 21px;
+        stroke: #111;
+        stroke-width: 1.7;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .pages {
+        height: 100%;
+        display: flex;
+        width: 200%;
+        transform: translateX(0);
+        transition: transform 0.36s cubic-bezier(0.22, 0.8, 0.24, 1);
+        touch-action: pan-y;
+      }
+      .app.chat-mode .pages {
+        transform: translateX(-50%);
+      }
+      .page {
+        width: 50%;
+        height: 100%;
+        flex: 0 0 50%;
+        position: relative;
+      }
+      .voice-page {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 100px 24px 88px;
+      }
+      .voice-shell {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        transform: translateY(-2vh);
+      }
+      .voice-title {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.2px;
+        margin: 0 0 28px;
+      }
+      .record-button {
+        width: 148px;
+        height: 148px;
+        border-radius: 50%;
+        background: #111;
+        display: grid;
+        place-items: center;
+        box-shadow: 0 18px 46px rgba(0, 0, 0, 0.13);
+        cursor: pointer;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.2s ease,
+          background 0.2s ease;
+      }
+      .record-button:active {
+        transform: scale(0.97);
+      }
+      .record-button.recording {
+        background: #2b2b2b;
+        box-shadow:
+          0 0 0 10px #e4e4e1,
+          0 18px 46px rgba(0, 0, 0, 0.14);
+      }
+      .record-button svg {
+        width: 48px;
+        height: 48px;
+        fill: none;
+        stroke: #fff;
+        stroke-width: 1.65;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .record-button.recording .mic-icon {
+        display: none;
+      }
+      .record-button .stop-icon {
+        display: none;
+      }
+      .record-button.recording .stop-icon {
+        display: block;
+      }
+      .voice-caption {
+        margin-top: 20px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .voice-sub {
+        margin-top: 7px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .swipe-hint {
+        position: absolute;
+        bottom: calc(env(safe-area-inset-bottom) + 26px);
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: #9a9a96;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+      .swipe-hint svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .chat-page {
+        background: #fff;
+        border-left: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        padding-top: calc(env(safe-area-inset-top) + 14px);
+      }
+      .chat-header {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        padding: 0 68px 0 18px;
+        border-bottom: 1px solid #f0f0ee;
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(16px);
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.25px;
+      }
+      .chat {
+        flex: 1;
+        overflow: auto;
+        padding: 22px 16px 112px;
+        scroll-behavior: smooth;
+      }
+      .msg {
+        max-width: min(82%, 560px);
+        padding: 11px 14px;
+        margin: 9px 0;
+        border-radius: 20px;
+        background: #f0f0ed;
+        color: #171717;
+        font-size: 15px;
+        line-height: 1.42;
+        white-space: pre-wrap;
+      }
+      .msg.user {
+        margin-left: auto;
+        background: #111;
+        color: #fff;
+        border-bottom-right-radius: 7px;
+      }
+      .msg.assistant {
+        border-bottom-left-radius: 7px;
+      }
+      .composer-wrap {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 8px 12px calc(env(safe-area-inset-bottom) + 12px);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0), #fff 24%);
+      }
+      .composer {
+        max-width: 760px;
+        margin: auto;
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 7px 7px 7px 14px;
+        border: 1px solid #dededb;
+        border-radius: 25px;
+        background: #fff;
+        box-shadow: 0 4px 22px rgba(0, 0, 0, 0.06);
+      }
+      .composer input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: none;
+        background: transparent;
+        padding: 9px 2px;
+        color: #111;
+        font-size: 15px;
+      }
+      .composer input::placeholder {
+        color: #a0a09c;
+      }
+      .send-button {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #111;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+      .send-button svg {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: #fff;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .panel,
+      .login {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        background: rgba(247, 247, 245, 0.84);
+        backdrop-filter: blur(22px);
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 12px;
+      }
+      .panel.open,
+      .login.open {
+        display: flex;
+      }
+      .sheet {
+        width: min(560px, 100%);
+        max-height: 88dvh;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        padding: 10px 18px calc(env(safe-area-inset-bottom) + 20px);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.12);
+      }
+      .handle {
+        width: 38px;
+        height: 4px;
+        border-radius: 4px;
+        background: #d9d9d6;
+        margin: 2px auto 18px;
+      }
+      .sheet-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .sheet-head h2 {
+        font-size: 22px;
+        letter-spacing: -0.55px;
+        margin: 0;
+      }
+      .close-button {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: #f1f1ef;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+      }
+      .close-button svg {
+        width: 16px;
+        height: 16px;
+        stroke: #555;
+        stroke-width: 1.8;
+      }
+      .account-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 0 18px;
+        border-bottom: 1px solid #ececea;
+      }
+      .avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: #111;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 600;
+      }
+      .account-name {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .account-email {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+      .section-title {
+        margin: 22px 0 8px;
+        font-size: 12px;
+        color: #92928e;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+      .grid {
+        display: grid;
+        gap: 1px;
+        background: #ececea;
+        border: 1px solid #ececea;
+        border-radius: 16px;
+        overflow: hidden;
+      }
+      .field {
+        background: #fff;
+        padding: 13px 14px;
+        display: grid;
+        gap: 8px;
+        font-size: 14px;
+      }
+      .field input,
+      .field select {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: #f5f5f3;
+        border-radius: 10px;
+        padding: 10px;
+        color: #111;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .days {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .day {
+        background: #f2f2f0;
+        border-radius: 9px;
+        padding: 8px 9px;
+        color: #666;
+      }
+      .day.on {
+        background: #111;
+        color: #fff;
+      }
+      .color-field {
+        grid-template-columns: minmax(0, 1fr) minmax(140px, 46%);
+        align-items: center;
+      }
+      .color-label {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .color-dot {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: var(--category-color, #d9d9d6);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+        flex: 0 0 auto;
+      }
+      .settings-help {
+        margin: 8px 2px 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .sheet-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .action {
+        flex: 1;
+        border-radius: 13px;
+        padding: 12px 14px;
+        background: #efefed;
+        color: #111;
+        cursor: pointer;
+      }
+      .action.primary {
+        background: #111;
+        color: #fff;
+      }
+      .action.danger {
+        color: #7a7a76;
+      }
+      .notice {
+        padding: 12px 13px;
+        border-radius: 12px;
+        background: #f2f2f0;
+        color: #555;
+        font-size: 13px;
+        margin: 10px 0;
+      }
+      .login {
+        align-items: center;
+      }
+      .login-card {
+        width: min(420px, 100%);
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        padding: 28px;
+        text-align: center;
+        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.1);
+      }
+      .login-mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #111;
+        margin: 0 auto 20px;
+        display: grid;
+        place-items: center;
+      }
+      .login-mark svg {
+        width: 30px;
+        height: 30px;
+        stroke: #fff;
+        fill: none;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .login-card h1 {
+        font-size: 25px;
+        margin: 0 0 8px;
+        letter-spacing: -0.7px;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .google-btn {
+        width: 100%;
+        margin-top: 22px;
+        border-radius: 14px;
+        padding: 13px;
+        background: #111;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      @media (min-width: 760px) {
+        .app {
+          max-width: 520px;
+          height: min(900px, calc(100dvh - 36px));
+          margin: 18px auto;
+          border-radius: 32px;
+          border: 1px solid #e2e2df;
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.09);
+        }
+        body {
+          display: grid;
+          place-items: center;
+        }
+        .panel,
+        .login {
+          border-radius: 32px;
+        }
+        .record-button {
+          width: 160px;
+          height: 160px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app" class="app">
+      <div class="topbar">
+        <button
+          id="accountBtn"
+          class="account-button"
+          aria-label="Аккаунт и настройки"
+          title="Аккаунт и настройки"
+        >
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="3.2" />
+            <path d="M5.8 18.4c.8-3 3-4.6 6.2-4.6s5.4 1.6 6.2 4.6" />
+            <circle cx="18.5" cy="5.5" r="2.1" fill="#fff" />
+            <path d="M18.5 2.5v1M18.5 7.5v1M15.5 5.5h1M20.5 5.5h1" />
+          </svg>
+        </button>
+      </div>
+      <div id="pages" class="pages">
+        <section class="page voice-page">
+          <div class="voice-shell">
+            <h1 class="voice-title">Говори, я слушаю</h1>
+            <button
+              id="voiceBtn"
+              class="record-button"
+              type="button"
+              aria-label="Начать запись"
+            >
+              <svg class="mic-icon" viewBox="0 0 48 48">
+                <rect x="17" y="7" width="14" height="24" rx="7" />
+                <path
+                  d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11"
+                /></svg
+              ><svg class="stop-icon" viewBox="0 0 48 48">
+                <rect
+                  x="17"
+                  y="17"
+                  width="14"
+                  height="14"
+                  rx="2"
+                  fill="#fff"
+                  stroke="none"
+                />
+              </svg>
+            </button>
+            <div id="voiceCaption" class="voice-caption">
+              Нажми, чтобы начать запись
+            </div>
+            <div class="voice-sub">Нажми ещё раз, чтобы остановить</div>
+          </div>
+          <div class="swipe-hint">
+            <span>Свайп влево — текстовый чат</span
+            ><svg viewBox="0 0 20 20"><path d="M13 4 7 10l6 6" /></svg>
+          </div>
+        </section>
+        <section class="page chat-page">
+          <div class="chat-header">Чат</div>
+          <div id="chat" class="chat">
+            <div class="msg assistant">Напиши, что нужно сделать.</div>
+          </div>
+          <div class="composer-wrap">
+            <form id="composer" class="composer">
+              <input
+                id="message"
+                autocomplete="off"
+                placeholder="Сообщение…"
+              /><button
+                class="send-button"
+                type="submit"
+                aria-label="Отправить"
+              >
+                <svg viewBox="0 0 20 20"><path d="M10 15V5M6 9l4-4 4 4" /></svg>
+              </button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+    <div id="login" class="login">
+      <div class="login-card">
+        <div class="login-mark">
+          <svg viewBox="0 0 48 48">
+            <rect x="17" y="7" width="14" height="24" rx="7" />
+            <path d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11" />
+          </svg>
+        </div>
+        <h1>Personal Secretary</h1>
+        <p class="muted">
+          Войди через Google, чтобы подключить календарь и сохранить настройки.
+        </p>
+        <button id="googleLogin" class="google-btn">Войти через Google</button>
+      </div>
     </div>
-  </main>
-  <div id="login" class="login"><div class="login-card"><div class="login-mark"><svg viewBox="0 0 48 48"><rect x="17" y="7" width="14" height="24" rx="7"/><path d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11"/></svg></div><h1>Personal Secretary</h1><p class="muted">Войди через Google, чтобы подключить календарь и сохранить настройки.</p><button id="googleLogin" class="google-btn">Войти через Google</button></div></div>
-  <div id="settingsPanel" class="panel"><div class="sheet"><div class="handle"></div><div class="sheet-head"><h2>Аккаунт</h2><button id="closeSettings" class="close-button"><svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div><div class="account-card"><div id="avatar" class="avatar">A</div><div><div id="accountName" class="account-name">Пользователь</div><div id="accountEmail" class="account-email">Google Calendar</div></div></div><div id="onboardingNotice" class="notice" style="display:none">Выбери часовой пояс, чтобы события создавались с правильным временем.</div><div class="section-title">Настройки календаря</div><div class="grid"><label class="field">Часовой пояс<select id="timezone"><option value="Europe/Moscow">Москва — Europe/Moscow</option><option value="Europe/Amsterdam">Амстердам — Europe/Amsterdam</option><option value="Europe/Tallinn">Таллин — Europe/Tallinn</option><option value="Europe/Helsinki">Хельсинки — Europe/Helsinki</option><option value="Europe/Berlin">Берлин — Europe/Berlin</option><option value="Europe/London">Лондон — Europe/London</option><option value="Asia/Dubai">Дубай — Asia/Dubai</option><option value="Asia/Almaty">Алматы — Asia/Almaty</option></select></label><label class="field">Рабочий день<div class="row"><input id="workStart" type="time" value="09:00"><input id="workEnd" type="time" value="18:00"></div></label><div class="field"><span>Рабочие дни</span><div id="days" class="days"></div></div><label class="field">Буфер между встречами<input id="buffer" type="number" min="0" max="180" value="15"></label></div><div class="sheet-actions"><button id="logout" class="action danger" type="button">Выйти</button><button id="saveSettings" class="action primary" type="button">Сохранить</button></div></div></div>
-<script>
-const app=document.getElementById('app'),login=document.getElementById('login'),chat=document.getElementById('chat'),settingsPanel=document.getElementById('settingsPanel'),voiceBtn=document.getElementById('voiceBtn'),voiceCaption=document.getElementById('voiceCaption');let workDays=[0,1,2,3,4],recorder=null,recordingStream=null,voiceChunks=[],sendingVoice=false;const dayNames=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];let touchStartX=0,touchStartY=0;function msg(t,w='assistant'){const e=document.createElement('div');e.className='msg '+w;e.textContent=t;chat.appendChild(e);chat.scrollTop=chat.scrollHeight;return e}async function api(p,o={}){const headers={...(o.headers||{})};if(!(o.body instanceof FormData)&&!headers['Content-Type'])headers['Content-Type']='application/json';const r=await fetch(p,{...o,headers});if(r.status===401){login.classList.add('open');throw Error('unauthorized')}const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.message||d.error||'request_failed');return d}function renderDays(){const box=document.getElementById('days');box.innerHTML='';dayNames.forEach((name,i)=>{const b=document.createElement('button');b.type='button';b.className='day '+(workDays.includes(i)?'on':'');b.textContent=name;b.onclick=()=>{workDays=workDays.includes(i)?workDays.filter(x=>x!==i):[...workDays,i].sort();renderDays()};box.appendChild(b)})}function loadSettings(s){const p=s.preferences||{};document.getElementById('timezone').value=s.timezone||'Europe/Moscow';document.getElementById('workStart').value=p.work_start||'09:00';document.getElementById('workEnd').value=p.work_end||'18:00';document.getElementById('buffer').value=p.buffer_minutes??15;workDays=p.work_days||[0,1,2,3,4];renderDays();const name=(s.user&&s.user.name)||'Пользователь',email=(s.user&&s.user.email)||'Google Calendar';document.getElementById('accountName').textContent=name;document.getElementById('accountEmail').textContent=email;document.getElementById('avatar').textContent=(name||email).trim().charAt(0).toUpperCase()||'A'}async function refresh(){try{const s=await api('/api/status');login.classList.remove('open');loadSettings(s);if(!s.timezone_set){document.getElementById('onboardingNotice').style.display='block';settingsPanel.classList.add('open')}else document.getElementById('onboardingNotice').style.display='none'}catch(e){if(e.message!=='unauthorized')msg('Не удалось подключиться к серверу.')}}function stopTracks(){if(recordingStream){recordingStream.getTracks().forEach(t=>t.stop());recordingStream=null}}function resetVoiceButton(){voiceBtn.classList.remove('recording');voiceBtn.setAttribute('aria-label','Начать запись');voiceCaption.textContent='Нажми, чтобы начать запись'}function voiceExtension(mime){if(mime.includes('ogg'))return'ogg';if(mime.includes('mp4'))return'm4a';if(mime.includes('mpeg'))return'mp3';if(mime.includes('wav'))return'wav';return'webm'}async function sendVoice(blob){if(!blob.size){voiceCaption.textContent='Не удалось записать звук';return}sendingVoice=true;voiceBtn.disabled=true;voiceCaption.textContent='Распознаю…';const form=new FormData();form.append('audio',blob,'voice.'+voiceExtension(blob.type||''));try{const r=await api('/api/voice',{method:'POST',body:form});app.classList.add('chat-mode');msg(r.transcript||'Голосовое сообщение','user');(r.replies||[]).forEach(x=>msg(x,'assistant'))}catch(e){if(e.message!=='unauthorized')voiceCaption.textContent='Не удалось обработать голос'}finally{sendingVoice=false;voiceBtn.disabled=false;setTimeout(resetVoiceButton,900)}}async function startVoice(){if(sendingVoice)return;if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){voiceCaption.textContent='Запись не поддерживается этим браузером';return}try{recordingStream=await navigator.mediaDevices.getUserMedia({audio:true});voiceChunks=[];const preferred=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4'];const mime=preferred.find(x=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(x));recorder=mime?new MediaRecorder(recordingStream,{mimeType:mime}):new MediaRecorder(recordingStream);recorder.ondataavailable=e=>{if(e.data&&e.data.size)voiceChunks.push(e.data)};recorder.onerror=()=>{stopTracks();resetVoiceButton();voiceCaption.textContent='Ошибка записи'};recorder.onstop=()=>{const type=recorder.mimeType||(voiceChunks[0]&&voiceChunks[0].type)||'audio/webm';const blob=new Blob(voiceChunks,{type});recorder=null;voiceChunks=[];stopTracks();resetVoiceButton();sendVoice(blob)};recorder.start();voiceBtn.classList.add('recording');voiceBtn.setAttribute('aria-label','Остановить запись');voiceCaption.textContent='Идёт запись…'}catch(e){stopTracks();resetVoiceButton();voiceCaption.textContent=e&&e.name==='NotAllowedError'?'Нет доступа к микрофону':'Не удалось включить микрофон'}}voiceBtn.onclick=()=>{if(recorder&&recorder.state==='recording')recorder.stop();else startVoice()};document.getElementById('accountBtn').onclick=()=>settingsPanel.classList.add('open');document.getElementById('closeSettings').onclick=()=>settingsPanel.classList.remove('open');document.getElementById('pages').addEventListener('touchstart',e=>{touchStartX=e.changedTouches[0].clientX;touchStartY=e.changedTouches[0].clientY},{passive:true});document.getElementById('pages').addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-touchStartX,dy=e.changedTouches[0].clientY-touchStartY;if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx<0)app.classList.add('chat-mode');else app.classList.remove('chat-mode')}},{passive:true});document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')app.classList.add('chat-mode');if(e.key==='ArrowRight')app.classList.remove('chat-mode')});document.getElementById('googleLogin').onclick=async()=>{try{const r=await fetch('/api/google/login');const d=await r.json();if(!r.ok)throw Error(d.message||d.error);location.href=d.url}catch(e){alert('Не удалось начать вход через Google: '+e.message)}};document.getElementById('composer').onsubmit=async e=>{e.preventDefault();const i=document.getElementById('message'),t=i.value.trim();if(!t)return;msg(t,'user');i.value='';try{const r=await api('/api/chat',{method:'POST',body:JSON.stringify({message:t})});(r.replies||[]).forEach(x=>msg(x,'assistant'))}catch(e){if(e.message!=='unauthorized')msg('Ошибка: '+e.message,'assistant')}};document.getElementById('saveSettings').onclick=async()=>{try{await api('/api/settings',{method:'POST',body:JSON.stringify({timezone:document.getElementById('timezone').value,work_start:document.getElementById('workStart').value,work_end:document.getElementById('workEnd').value,work_days:workDays,buffer_minutes:Number(document.getElementById('buffer').value)})});settingsPanel.classList.remove('open');await refresh()}catch(e){alert('Не удалось сохранить настройки: '+e.message)}};document.getElementById('logout').onclick=async()=>{try{await api('/api/logout',{method:'POST'})}catch(e){}location.reload()};if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){voiceBtn.disabled=true;voiceCaption.textContent='Микрофон недоступен'}if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});renderDays();refresh();
-</script></body></html>
+    <div id="settingsPanel" class="panel">
+      <div class="sheet">
+        <div class="handle"></div>
+        <div class="sheet-head">
+          <h2>Аккаунт</h2>
+          <button id="closeSettings" class="close-button">
+            <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" /></svg>
+          </button>
+        </div>
+        <div class="account-card">
+          <div id="avatar" class="avatar">A</div>
+          <div>
+            <div id="accountName" class="account-name">Пользователь</div>
+            <div id="accountEmail" class="account-email">Google Calendar</div>
+          </div>
+        </div>
+        <div id="onboardingNotice" class="notice" style="display: none">
+          Выбери часовой пояс, чтобы события создавались с правильным временем.
+        </div>
+        <div class="section-title">Настройки календаря</div>
+        <div class="grid">
+          <label class="field"
+            >Часовой пояс<select id="timezone">
+              <option value="Europe/Moscow">Москва — Europe/Moscow</option>
+              <option value="Europe/Amsterdam">
+                Амстердам — Europe/Amsterdam
+              </option>
+              <option value="Europe/Tallinn">Таллин — Europe/Tallinn</option>
+              <option value="Europe/Helsinki">
+                Хельсинки — Europe/Helsinki
+              </option>
+              <option value="Europe/Berlin">Берлин — Europe/Berlin</option>
+              <option value="Europe/London">Лондон — Europe/London</option>
+              <option value="Asia/Dubai">Дубай — Asia/Dubai</option>
+              <option value="Asia/Almaty">Алматы — Asia/Almaty</option>
+            </select></label
+          ><label class="field"
+            >Рабочий день
+            <div class="row">
+              <input id="workStart" type="time" value="09:00" /><input
+                id="workEnd"
+                type="time"
+                value="18:00"
+              /></div
+          ></label>
+          <div class="field">
+            <span>Рабочие дни</span>
+            <div id="days" class="days"></div>
+          </div>
+          <label class="field"
+            >Буфер между встречами<input
+              id="buffer"
+              type="number"
+              min="0"
+              max="180"
+              value="15"
+          /></label>
+        </div>
+        <div class="section-title">Цвета категорий</div>
+        <div id="categoryColors" class="grid"></div>
+        <p class="settings-help">Цвет применяется к новым событиям.</p>
+        <div class="sheet-actions">
+          <button id="logout" class="action danger" type="button">Выйти</button
+          ><button id="saveSettings" class="action primary" type="button">
+            Сохранить
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      const app = document.getElementById("app"),
+        login = document.getElementById("login"),
+        chat = document.getElementById("chat"),
+        settingsPanel = document.getElementById("settingsPanel"),
+        voiceBtn = document.getElementById("voiceBtn"),
+        voiceCaption = document.getElementById("voiceCaption");
+      let workDays = [0, 1, 2, 3, 4],
+        recorder = null,
+        recordingStream = null,
+        voiceChunks = [],
+        sendingVoice = false;
+      const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+      const categoryNames = {
+        work: "Работа",
+        health: "Здоровье",
+        rest: "Отдых",
+        travel: "Поездки",
+        personal: "Личное",
+        other: "Прочее",
+      };
+      const googleColors = [
+        ["", "Без цвета", "#d9d9d6"],
+        ["1", "Лавандовый", "#7986cb"],
+        ["2", "Шалфей", "#33b679"],
+        ["3", "Фиолетовый", "#8e24aa"],
+        ["4", "Коралловый", "#e67c73"],
+        ["5", "Жёлтый", "#f6c026"],
+        ["6", "Оранжевый", "#f5511d"],
+        ["7", "Голубой", "#039be5"],
+        ["8", "Серый", "#616161"],
+        ["9", "Синий", "#3f51b5"],
+        ["10", "Зелёный", "#0b8043"],
+        ["11", "Красный", "#d60000"],
+      ];
+      const defaultCategoryColors = {
+        work: "3",
+        health: "6",
+        rest: "10",
+        travel: "7",
+        personal: "5",
+        other: null,
+      };
+      let categoryColors = { ...defaultCategoryColors };
+      let touchStartX = 0,
+        touchStartY = 0;
+      function msg(t, w = "assistant") {
+        const e = document.createElement("div");
+        e.className = "msg " + w;
+        e.textContent = t;
+        chat.appendChild(e);
+        chat.scrollTop = chat.scrollHeight;
+        return e;
+      }
+      async function api(p, o = {}) {
+        const headers = { ...(o.headers || {}) };
+        if (!(o.body instanceof FormData) && !headers["Content-Type"])
+          headers["Content-Type"] = "application/json";
+        const r = await fetch(p, { ...o, headers });
+        if (r.status === 401) {
+          login.classList.add("open");
+          throw Error("unauthorized");
+        }
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw Error(d.message || d.error || "request_failed");
+        return d;
+      }
+      function renderDays() {
+        const box = document.getElementById("days");
+        box.innerHTML = "";
+        dayNames.forEach((name, i) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "day " + (workDays.includes(i) ? "on" : "");
+          b.textContent = name;
+          b.onclick = () => {
+            workDays = workDays.includes(i)
+              ? workDays.filter((x) => x !== i)
+              : [...workDays, i].sort();
+            renderDays();
+          };
+          box.appendChild(b);
+        });
+      }
+      function renderCategoryColors() {
+        const box = document.getElementById("categoryColors");
+        box.innerHTML = "";
+        Object.entries(categoryNames).forEach(([category, label]) => {
+          const row = document.createElement("label");
+          row.className = "field color-field";
+          const name = document.createElement("span");
+          name.className = "color-label";
+          const dot = document.createElement("i");
+          dot.className = "color-dot";
+          name.append(dot, document.createTextNode(label));
+          const select = document.createElement("select");
+          select.dataset.category = category;
+          googleColors.forEach(([value, colorName]) => {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = colorName;
+            select.appendChild(option);
+          });
+          select.value = categoryColors[category] || "";
+          const updateDot = () => {
+            const color = googleColors.find(
+              ([value]) => value === select.value,
+            );
+            dot.style.setProperty("--category-color", color[2]);
+          };
+          select.onchange = () => {
+            categoryColors[category] = select.value || null;
+            updateDot();
+          };
+          updateDot();
+          row.append(name, select);
+          box.appendChild(row);
+        });
+      }
+      function loadSettings(s) {
+        const p = s.preferences || {};
+        document.getElementById("timezone").value =
+          s.timezone || "Europe/Moscow";
+        document.getElementById("workStart").value = p.work_start || "09:00";
+        document.getElementById("workEnd").value = p.work_end || "18:00";
+        document.getElementById("buffer").value = p.buffer_minutes ?? 15;
+        workDays = p.work_days || [0, 1, 2, 3, 4];
+        renderDays();
+        categoryColors = {
+          ...defaultCategoryColors,
+          ...(p.category_colors || {}),
+        };
+        renderCategoryColors();
+        const name = (s.user && s.user.name) || "Пользователь",
+          email = (s.user && s.user.email) || "Google Calendar";
+        document.getElementById("accountName").textContent = name;
+        document.getElementById("accountEmail").textContent = email;
+        document.getElementById("avatar").textContent =
+          (name || email).trim().charAt(0).toUpperCase() || "A";
+      }
+      async function refresh() {
+        try {
+          const s = await api("/api/status");
+          login.classList.remove("open");
+          loadSettings(s);
+          if (!s.timezone_set) {
+            document.getElementById("onboardingNotice").style.display = "block";
+            settingsPanel.classList.add("open");
+          } else
+            document.getElementById("onboardingNotice").style.display = "none";
+        } catch (e) {
+          if (e.message !== "unauthorized")
+            msg("Не удалось подключиться к серверу.");
+        }
+      }
+      function stopTracks() {
+        if (recordingStream) {
+          recordingStream.getTracks().forEach((t) => t.stop());
+          recordingStream = null;
+        }
+      }
+      function resetVoiceButton() {
+        voiceBtn.classList.remove("recording");
+        voiceBtn.setAttribute("aria-label", "Начать запись");
+        voiceCaption.textContent = "Нажми, чтобы начать запись";
+      }
+      function voiceExtension(mime) {
+        if (mime.includes("ogg")) return "ogg";
+        if (mime.includes("mp4")) return "m4a";
+        if (mime.includes("mpeg")) return "mp3";
+        if (mime.includes("wav")) return "wav";
+        return "webm";
+      }
+      async function sendVoice(blob) {
+        if (!blob.size) {
+          voiceCaption.textContent = "Не удалось записать звук";
+          return;
+        }
+        sendingVoice = true;
+        voiceBtn.disabled = true;
+        voiceCaption.textContent = "Распознаю…";
+        const form = new FormData();
+        form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
+        try {
+          const r = await api("/api/voice", { method: "POST", body: form });
+          app.classList.add("chat-mode");
+          msg(r.transcript || "Голосовое сообщение", "user");
+          (r.replies || []).forEach((x) => msg(x, "assistant"));
+        } catch (e) {
+          if (e.message !== "unauthorized")
+            voiceCaption.textContent = "Не удалось обработать голос";
+        } finally {
+          sendingVoice = false;
+          voiceBtn.disabled = false;
+          setTimeout(resetVoiceButton, 900);
+        }
+      }
+      async function startVoice() {
+        if (sendingVoice) return;
+        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+          voiceCaption.textContent = "Запись не поддерживается этим браузером";
+          return;
+        }
+        try {
+          recordingStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          voiceChunks = [];
+          const preferred = [
+            "audio/webm;codecs=opus",
+            "audio/ogg;codecs=opus",
+            "audio/mp4",
+          ];
+          const mime = preferred.find(
+            (x) =>
+              MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(x),
+          );
+          recorder = mime
+            ? new MediaRecorder(recordingStream, { mimeType: mime })
+            : new MediaRecorder(recordingStream);
+          recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size) voiceChunks.push(e.data);
+          };
+          recorder.onerror = () => {
+            stopTracks();
+            resetVoiceButton();
+            voiceCaption.textContent = "Ошибка записи";
+          };
+          recorder.onstop = () => {
+            const type =
+              recorder.mimeType ||
+              (voiceChunks[0] && voiceChunks[0].type) ||
+              "audio/webm";
+            const blob = new Blob(voiceChunks, { type });
+            recorder = null;
+            voiceChunks = [];
+            stopTracks();
+            resetVoiceButton();
+            sendVoice(blob);
+          };
+          recorder.start();
+          voiceBtn.classList.add("recording");
+          voiceBtn.setAttribute("aria-label", "Остановить запись");
+          voiceCaption.textContent = "Идёт запись…";
+        } catch (e) {
+          stopTracks();
+          resetVoiceButton();
+          voiceCaption.textContent =
+            e && e.name === "NotAllowedError"
+              ? "Нет доступа к микрофону"
+              : "Не удалось включить микрофон";
+        }
+      }
+      voiceBtn.onclick = () => {
+        if (recorder && recorder.state === "recording") recorder.stop();
+        else startVoice();
+      };
+      document.getElementById("accountBtn").onclick = () =>
+        settingsPanel.classList.add("open");
+      document.getElementById("closeSettings").onclick = () =>
+        settingsPanel.classList.remove("open");
+      document.getElementById("pages").addEventListener(
+        "touchstart",
+        (e) => {
+          touchStartX = e.changedTouches[0].clientX;
+          touchStartY = e.changedTouches[0].clientY;
+        },
+        { passive: true },
+      );
+      document.getElementById("pages").addEventListener(
+        "touchend",
+        (e) => {
+          const dx = e.changedTouches[0].clientX - touchStartX,
+            dy = e.changedTouches[0].clientY - touchStartY;
+          if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            if (dx < 0) app.classList.add("chat-mode");
+            else app.classList.remove("chat-mode");
+          }
+        },
+        { passive: true },
+      );
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft") app.classList.add("chat-mode");
+        if (e.key === "ArrowRight") app.classList.remove("chat-mode");
+      });
+      document.getElementById("googleLogin").onclick = async () => {
+        try {
+          const r = await fetch("/api/google/login");
+          const d = await r.json();
+          if (!r.ok) throw Error(d.message || d.error);
+          location.href = d.url;
+        } catch (e) {
+          alert("Не удалось начать вход через Google: " + e.message);
+        }
+      };
+      document.getElementById("composer").onsubmit = async (e) => {
+        e.preventDefault();
+        const i = document.getElementById("message"),
+          t = i.value.trim();
+        if (!t) return;
+        msg(t, "user");
+        i.value = "";
+        try {
+          const r = await api("/api/chat", {
+            method: "POST",
+            body: JSON.stringify({ message: t }),
+          });
+          (r.replies || []).forEach((x) => msg(x, "assistant"));
+        } catch (e) {
+          if (e.message !== "unauthorized")
+            msg("Ошибка: " + e.message, "assistant");
+        }
+      };
+      document.getElementById("saveSettings").onclick = async () => {
+        try {
+          await api("/api/settings", {
+            method: "POST",
+            body: JSON.stringify({
+              timezone: document.getElementById("timezone").value,
+              work_start: document.getElementById("workStart").value,
+              work_end: document.getElementById("workEnd").value,
+              work_days: workDays,
+              buffer_minutes: Number(document.getElementById("buffer").value),
+              category_colors: categoryColors,
+            }),
+          });
+          settingsPanel.classList.remove("open");
+          await refresh();
+        } catch (e) {
+          alert("Не удалось сохранить настройки: " + e.message);
+        }
+      };
+      document.getElementById("logout").onclick = async () => {
+        try {
+          await api("/api/logout", { method: "POST" });
+        } catch (e) {}
+        location.reload();
+      };
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+        voiceBtn.disabled = true;
+        voiceCaption.textContent = "Микрофон недоступен";
+      }
+      if ("serviceWorker" in navigator)
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      renderDays();
+      renderCategoryColors();
+      refresh();
+    </script>
+  </body>
+</html>

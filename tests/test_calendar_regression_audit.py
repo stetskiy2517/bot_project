@@ -19,6 +19,11 @@ class CalendarRegressionAuditTests(unittest.TestCase):
     def test_family_is_personal_not_rest(self):
         self.assertEqual(_detect_category("ужин с семьей"), ("personal", "5"))
 
+    def test_category_uses_user_color_override(self):
+        colors = {"work": "9", "health": "11", "rest": "2", "travel": "7", "personal": "5", "other": None}
+        self.assertEqual(_detect_category("встреча с клиентом", colors), ("work", "9"))
+        self.assertEqual(_detect_category("приём у врача", colors), ("health", "11"))
+
     def test_view_period_supports_numeric_date(self):
         start, end, _ = _parse_view_period("что у меня 05.09", self.tz, self.now)
         self.assertEqual(start.date().isoformat(), "2026-09-05")

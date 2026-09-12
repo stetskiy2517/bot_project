@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_google_token, get_user_timezone
+from core.db import get_category_colors, get_google_token, get_user_timezone
 from modules.calendar import (
     NAMED_DATE_RE,
     NUMERIC_DATE_RE,
@@ -252,7 +252,7 @@ async def create_from_text(
 
     start, end = timing
     try:
-        event = _build_event(text, start, end)
+        event = _build_event(text, start, end, get_category_colors(user_id))
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         _create_event(user_id, event)
