@@ -11,6 +11,15 @@ DEFAULT_WORK_START = "09:00"
 DEFAULT_WORK_END = "18:00"
 DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
 DEFAULT_BUFFER_MINUTES = 15
+DEFAULT_CATEGORY_COLORS = {
+    "work": "3",
+    "health": "6",
+    "rest": "10",
+    "travel": "7",
+    "personal": "5",
+    "other": None,
+}
+GOOGLE_EVENT_COLOR_IDS = {str(value) for value in range(1, 12)}
 OAUTH_STATE_TTL_MINUTES = 15
 
 _db_dir = os.path.dirname(os.path.abspath(DB_PATH))
@@ -21,9 +30,9 @@ db_lock = threading.RLock()
 
 def init_db():
     with db_lock:
-        conn.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, google_token TEXT, timezone TEXT, work_start TEXT, work_end TEXT, work_days TEXT, buffer_minutes INTEGER)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, google_token TEXT, timezone TEXT, work_start TEXT, work_end TEXT, work_days TEXT, buffer_minutes INTEGER, category_colors TEXT)""")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-        for column, sql_type in {"timezone":"TEXT","work_start":"TEXT","work_end":"TEXT","work_days":"TEXT","buffer_minutes":"INTEGER"}.items():
+        for column, sql_type in {"timezone":"TEXT","work_start":"TEXT","work_end":"TEXT","work_days":"TEXT","buffer_minutes":"INTEGER","category_colors":"TEXT"}.items():
             if column not in columns: conn.execute(f"ALTER TABLE users ADD COLUMN {column} {sql_type}")
         conn.execute("""CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, user_id INTEGER, created_at TEXT NOT NULL)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS google_accounts (user_id INTEGER PRIMARY KEY AUTOINCREMENT, google_sub TEXT NOT NULL UNIQUE, email TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL)""")
@@ -85,22 +94,33 @@ def save_user_timezone(user_id:int,timezone:str)->None:
 def get_user_timezone(user_id:int,default:str|None=DEFAULT_TIMEZONE)->str|None:
     with db_lock: row=conn.execute("SELECT timezone FROM users WHERE user_id=?",(user_id,)).fetchone()
     return row[0] if row and row[0] else default
-def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:str|None=None,work_days:list[int]|None=None,buffer_minutes:int|None=None)->None:
+def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:str|None=None,work_days:list[int]|None=None,buffer_minutes:int|None=None,category_colors:dict[str,str|None]|None=None)->None:
     with db_lock:
         conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)",(user_id,));updates=[];values=[]
         if work_start is not None:updates.append("work_start=?");values.append(work_start)
         if work_end is not None:updates.append("work_end=?");values.append(work_end)
         if work_days is not None:updates.append("work_days=?");values.append(json.dumps(sorted(set(work_days))))
         if buffer_minutes is not None:updates.append("buffer_minutes=?");values.append(int(buffer_minutes))
+        if category_colors is not None:updates.append("category_colors=?");values.append(json.dumps(category_colors,sort_keys=True))
         if not updates:return
         values.append(user_id);conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id=?",values);conn.commit()
 def get_calendar_preferences(user_id:int)->dict:
-    with db_lock:row=conn.execute("SELECT work_start,work_end,work_days,buffer_minutes FROM users WHERE user_id=?",(user_id,)).fetchone()
+    with db_lock:row=conn.execute("SELECT work_start,work_end,work_days,buffer_minutes,category_colors FROM users WHERE user_id=?",(user_id,)).fetchone()
     work_start=row[0] if row and row[0] else DEFAULT_WORK_START;work_end=row[1] if row and row[1] else DEFAULT_WORK_END
     try:work_days=[int(day) for day in json.loads(row[2])] if row and row[2] else DEFAULT_WORK_DAYS.copy()
     except (TypeError,ValueError,json.JSONDecodeError):work_days=DEFAULT_WORK_DAYS.copy()
     buffer=row[3] if row and row[3] is not None else DEFAULT_BUFFER_MINUTES
-    return {"work_start":work_start,"work_end":work_end,"work_days":work_days,"buffer_minutes":int(buffer)}
+    category_colors=DEFAULT_CATEGORY_COLORS.copy()
+    try:
+        stored_colors=json.loads(row[4]) if row and row[4] else {}
+        if isinstance(stored_colors,dict):
+            for category,color_id in stored_colors.items():
+                if category in category_colors and (color_id is None or str(color_id) in GOOGLE_EVENT_COLOR_IDS):
+                    category_colors[category]=str(color_id) if color_id is not None else None
+    except (TypeError,ValueError,json.JSONDecodeError):pass
+    return {"work_start":work_start,"work_end":work_end,"work_days":work_days,"buffer_minutes":int(buffer),"category_colors":category_colors}
+def get_category_colors(user_id:int)->dict[str,str|None]:
+    return get_calendar_preferences(user_id)["category_colors"]
 def get_onboarding_status(user_id:int)->dict:
     return {"google_connected":get_google_token(user_id) is not None,"timezone_set":get_user_timezone(user_id,default=None) is not None,"preferences":get_calendar_preferences(user_id)}
 

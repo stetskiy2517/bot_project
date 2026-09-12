@@ -40,13 +40,13 @@ def is_all_day(text: str) -> bool:
     return False
 
 
-def build_all_day_event(text: str, timezone: str, now: datetime | None = None) -> dict | None:
+def build_all_day_event(text: str, timezone: str, now: datetime | None = None, category_colors: dict[str, str | None] | None = None) -> dict | None:
     zone = _user_zone(timezone)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
     event_date = _date_from_text(text, local_now.replace(tzinfo=None), 12, 0)
     if not event_date:
         return None
-    category, color_id = _detect_category(text)
+    category, color_id = _detect_category(text, category_colors)
     event = {
         "summary": _clean_title(text),
         "description": f"AI Smart Planner category: {category}",

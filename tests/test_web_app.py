@@ -59,6 +59,29 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(sa["preferences"]["buffer_minutes"], 45)
         self.assertEqual(sb["preferences"]["buffer_minutes"], 5)
 
+    def test_category_colors_are_saved_per_user(self):
+        a = self.app.test_client()
+        b = self.app.test_client()
+        self._google_session(a, "colors-a", "colors-a@example.test", "A")
+        self._google_session(b, "colors-b", "colors-b@example.test", "B")
+        colors = {
+            "work": "9", "health": "11", "rest": "2",
+            "travel": "7", "personal": "5", "other": None,
+        }
+        self.assertEqual(a.post("/api/settings", json={"category_colors": colors}).status_code, 200)
+        self.assertEqual(a.get("/api/status").get_json()["preferences"]["category_colors"], colors)
+        self.assertNotEqual(b.get("/api/status").get_json()["preferences"]["category_colors"], colors)
+
+    def test_category_colors_reject_unknown_color(self):
+        self._google_session(self.client, "colors-invalid", "invalid@example.test", "Invalid")
+        colors = {
+            "work": "99", "health": "6", "rest": "10",
+            "travel": "7", "personal": "5", "other": None,
+        }
+        response = self.client.post("/api/settings", json={"category_colors": colors})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_settings")
+
     def test_chat_routes_with_google_session_user_id(self):
         a = self.app.test_client()
         b = self.app.test_client()
@@ -167,6 +190,7 @@ class WebAppTests(unittest.TestCase):
             "workEnd",
             "days",
             "buffer",
+            "categoryColors",
             "saveSettings",
             "voiceBtn",
         ]:

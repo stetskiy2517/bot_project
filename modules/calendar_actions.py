@@ -9,7 +9,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_calendar_preferences, get_user_timezone
+from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import (
     NAMED_DATE_RE,
     NUMERIC_DATE_RE,
@@ -238,7 +238,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     try:
         if is_all_day(text):
-            event = build_all_day_event(text, timezone)
+            event = build_all_day_event(text, timezone, category_colors=get_category_colors(user_id))
             if not event:
                 return False
             _create_event(user_id, event)
@@ -255,7 +255,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         start = start_naive.replace(tzinfo=zone) if start_naive.tzinfo is None else start_naive.astimezone(zone)
         end = end_naive.replace(tzinfo=zone) if end_naive.tzinfo is None else end_naive.astimezone(zone)
 
-        event = apply_event_features(_build_event(text, start, end), text)
+        event = apply_event_features(_build_event(text, start, end, get_category_colors(user_id)), text)
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         conflicts = _find_conflicts(user_id, start, end)

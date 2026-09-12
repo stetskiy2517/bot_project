@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_google_token
+from core.db import get_category_colors, get_google_token
 
 logger = logging.getLogger(__name__)
 CALENDAR_TIMEZONE = "Europe/Moscow"
@@ -269,14 +269,15 @@ def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetim
     return start, (_extract_range_end(text, start) or start + _extract_duration(text))
 
 
-def _detect_category(text: str) -> tuple[str, str | None]:
+def _detect_category(text: str, category_colors: dict[str, str | None] | None = None) -> tuple[str, str | None]:
     lower = _normalise(text)
+    colors = category_colors or {name: config["color_id"] for name, config in EVENT_CATEGORIES.items()}
     if re.search(r"\bсемь(?:я|и|е|ю|ей|ям|ями|ях)\b", lower):
-        return "personal", EVENT_CATEGORIES["personal"]["color_id"]
+        return "personal", colors.get("personal")
     for category, config in EVENT_CATEGORIES.items():
         if any(keyword in lower for keyword in config["keywords"]):
-            return category, config["color_id"]
-    return "other", None
+            return category, colors.get(category)
+    return "other", colors.get("other")
 
 
 def _extract_title(text: str) -> str:
@@ -306,9 +307,9 @@ def _extract_title(text: str) -> str:
     return title[0].upper() + title[1:] if title else "Встреча"
 
 
-def _build_event(text: str, start: datetime, end: datetime | None = None) -> dict:
+def _build_event(text: str, start: datetime, end: datetime | None = None, category_colors: dict[str, str | None] | None = None) -> dict:
     end = end or start + _extract_duration(text)
-    category, color_id = _detect_category(text)
+    category, color_id = _detect_category(text, category_colors)
     event = {
         "summary": _extract_title(text),
         "description": f"AI Smart Planner category: {category}",
@@ -344,7 +345,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     start, end = timing
     user_id = update.effective_user.id
     try:
-        event = _build_event(text, start, end)
+        event = _build_event(text, start, end, get_category_colors(user_id))
         _create_event(user_id, event)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
