@@ -128,7 +128,7 @@ if [ -f bot.db ] && [ ! -f data/bot.db ]; then
 fi
 
 log "Running preflight checks"
-.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules
+.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
 TEST_DB="/tmp/personal-secretary-deploy-test-$$.db"
 rm -f "$TEST_DB"
 DB_PATH="$TEST_DB" .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -q
