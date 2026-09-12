@@ -50,6 +50,13 @@ def _period_has_explicit_day(text: str) -> bool:
     ))
 
 
+def _availability_work_days(text: str, configured_work_days: list[int]) -> list[int]:
+    """Явно выбранный день проверяем даже если он не отмечен как рабочий."""
+    if _period_has_explicit_day(text):
+        return list(range(7))
+    return configured_work_days
+
+
 def _next_work_day(value: datetime, work_days: list[int]) -> datetime:
     candidate = value
     for _ in range(8):
@@ -238,6 +245,7 @@ async def free_slots_from_text(
     prefs = get_calendar_preferences(user_id)
     work_start = _parse_hhmm(prefs["work_start"])
     work_end = _parse_hhmm(prefs["work_end"])
+    work_days = _availability_work_days(text, prefs["work_days"])
     buffer = timedelta(minutes=prefs["buffer_minutes"])
 
     try:
@@ -257,7 +265,7 @@ async def free_slots_from_text(
             duration,
             work_start=work_start,
             work_end=work_end,
-            work_days=prefs["work_days"],
+            work_days=work_days,
             buffer=buffer,
         )
     except PermissionError:
