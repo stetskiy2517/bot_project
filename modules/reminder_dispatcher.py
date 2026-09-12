@@ -9,7 +9,7 @@ from time import sleep
 
 from pywebpush import WebPushException
 
-from config import WEB_PUSH_WORKER_INTERVAL_SECONDS
+from config import BASE_URL, WEB_PUSH_WORKER_INTERVAL_SECONDS
 from core.push_store import (
     delete_push_subscription_by_id,
     list_push_subscriptions,
@@ -34,6 +34,42 @@ def _push_error_message(exc: WebPushException) -> tuple[int | None, str]:
     return status_code, label[:1000]
 
 
+def _push_navigate_url(path: str = "/") -> str:
+    """Return an absolute same-origin URL required by Declarative Web Push."""
+    base = str(BASE_URL or "").strip().rstrip("/")
+    suffix = str(path or "/").strip() or "/"
+    if not suffix.startswith("/"):
+        suffix = f"/{suffix}"
+    return f"{base}{suffix}" if base else suffix
+
+
+def _notification_payload(
+    *,
+    title: str,
+    body: str,
+    tag: str,
+    url: str = "/",
+    reminder_id: int | None = None,
+) -> dict:
+    """Build one payload that works declaratively on Apple and via SW elsewhere."""
+    data = {"url": url}
+    if reminder_id is not None:
+        data["reminder_id"] = reminder_id
+    return {
+        "web_push": 8030,
+        "notification": {
+            "title": title,
+            "lang": "ru-RU",
+            "dir": "ltr",
+            "body": body,
+            "navigate": _push_navigate_url(url),
+            "silent": False,
+            "tag": tag,
+            "data": data,
+        },
+    }
+
+
 def send_test_push_for_user(user_id: int) -> dict:
     """Send an immediate diagnostic notification without touching reminder state."""
     subscriptions = list_push_subscriptions(user_id)
@@ -50,13 +86,11 @@ def send_test_push_for_user(user_id: int) -> dict:
     failed = 0
     removed = 0
     errors: list[str] = []
-    payload = {
-        "type": "push_test",
-        "title": "Уведомления работают",
-        "body": "Тестовый push от Личного секретаря.",
-        "tag": f"push-test-{int(datetime.now(timezone.utc).timestamp())}",
-        "url": "/",
-    }
+    payload = _notification_payload(
+        title="Уведомления работают",
+        body="Тестовый push от Личного секретаря.",
+        tag=f"push-test-{int(datetime.now(timezone.utc).timestamp())}",
+    )
 
     for subscription in subscriptions:
         subscription_id = subscription["subscription_id"]
@@ -121,14 +155,12 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
         transient_failures = 0
         accepted = 0
         last_error = None
-        payload = {
-            "type": "reminder",
-            "reminder_id": reminder["reminder_id"],
-            "title": "Напоминание",
-            "body": reminder["text"],
-            "tag": f"reminder-{reminder['reminder_id']}",
-            "url": "/",
-        }
+        payload = _notification_payload(
+            title="Напоминание",
+            body=reminder["text"],
+            tag=f"reminder-{reminder['reminder_id']}",
+            reminder_id=reminder["reminder_id"],
+        )
 
         for subscription in subscriptions:
             subscription_id = subscription["subscription_id"]
