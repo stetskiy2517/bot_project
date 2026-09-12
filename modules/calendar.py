@@ -72,8 +72,14 @@ EVENT_CATEGORIES = {
     "health": {"color_id": "6", "keywords": ("врач", "доктор", "невролог", "стоматолог", "клиник", "больниц", "анализ", "мрт", "узи", "массаж", "физиотерап", "здоров", "лекар")},
     "rest": {"color_id": "10", "keywords": ("отдых", "выходн", "кино", "театр", "ресторан", "кафе", "прогул", "сауна", "баня", "спорт", "трениров", "зал", "друз")},
     "travel": {"color_id": "7", "keywords": ("самолет", "самолёт", "рейс", "поезд", "вокзал", "аэропорт", "дорог", "такси", "перелет", "перелёт", "командиров", "отъезд", "прилет", "прилёт")},
-    "personal": {"color_id": "5", "keywords": ("личн", "дом", "покуп", "магазин", "семья", "родител", "ребен", "ребён", "день рождения", "забрать", "отвезти")},
+    "family": {"color_id": "4", "keywords": ()},
+    "personal": {"color_id": "5", "keywords": ("личн", "дом", "покуп", "купить", "куплю", "купи", "магазин", "день рождения", "забрать", "отвезти")},
 }
+FAMILY_RE = re.compile(
+    r"\b(?:семь(?:я|и|е|ю|ей|ям|ями|ях)|семейн\w*|родител\w*|ребен\w*|"
+    r"дет(?:и|ей|ям|ьми|ях)|сын\w*|доч\w*|мам\w*|пап\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def _normalise(text: str) -> str:
@@ -272,8 +278,8 @@ def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetim
 def _detect_category(text: str, category_colors: dict[str, str | None] | None = None) -> tuple[str, str | None]:
     lower = _normalise(text)
     colors = category_colors or {name: config["color_id"] for name, config in EVENT_CATEGORIES.items()}
-    if re.search(r"\bсемь(?:я|и|е|ю|ей|ям|ями|ях)\b", lower):
-        return "personal", colors.get("personal")
+    if FAMILY_RE.search(lower):
+        return "family", colors.get("family")
     for category, config in EVENT_CATEGORIES.items():
         if any(keyword in lower for keyword in config["keywords"]):
             return category, colors.get(category)

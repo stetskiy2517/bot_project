@@ -16,6 +16,7 @@ DEFAULT_CATEGORY_COLORS = {
     "health": "6",
     "rest": "10",
     "travel": "7",
+    "family": "4",
     "personal": "5",
     "other": None,
 }
