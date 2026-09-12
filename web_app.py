@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Flask, jsonify, redirect, request, send_from_directory, session
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session
 
 from config import WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
@@ -140,7 +140,13 @@ def create_web_app() -> Flask:
 
     @app.get("/")
     def index():
-        return send_from_directory(WEB_DIR, "index.html")
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        html = html.replace("</body>", '    <script src="/reminders.js"></script>\n  </body>')
+        return Response(html, mimetype="text/html")
+
+    @app.get("/reminders.js")
+    def reminders_js():
+        return send_from_directory(WEB_DIR, "reminders.js", mimetype="application/javascript")
 
     @app.get("/manifest.webmanifest")
     def manifest():
