@@ -18,8 +18,8 @@ NOTE_SEARCH = "note_search"
 NOTE_DELETE = "note_delete"
 
 NOTE_CREATE_RE = re.compile(
-    r"^\s*(?:(?:создай|добавь|сохрани|запиши)\s+(?:мне\s+)?(?:заметку|запись)|"
-    r"(?:заметка|запись)\s*[:\-])\b",
+    r"^\s*(?:(?:создай|добавь|сохрани|запиши)\s+(?:мне\s+)?(?:заметку|запись)\b|"
+    r"(?:заметка|запись)\b\s*[:\-])",
     re.IGNORECASE,
 )
 NOTE_LIST_RE = re.compile(
