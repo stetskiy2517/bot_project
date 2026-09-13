@@ -11,7 +11,7 @@ from core.db import conn, db_lock
 
 REMINDER_COLUMNS = (
     "reminder_id,user_id,text,remind_at,status,created_at,delivered_at,completed_at,"
-    "lease_until,delivery_attempts,last_error,deleted_at"
+    "lease_until,delivery_attempts,last_error,deleted_at,repeat_rule,repeat_timezone,next_remind_at"
 )
 
 
@@ -29,6 +29,9 @@ def _reminder_from_row(row) -> dict:
         "delivery_attempts": int(row[9] or 0),
         "last_error": row[10],
         "deleted_at": row[11],
+        "repeat_rule": row[12],
+        "repeat_timezone": row[13],
+        "next_remind_at": row[14],
     }
 
 

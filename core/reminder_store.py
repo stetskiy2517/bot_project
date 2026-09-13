@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
+from core.reminder_recurrence import next_repeat_at, validate_repeat_rule
 
 REMINDER_PENDING = "pending"
 REMINDER_DELIVERING = "delivering"
@@ -19,7 +20,7 @@ REMINDER_STATUSES = {
 }
 SELECT_COLUMNS = (
     "reminder_id,user_id,text,remind_at,status,created_at,delivered_at,completed_at,"
-    "lease_until,delivery_attempts,last_error,deleted_at"
+    "lease_until,delivery_attempts,last_error,deleted_at,repeat_rule,repeat_timezone,next_remind_at"
 )
 
 
@@ -38,7 +39,10 @@ def init_reminder_store() -> None:
                 lease_until TEXT,
                 delivery_attempts INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
-                deleted_at TEXT
+                deleted_at TEXT,
+                repeat_rule TEXT,
+                repeat_timezone TEXT,
+                next_remind_at TEXT
             )"""
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
@@ -48,6 +52,9 @@ def init_reminder_store() -> None:
             "delivery_attempts": "INTEGER NOT NULL DEFAULT 0",
             "last_error": "TEXT",
             "deleted_at": "TEXT",
+            "repeat_rule": "TEXT",
+            "repeat_timezone": "TEXT",
+            "next_remind_at": "TEXT",
         }
         for column, sql_type in migrations.items():
             if column not in columns:
@@ -63,6 +70,10 @@ def init_reminder_store() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reminders_user_deleted_status_time "
             "ON reminders(user_id, deleted_at, status, remind_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reminders_repeat_due "
+            "ON reminders(deleted_at, repeat_rule, next_remind_at)"
         )
         conn.commit()
 
@@ -87,20 +98,53 @@ def _from_row(row) -> dict:
         "delivery_attempts": int(row[9] or 0),
         "last_error": row[10],
         "deleted_at": row[11],
+        "repeat_rule": row[12],
+        "repeat_timezone": row[13],
+        "next_remind_at": row[14],
     }
 
 
-def create_reminder(user_id: int, text: str, remind_at: datetime) -> dict:
+def _parse_utc(value: str) -> datetime:
+    return _to_utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+
+
+def create_reminder(
+    user_id: int,
+    text: str,
+    remind_at: datetime,
+    *,
+    repeat_rule: str | None = None,
+    repeat_timezone: str | None = None,
+) -> dict:
     text = " ".join(text.split()).strip()
     if not text:
         raise ValueError("Reminder text is required")
-    remind_value = _to_utc(remind_at).isoformat()
+    normalized_repeat = validate_repeat_rule(repeat_rule)
+    remind_dt = _to_utc(remind_at)
+    remind_value = remind_dt.isoformat()
+    repeat_tz = str(repeat_timezone or "UTC") if normalized_repeat else None
+    next_value = (
+        next_repeat_at(remind_dt, normalized_repeat, repeat_tz).isoformat()
+        if normalized_repeat
+        else None
+    )
     created_at = datetime.now(timezone.utc).isoformat()
     with db_lock:
         try:
             cur = conn.execute(
-                "INSERT INTO reminders (user_id,text,remind_at,status,created_at) VALUES (?,?,?,?,?)",
-                (int(user_id), text, remind_value, REMINDER_PENDING, created_at),
+                "INSERT INTO reminders "
+                "(user_id,text,remind_at,status,created_at,repeat_rule,repeat_timezone,next_remind_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    int(user_id),
+                    text,
+                    remind_value,
+                    REMINDER_PENDING,
+                    created_at,
+                    normalized_repeat,
+                    repeat_tz,
+                    next_value,
+                ),
             )
             row = conn.execute(
                 f"SELECT {SELECT_COLUMNS} FROM reminders WHERE reminder_id=?",
@@ -141,6 +185,27 @@ def list_reminders(
     return [_from_row(row) for row in rows]
 
 
+def list_active_reminders(user_id: int, *, limit: int = 100) -> list[dict]:
+    """Return reminders that are still actionable, including recurring schedules."""
+    safe_limit = max(1, min(int(limit), 500))
+    with db_lock:
+        rows = conn.execute(
+            f"SELECT {SELECT_COLUMNS} FROM reminders "
+            "WHERE user_id=? AND deleted_at IS NULL AND ("
+            "status IN (?,?) OR (repeat_rule IS NOT NULL AND next_remind_at IS NOT NULL)"
+            ") ORDER BY CASE WHEN status IN (?,?) THEN remind_at ELSE next_remind_at END, reminder_id LIMIT ?",
+            (
+                int(user_id),
+                REMINDER_PENDING,
+                REMINDER_DELIVERING,
+                REMINDER_PENDING,
+                REMINDER_DELIVERING,
+                safe_limit,
+            ),
+        ).fetchall()
+    return [_from_row(row) for row in rows]
+
+
 def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool) -> bool:
     deleted_at = datetime.now(timezone.utc).isoformat()
     with db_lock:
@@ -151,7 +216,7 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
             )
             params: list[object] = [int(user_id), int(reminder_id)]
             if pending_only:
-                query += " AND status=?"
+                query += " AND (status=? OR repeat_rule IS NOT NULL)"
                 params.append(REMINDER_PENDING)
             row = conn.execute(query, params).fetchone()
             if not row:
@@ -163,7 +228,7 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
             )
             update_params: list[object] = [deleted_at, int(user_id), int(reminder_id)]
             if pending_only:
-                update += " AND status=?"
+                update += " AND (status=? OR repeat_rule IS NOT NULL)"
                 update_params.append(REMINDER_PENDING)
             cur = conn.execute(update, update_params)
             if cur.rowcount <= 0:
@@ -186,7 +251,7 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
 
 
 def delete_reminder(user_id: int, reminder_id: int) -> bool:
-    """Hide a still-pending reminder while retaining it for AI memory."""
+    """Hide an active reminder or recurring schedule while retaining it for AI memory."""
     return _soft_delete_reminder(user_id, reminder_id, pending_only=True)
 
 
@@ -203,9 +268,9 @@ def complete_reminder(
 ) -> dict | None:
     """Set or clear the user's explicit completion mark.
 
-    Reopening a future reminder makes it pending again so it can still fire at its
-    original time. Reopening an already-due reminder returns it to the historical
-    delivered state instead of pending, which prevents an accidental second alert.
+    A recurring reminder keeps its next occurrence in ``next_remind_at``. Marking
+    the current occurrence complete never cancels the recurrence; when the next
+    occurrence becomes due it replaces the current occurrence automatically.
     """
     if not isinstance(completed, bool):
         raise ValueError("completed must be boolean")
@@ -237,8 +302,7 @@ def complete_reminder(
                 if current["status"] != REMINDER_COMPLETED:
                     conn.commit()
                     return current
-                remind_at = datetime.fromisoformat(str(current["remind_at"]).replace("Z", "+00:00"))
-                remind_at = _to_utc(remind_at)
+                remind_at = _parse_utc(current["remind_at"])
                 target_status = REMINDER_PENDING if remind_at > now else REMINDER_DELIVERED
                 if target_status == REMINDER_PENDING:
                     conn.execute(
@@ -278,19 +342,38 @@ def complete_reminder(
 
 
 def reschedule_reminder(user_id: int, reminder_id: int, remind_at: datetime) -> dict | None:
-    """Move a saved reminder to a new time and make it active again."""
-    remind_value = _to_utc(remind_at).isoformat()
+    """Move a saved reminder to a new time and keep its recurrence, if any."""
+    remind_dt = _to_utc(remind_at)
+    remind_value = remind_dt.isoformat()
     with db_lock:
         try:
-            cur = conn.execute(
-                "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"
-                "lease_until=NULL,delivery_attempts=0,last_error=NULL "
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM reminders "
                 "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
-                (remind_value, REMINDER_PENDING, int(user_id), int(reminder_id)),
-            )
-            if cur.rowcount <= 0:
-                conn.commit()
+                (int(user_id), int(reminder_id)),
+            ).fetchone()
+            if not row:
                 return None
+            current = _from_row(row)
+            next_value = None
+            if current.get("repeat_rule"):
+                next_value = next_repeat_at(
+                    remind_dt,
+                    current["repeat_rule"],
+                    current.get("repeat_timezone"),
+                ).isoformat()
+            conn.execute(
+                "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"
+                "lease_until=NULL,delivery_attempts=0,last_error=NULL,next_remind_at=? "
+                "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                (
+                    remind_value,
+                    REMINDER_PENDING,
+                    next_value,
+                    int(user_id),
+                    int(reminder_id),
+                ),
+            )
             row = conn.execute(
                 f"SELECT {SELECT_COLUMNS} FROM reminders "
                 "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
@@ -321,6 +404,53 @@ def _recover_expired_leases(current_iso: str) -> None:
     )
 
 
+def _select_due_rows(user_ids: list[int], current_iso: str, limit: int):
+    placeholders = ",".join("?" for _ in user_ids)
+    return conn.execute(
+        f"SELECT {SELECT_COLUMNS} FROM reminders "
+        f"WHERE deleted_at IS NULL AND user_id IN ({placeholders}) AND ("
+        "(status=? AND remind_at<=?) OR "
+        "(repeat_rule IS NOT NULL AND next_remind_at IS NOT NULL "
+        "AND status IN (?,?) AND next_remind_at<=?)"
+        ") ORDER BY CASE WHEN status=? THEN remind_at ELSE next_remind_at END, reminder_id LIMIT ?",
+        [
+            *user_ids,
+            REMINDER_PENDING,
+            current_iso,
+            REMINDER_DELIVERED,
+            REMINDER_COMPLETED,
+            current_iso,
+            REMINDER_PENDING,
+            int(limit),
+        ],
+    ).fetchall()
+
+
+def _due_occurrence(item: dict, current: datetime) -> datetime | None:
+    remind_at = _parse_utc(item["remind_at"])
+    if item["status"] == REMINDER_PENDING and remind_at <= current:
+        return remind_at
+    if (
+        item.get("repeat_rule")
+        and item["status"] in {REMINDER_DELIVERED, REMINDER_COMPLETED}
+        and item.get("next_remind_at")
+    ):
+        next_at = _parse_utc(item["next_remind_at"])
+        if next_at <= current:
+            return next_at
+    return None
+
+
+def _advance_repeat(item: dict, occurrence: datetime) -> str | None:
+    if not item.get("repeat_rule"):
+        return None
+    return next_repeat_at(
+        occurrence,
+        item["repeat_rule"],
+        item.get("repeat_timezone"),
+    ).isoformat()
+
+
 def claim_due_reminders(
     user_id: int,
     *,
@@ -328,36 +458,42 @@ def claim_due_reminders(
     limit: int = 20,
 ) -> list[dict]:
     """Claim due reminders for an active foreground client exactly once."""
-    current = _to_utc(now or datetime.now(timezone.utc)).isoformat()
+    current_dt = _to_utc(now or datetime.now(timezone.utc))
+    current = current_dt.isoformat()
     safe_limit = max(1, min(int(limit), 100))
-    delivered_at = datetime.now(timezone.utc).isoformat()
+    delivered_at = current_dt.isoformat()
     with db_lock:
         conn.execute("BEGIN IMMEDIATE")
         try:
             _recover_expired_leases(current)
-            rows = conn.execute(
-                f"SELECT {SELECT_COLUMNS} FROM reminders "
-                "WHERE user_id=? AND status=? AND remind_at<=? AND deleted_at IS NULL "
-                "ORDER BY remind_at, reminder_id LIMIT ?",
-                (int(user_id), REMINDER_PENDING, current, safe_limit),
-            ).fetchall()
-            if not rows:
-                conn.commit()
-                return []
-            ids = [int(row[0]) for row in rows]
-            placeholders = ",".join("?" for _ in ids)
-            conn.execute(
-                f"UPDATE reminders SET status=?,delivered_at=?,lease_until=NULL,last_error=NULL "
-                f"WHERE user_id=? AND status=? AND deleted_at IS NULL "
-                f"AND reminder_id IN ({placeholders})",
-                [REMINDER_DELIVERED, delivered_at, int(user_id), REMINDER_PENDING, *ids],
-            )
+            rows = _select_due_rows([int(user_id)], current, safe_limit)
             result = []
             for row in rows:
                 item = _from_row(row)
+                occurrence = _due_occurrence(item, current_dt)
+                if occurrence is None:
+                    continue
+                next_value = _advance_repeat(item, occurrence)
+                conn.execute(
+                    "UPDATE reminders SET remind_at=?,status=?,delivered_at=?,completed_at=NULL,"
+                    "lease_until=NULL,last_error=NULL,next_remind_at=? "
+                    "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                    (
+                        occurrence.isoformat(),
+                        REMINDER_DELIVERED,
+                        delivered_at,
+                        next_value,
+                        item["user_id"],
+                        item["reminder_id"],
+                    ),
+                )
+                item["remind_at"] = occurrence.isoformat()
                 item["status"] = REMINDER_DELIVERED
                 item["delivered_at"] = delivered_at
+                item["completed_at"] = None
                 item["lease_until"] = None
+                item["last_error"] = None
+                item["next_remind_at"] = next_value
                 record_ai_memory_event(
                     item["user_id"],
                     "reminder",
@@ -389,42 +525,47 @@ def claim_due_for_push(
     current = current_dt.isoformat()
     lease_until = (current_dt + timedelta(seconds=max(30, int(lease_seconds)))).isoformat()
     safe_limit = max(1, min(int(limit), 200))
-    user_placeholders = ",".join("?" for _ in normalized_users)
 
     with db_lock:
         conn.execute("BEGIN IMMEDIATE")
         try:
             _recover_expired_leases(current)
-            rows = conn.execute(
-                f"SELECT {SELECT_COLUMNS} FROM reminders "
-                f"WHERE status=? AND remind_at<=? AND deleted_at IS NULL "
-                f"AND user_id IN ({user_placeholders}) "
-                "ORDER BY remind_at, reminder_id LIMIT ?",
-                [REMINDER_PENDING, current, *normalized_users, safe_limit],
-            ).fetchall()
-            if not rows:
-                conn.commit()
-                return []
-            ids = [int(row[0]) for row in rows]
-            placeholders = ",".join("?" for _ in ids)
-            conn.execute(
-                f"UPDATE reminders SET status=?,lease_until=?,delivery_attempts=delivery_attempts+1,last_error=NULL "
-                f"WHERE status=? AND deleted_at IS NULL AND reminder_id IN ({placeholders})",
-                [REMINDER_DELIVERING, lease_until, REMINDER_PENDING, *ids],
-            )
+            rows = _select_due_rows(normalized_users, current, safe_limit)
+            result = []
+            for row in rows:
+                item = _from_row(row)
+                occurrence = _due_occurrence(item, current_dt)
+                if occurrence is None:
+                    continue
+                is_new_occurrence = item["status"] != REMINDER_PENDING
+                next_value = _advance_repeat(item, occurrence)
+                attempts = 1 if is_new_occurrence else item["delivery_attempts"] + 1
+                conn.execute(
+                    "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"
+                    "lease_until=?,delivery_attempts=?,last_error=NULL,next_remind_at=? "
+                    "WHERE reminder_id=? AND deleted_at IS NULL",
+                    (
+                        occurrence.isoformat(),
+                        REMINDER_DELIVERING,
+                        lease_until,
+                        attempts,
+                        next_value,
+                        item["reminder_id"],
+                    ),
+                )
+                item["remind_at"] = occurrence.isoformat()
+                item["status"] = REMINDER_DELIVERING
+                item["delivered_at"] = None
+                item["completed_at"] = None
+                item["lease_until"] = lease_until
+                item["delivery_attempts"] = attempts
+                item["last_error"] = None
+                item["next_remind_at"] = next_value
+                result.append(item)
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-
-    result = []
-    for row in rows:
-        item = _from_row(row)
-        item["status"] = REMINDER_DELIVERING
-        item["lease_until"] = lease_until
-        item["delivery_attempts"] += 1
-        item["last_error"] = None
-        result.append(item)
     return result
 
 
@@ -467,7 +608,12 @@ def release_push_delivery(reminder_id: int, error: str | None = None) -> bool:
         cur = conn.execute(
             "UPDATE reminders SET status=?,lease_until=NULL,last_error=? "
             "WHERE reminder_id=? AND status=? AND deleted_at IS NULL",
-            (REMINDER_PENDING, str(error or "")[:1000] or None, int(reminder_id), REMINDER_DELIVERING),
+            (
+                REMINDER_PENDING,
+                str(error or "")[:1000] or None,
+                int(reminder_id),
+                REMINDER_DELIVERING,
+            ),
         )
         conn.commit()
     return cur.rowcount > 0
