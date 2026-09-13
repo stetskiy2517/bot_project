@@ -128,7 +128,8 @@ if [ -f bot.db ] && [ ! -f data/bot.db ]; then
 fi
 
 log "Running preflight checks"
-.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules tests
+bash -n scripts/deploy_update.sh scripts/install_backup_timer.sh
+.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
 TEST_DB="/tmp/personal-secretary-deploy-test-$$.db"
 rm -f "$TEST_DB"
 DB_PATH="$TEST_DB" .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -q
@@ -208,6 +209,14 @@ if [ "$HTTPS_READY" -ne 1 ]; then
   sudo journalctl -u caddy -n 80 --no-pager >&2 || true
   fail "Caddy could not serve a valid HTTPS certificate. Verify inbound TCP ports 80 and 443 in cloud.ru."
 fi
+
+log "Installing automatic state backups"
+APP_USER="$APP_USER" PROJECT_DIR="$PROJECT_DIR" bash "$PROJECT_DIR/scripts/install_backup_timer.sh"
+
+log "Verifying reboot recovery"
+sudo systemctl is-enabled --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME is not enabled"
+sudo systemctl is-enabled --quiet caddy || fail "caddy is not enabled"
+sudo systemctl is-enabled --quiet personal-secretary-backup.timer || fail "backup timer is not enabled"
 
 log "MVP is online"
 printf 'URL: %s\n' "https://$PUBLIC_HOST"
