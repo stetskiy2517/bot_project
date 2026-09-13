@@ -807,6 +807,7 @@
         voicePressActive = false,
         voicePointerId = null,
         voiceRecordingStartedAt = 0,
+        voiceRequestVersion = 0,
         voiceSourceButton = null,
         chatIdleTimer = null;
 
@@ -1095,7 +1096,8 @@
       }
 
       async function startVoice() {
-        if (sendingVoice || !voicePressActive || !voiceSourceButton) return;
+        if (sendingVoice || recorder || !voicePressActive || !voiceSourceButton) return;
+        const requestVersion = ++voiceRequestVersion;
         clearChatIdleTimer();
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
           voicePressActive = false;
@@ -1106,12 +1108,13 @@
           return;
         }
         try {
-          recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (!voicePressActive || !voiceSourceButton) {
-            stopTracks();
-            resetVoiceButton();
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (requestVersion !== voiceRequestVersion || !voicePressActive || !voiceSourceButton) {
+            stream.getTracks().forEach((track) => track.stop());
+            if (requestVersion === voiceRequestVersion) resetVoiceButton();
             return;
           }
+          recordingStream = stream;
           voiceChunks = [];
           const preferred = [
             "audio/webm;codecs=opus",
@@ -1171,6 +1174,7 @@
             chatVoiceBtn.title = "Отпусти, чтобы отправить";
           voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
         } catch (error) {
+          if (requestVersion !== voiceRequestVersion) return;
           const sourceButton = voiceSourceButton;
           voicePressActive = false;
           voicePointerId = null;
@@ -1189,7 +1193,7 @@
 
       function beginVoicePress(event) {
         const button = event.currentTarget;
-        if (sendingVoice || voicePressActive || button.disabled) return;
+        if (sendingVoice || voicePressActive || recorder || button.disabled) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
         event.preventDefault();
         voicePressActive = true;
@@ -1235,7 +1239,7 @@
         button.addEventListener("keydown", (event) => {
           if ((event.key === " " || event.key === "Enter") && !event.repeat) {
             event.preventDefault();
-            if (sendingVoice || voicePressActive || button.disabled) return;
+            if (sendingVoice || voicePressActive || recorder || button.disabled) return;
             voicePressActive = true;
             voicePointerId = null;
             voiceRecordingStartedAt = 0;

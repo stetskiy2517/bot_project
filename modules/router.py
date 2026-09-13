@@ -316,7 +316,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
         return await resume_pending_action(update, context, reply_text, pending)
-    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет"}:
+    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет", "стоп"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True

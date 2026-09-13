@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, time, timedelta, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
+import logging
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+logger = logging.getLogger(__name__)
 
 THIS_SCOPE_RE = re.compile(
     r"\b(?:только\s+(?:эту|это|одну|один)|только\s+(?:сегодня|завтра)|одно\s+событие|эту\s+встречу)\b",
@@ -24,7 +26,6 @@ SERIES_SCOPE_RE = re.compile(
 
 
 def recurring_scope_from_text(text: str) -> str | None:
-    """Вернуть `this`, `future`, `series` или None, если область не указана."""
     if FUTURE_SCOPE_RE.search(text):
         return "future"
     if SERIES_SCOPE_RE.search(text):
@@ -191,6 +192,6 @@ def split_recurring_series_for_update(
             try:
                 service.events().delete(calendarId="primary", eventId=inserted_id).execute()
             except Exception:
-                pass
+                logger.exception("Failed to roll back the newly created recurring series")
         raise
     return inserted

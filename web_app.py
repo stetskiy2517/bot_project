@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
+from math import isfinite
 import re
 import threading
 from pathlib import Path
@@ -46,6 +47,7 @@ WEB_DIR = Path(__file__).parent / "web"
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 VOICE_MAX_BYTES = 25 * 1024 * 1024
 VOICE_MIN_DURATION_MS = 400
+MAX_MESSAGE_LENGTH = 10000
 WEB_SESSION_LIFETIME_DAYS = 90
 VOICE_MIME_SUFFIXES = {
     "audio/webm": ".webm",
@@ -111,7 +113,7 @@ def _voice_duration_ms() -> float | None:
         value = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("Некорректная длительность аудио.") from exc
-    if value < 0:
+    if not isfinite(value) or value < 0:
         raise ValueError("Некорректная длительность аудио.")
     return value
 
@@ -220,7 +222,15 @@ def create_web_app() -> Flask:
             return None
         if user_id is None:
             return jsonify({"error": "unauthorized"}), 401
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.is_json:
+            if not isinstance(request.get_json(silent=True), dict):
+                return jsonify({"error": "invalid_json", "message": "Ожидается JSON-объект."}), 400
         return None
+
+    @app.after_request
+    def prevent_content_sniffing(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        return response
 
     @app.errorhandler(413)
     def request_too_large(_error):
@@ -273,19 +283,19 @@ def create_web_app() -> Flask:
     def google_login():
         try:
             return {"url": build_web_signin_url()}
-        except Exception as exc:
+        except Exception:
             logger.exception("Failed to build Google sign-in URL")
-            return jsonify({"error": "google_oauth_not_configured", "message": str(exc)}), 503
+            return jsonify({"error": "google_oauth_not_configured", "message": "Вход через Google временно недоступен."}), 503
 
     @app.get("/oauth2callback")
     def oauth_callback():
         if request.args.get("error"):
-            return f"Google OAuth error: {request.args['error']}", 400
+            return Response(f"Google OAuth error: {request.args['error']}", status=400, mimetype="text/plain")
         try:
             user_id = complete_web_signin(request.args.get("state", ""), request.args.get("code", ""))
-        except Exception as exc:
+        except Exception:
             logger.exception("Web Google sign-in failed")
-            return f"Не удалось войти через Google: {exc}", 400
+            return Response("Не удалось войти через Google. Попробуй войти ещё раз.", status=400, mimetype="text/plain")
         session.clear()
         session.permanent = True
         session["user_id"] = user_id
@@ -461,6 +471,8 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         payload = request.get_json(silent=True) or {}
         keys = payload.get("keys") or {}
+        if not isinstance(keys, dict):
+            return jsonify({"error": "invalid_push_subscription"}), 400
         try:
             save_push_subscription(
                 user_id,
@@ -493,7 +505,12 @@ def create_web_app() -> Flask:
     def chat():
         user_id = _require_user_id()
         account = get_google_account(user_id)
-        text = str((request.get_json(silent=True) or {}).get("message", "")).strip()
+        text = (request.get_json(silent=True) or {}).get("message", "")
+        if not isinstance(text, str):
+            return jsonify({"error": "invalid_message", "message": "Сообщение должно быть текстом."}), 400
+        if len(text) > MAX_MESSAGE_LENGTH:
+            return jsonify({"error": "message_too_long", "message": "Сообщение слишком длинное."}), 400
+        text = text.strip()
         if not text:
             return jsonify({"error": "empty_message"}), 400
         try:
@@ -522,9 +539,11 @@ def create_web_app() -> Flask:
             return jsonify({"error": "audio_too_short", "message": "Слишком короткая запись."}), 400
 
         try:
-            text = normalize_time_format(transcribe_audio(audio.stream))
+            text = normalize_time_format(transcribe_audio(audio.stream)).strip()
             if not text:
                 return jsonify({"error": "empty_transcript", "message": "Не удалось распознать речь."}), 400
+            if len(text) > MAX_MESSAGE_LENGTH:
+                return jsonify({"error": "message_too_long", "message": "Голосовое сообщение слишком длинное."}), 400
             result = asyncio.run(
                 process_web_message(text, user_id, account.get("name") or account["email"])
             )
@@ -542,6 +561,8 @@ def create_web_app() -> Flask:
     def settings():
         user_id = _require_user_id()
         payload = request.get_json(silent=True) or {}
+        preferences = {}
+        user_timezone = None
         try:
             if "timezone" in payload:
                 user_timezone = str(payload["timezone"]).strip()
@@ -549,7 +570,6 @@ def create_web_app() -> Flask:
                     ZoneInfo(user_timezone)
                 except ZoneInfoNotFoundError as exc:
                     raise ValueError("Неизвестный часовой пояс") from exc
-                save_user_timezone(user_id, user_timezone)
 
             work_start = payload.get("work_start")
             work_end = payload.get("work_end")
@@ -558,29 +578,32 @@ def create_web_app() -> Flask:
                 start = str(work_start or current["work_start"])
                 end = str(work_end or current["work_end"])
                 _validate_time_range(start, end)
-                save_calendar_preferences(user_id, work_start=start, work_end=end)
+                preferences.update(work_start=start, work_end=end)
 
             if "work_days" in payload:
                 days = payload["work_days"]
                 if not isinstance(days, list) or not days:
                     raise ValueError("Нужно выбрать хотя бы один рабочий день")
+                if any(isinstance(day, (bool, float)) for day in days):
+                    raise ValueError("Рабочие дни должны быть целыми числами от 0 до 6")
                 parsed = sorted({int(day) for day in days})
                 if any(day < 0 or day > 6 for day in parsed):
                     raise ValueError("Рабочие дни должны быть числами от 0 до 6")
-                save_calendar_preferences(user_id, work_days=parsed)
+                preferences["work_days"] = parsed
 
             if "buffer_minutes" in payload:
+                if isinstance(payload["buffer_minutes"], (bool, float)):
+                    raise ValueError("Буфер должен быть целым числом минут")
                 value = int(payload["buffer_minutes"])
                 if not 0 <= value <= 180:
                     raise ValueError("Буфер должен быть от 0 до 180 минут")
-                save_calendar_preferences(user_id, buffer_minutes=value)
+                preferences["buffer_minutes"] = value
 
             if "category_colors" in payload:
                 colors = payload["category_colors"]
                 if not isinstance(colors, dict) or not colors:
                     raise ValueError("Неверный набор категорий")
-                unknown_categories = set(colors) - set(DEFAULT_CATEGORY_COLORS)
-                if unknown_categories:
+                if set(colors) - set(DEFAULT_CATEGORY_COLORS):
                     raise ValueError("Неверный набор категорий")
                 parsed_colors = dict(_status_payload(user_id)["preferences"]["category_colors"])
                 for category, color_id in colors.items():
@@ -590,9 +613,14 @@ def create_web_app() -> Flask:
                         parsed_colors[category] = str(color_id)
                     else:
                         raise ValueError("Неизвестный цвет категории")
-                save_calendar_preferences(user_id, category_colors=parsed_colors)
-        except (TypeError, ValueError) as exc:
+                preferences["category_colors"] = parsed_colors
+        except (TypeError, ValueError, OverflowError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
+
+        if user_timezone is not None:
+            save_user_timezone(user_id, user_timezone)
+        if preferences:
+            save_calendar_preferences(user_id, **preferences)
         return _status_payload(user_id)
 
     return app
