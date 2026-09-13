@@ -19,7 +19,7 @@ TRANSCRIPTION_TIMEOUT_SECONDS = 180
 POLL_INTERVAL_SECONDS = 2
 EXPLICIT_DOTTED_TIME_RE = re.compile(
     r"\b(?P<prefix>(?:в|к|с|до)\s+)(?P<hour>[01]?\d|2[0-3])"
-    r"\.(?P<minute>[0-5]\d)(?![\d.]\d)",
+    r"\.(?P<minute>[0-5]\d)(?!\d|\.\d)",
     re.IGNORECASE,
 )
 
