@@ -218,12 +218,12 @@ class NoteRouterTests(unittest.IsolatedAsyncioTestCase):
         context = self._context()
         with (
             patch("modules.router.handle_note_text", new=AsyncMock(return_value=True)) as note_handler,
-            patch("modules.router.query_from_text", new=AsyncMock(return_value=True)) as calendar_query,
+            patch("modules.router.view_from_text", new=AsyncMock(return_value=True)) as calendar_view,
         ):
             handled = await route_text(update, context)
         self.assertTrue(handled)
         self.assertEqual(note_handler.await_args.args[3], NOTE_SEARCH)
-        calendar_query.assert_not_awaited()
+        calendar_view.assert_not_awaited()
 
     async def test_router_sends_append_command_to_notes_not_calendar(self):
         update = self._update("добавь в заметку про Иванова, что созвон в пятницу")
