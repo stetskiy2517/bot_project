@@ -1,4 +1,4 @@
-"""Central message routing for Smart Planner calendar, reminders and tasks."""
+"""Central message routing for Smart Planner calendar, reminders, notes and tasks."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from modules.calendar_actions import create_from_text, delete_from_text, resume_
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
+from modules.notes import detect_note_intent, handle_note_text, resume_pending_note
 from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
 from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
 
@@ -293,6 +294,8 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         reply_text = "да"
     if pending_type.startswith("reminder_"):
         return await resume_pending_reminder(update, context, reply_text, pending)
+    if pending_type.startswith("note_"):
+        return await resume_pending_note(update, context, reply_text, pending)
     if pending_type.startswith("task_"):
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
@@ -336,6 +339,11 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if reminder_intent:
         logger.info("Router reminder_intent=%s", reminder_intent)
         return await handle_reminder_text(update, context, text, reminder_intent)
+
+    note_intent = detect_note_intent(text)
+    if note_intent:
+        logger.info("Router note_intent=%s", note_intent)
+        return await handle_note_text(update, context, text, note_intent)
 
     task_intent = detect_task_intent(text)
     if task_intent:
