@@ -23,6 +23,13 @@ NOTE_APPEND_RE = re.compile(
     r"(?:допиши|дописать|дополни|дополнить)\s+(?:(?:в|к)\s+)?(?:мою\s+)?(?:заметку|запись)\b)",
     re.IGNORECASE,
 )
+NOTE_CONTEXTUAL_APPEND_RE = re.compile(
+    r"^\s*(?:добавь|добавить|внеси|внести|допиши|дописать|дополни|дополнить)\s+"
+    r"(?:мне\s+)?(?:в|к)\s+"
+    r"(?!(?:календар\w*|расписани\w*|встреч\w*|событ\w*|созвон\w*|звонок\w*|напоминани\w*)\b)"
+    r".+",
+    re.IGNORECASE,
+)
 NOTE_CREATE_RE = re.compile(
     r"^\s*(?:(?:создай|добавь|сохрани|запиши)\s+(?:мне\s+)?(?:заметку|запись)\b|"
     r"(?:создай|создать|сохрани|сохранить|запиши|записать|составь|составить)\s+(?:мне\s+)?список\b|"
@@ -57,6 +64,11 @@ NOTE_APPEND_PREFIX_RE = re.compile(
     r"(?:допиши|дописать|дополни|дополнить)\s+(?:(?:в|к)\s+)?(?:мою\s+)?(?:заметку|запись))\s*",
     re.IGNORECASE,
 )
+NOTE_CONTEXTUAL_APPEND_PREFIX_RE = re.compile(
+    r"^\s*(?:добавь|добавить|внеси|внести|допиши|дописать|дополни|дополнить)\s+"
+    r"(?:мне\s+)?(?:в|к)\s+",
+    re.IGNORECASE,
+)
 NOTE_SEARCH_PREFIX_RE = re.compile(
     r"^\s*(?:"
     r"(?:найди|поищи|покажи)\s+(?:мне\s+)?(?:заметку|заметки|запись|записи)\s+(?:про|о|об)\s+|"
@@ -85,7 +97,7 @@ def _normalise(text: str) -> str:
 
 
 def detect_note_intent(text: str) -> str | None:
-    if NOTE_APPEND_RE.search(text):
+    if NOTE_APPEND_RE.search(text) or NOTE_CONTEXTUAL_APPEND_RE.search(text):
         return NOTE_APPEND
     if NOTE_DELETE_RE.search(text):
         return NOTE_DELETE
@@ -140,7 +152,11 @@ def _note_query(text: str, prefix_re: re.Pattern) -> str:
 
 
 def _split_append_payload(text: str) -> tuple[str, str, bool]:
-    payload = NOTE_APPEND_PREFIX_RE.sub("", text.strip(), count=1).strip(" \t\r\n.,;:-—–")
+    original = text.strip()
+    payload = NOTE_APPEND_PREFIX_RE.sub("", original, count=1)
+    if payload == original:
+        payload = NOTE_CONTEXTUAL_APPEND_PREFIX_RE.sub("", original, count=1)
+    payload = payload.strip(" \t\r\n.,;:-—–")
     payload = NOTE_TOPIC_PREFIX_RE.sub("", payload, count=1).strip()
     if not payload:
         return "", "", False
@@ -156,18 +172,55 @@ def _split_append_payload(text: str) -> tuple[str, str, bool]:
     return query, addition, True
 
 
+def _note_title(note: dict) -> str:
+    title = str(note.get("title") or "").strip()
+    if title:
+        return title
+    return derive_note_title(str(note.get("text") or ""))
+
+
+def _exact_title_matches(matches: list[dict], query: str) -> list[dict]:
+    normal_query = _normalise(query)
+    return [item for item in matches if _normalise(_note_title(item)) == normal_query]
+
+
 def _resolve_append_request(user_id: int, text: str) -> tuple[str, str, list[dict]]:
     query, addition, explicit_separator = _split_append_payload(text)
     if not query:
         return "", addition, []
     if explicit_separator:
-        return query, addition, search_notes(user_id, query, limit=50)
+        matches = search_notes(user_id, query, limit=50)
+        exact = _exact_title_matches(matches, query)
+        return query, addition, exact or matches
+
+    contextual = bool(NOTE_CONTEXTUAL_APPEND_RE.search(text) and not NOTE_APPEND_RE.search(text))
+    words = query.split()
+
+    if contextual and len(words) >= 2:
+        # Prefer the longest prefix that exactly matches an existing note title.
+        for cut in range(len(words) - 1, 0, -1):
+            target = " ".join(words[:cut])
+            remainder = " ".join(words[cut:]).strip()
+            matches = search_notes(user_id, target, limit=50)
+            exact = _exact_title_matches(matches, target)
+            if exact:
+                return target, remainder, exact
+
+        # Legacy notes may only match by text; use the longest unique prefix.
+        for cut in range(len(words) - 1, 0, -1):
+            target = " ".join(words[:cut])
+            remainder = " ".join(words[cut:]).strip()
+            matches = search_notes(user_id, target, limit=50)
+            if len(matches) == 1:
+                return target, remainder, matches
 
     full_matches = search_notes(user_id, query, limit=50)
-    if full_matches:
+    exact_full = _exact_title_matches(full_matches, query)
+    if exact_full:
+        return query, "", exact_full
+    if full_matches and not contextual:
         return query, "", full_matches
 
-    words = query.split()
     fallback: tuple[str, str, list[dict]] | None = None
     for cut in range(1, min(len(words), 7)):
         target = " ".join(words[:cut])
@@ -180,13 +233,6 @@ def _resolve_append_request(user_id: int, text: str) -> tuple[str, str, list[dic
         if matches:
             fallback = (target, remainder, matches)
     return fallback or (query, "", [])
-
-
-def _note_title(note: dict) -> str:
-    title = str(note.get("title") or "").strip()
-    if title:
-        return title
-    return derive_note_title(str(note.get("text") or ""))
 
 
 def _format_created_at(note: dict, timezone: str) -> str:
