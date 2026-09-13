@@ -195,20 +195,66 @@ def delete_saved_reminder(user_id: int, reminder_id: int) -> bool:
     return _soft_delete_reminder(user_id, reminder_id, pending_only=False)
 
 
-def complete_reminder(user_id: int, reminder_id: int) -> dict | None:
-    """Mark a reminder as explicitly completed by the user."""
-    completed_at = datetime.now(timezone.utc).isoformat()
+def complete_reminder(
+    user_id: int,
+    reminder_id: int,
+    *,
+    completed: bool = True,
+) -> dict | None:
+    """Set or clear the user's explicit completion mark.
+
+    Reopening a future reminder makes it pending again so it can still fire at its
+    original time. Reopening an already-due reminder returns it to the historical
+    delivered state instead of pending, which prevents an accidental second alert.
+    """
+    if not isinstance(completed, bool):
+        raise ValueError("completed must be boolean")
+
+    now = datetime.now(timezone.utc)
     with db_lock:
         try:
-            cur = conn.execute(
-                "UPDATE reminders SET status=?,completed_at=COALESCE(completed_at,?),"
-                "lease_until=NULL,last_error=NULL "
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM reminders "
                 "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
-                (REMINDER_COMPLETED, completed_at, int(user_id), int(reminder_id)),
-            )
-            if cur.rowcount <= 0:
-                conn.commit()
+                (int(user_id), int(reminder_id)),
+            ).fetchone()
+            if not row:
                 return None
+            current = _from_row(row)
+
+            if completed:
+                if current["status"] == REMINDER_COMPLETED:
+                    conn.commit()
+                    return current
+                completed_at = now.isoformat()
+                conn.execute(
+                    "UPDATE reminders SET status=?,completed_at=?,lease_until=NULL,last_error=NULL "
+                    "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                    (REMINDER_COMPLETED, completed_at, int(user_id), int(reminder_id)),
+                )
+                event_type = "completed"
+            else:
+                if current["status"] != REMINDER_COMPLETED:
+                    conn.commit()
+                    return current
+                remind_at = datetime.fromisoformat(str(current["remind_at"]).replace("Z", "+00:00"))
+                remind_at = _to_utc(remind_at)
+                target_status = REMINDER_PENDING if remind_at > now else REMINDER_DELIVERED
+                if target_status == REMINDER_PENDING:
+                    conn.execute(
+                        "UPDATE reminders SET status=?,completed_at=NULL,delivered_at=NULL,"
+                        "lease_until=NULL,last_error=NULL "
+                        "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                        (target_status, int(user_id), int(reminder_id)),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE reminders SET status=?,completed_at=NULL,lease_until=NULL,last_error=NULL "
+                        "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                        (target_status, int(user_id), int(reminder_id)),
+                    )
+                event_type = "reopened"
+
             row = conn.execute(
                 f"SELECT {SELECT_COLUMNS} FROM reminders "
                 "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
@@ -220,7 +266,7 @@ def complete_reminder(user_id: int, reminder_id: int) -> dict | None:
                     user_id,
                     "reminder",
                     reminder["reminder_id"],
-                    "completed",
+                    event_type,
                     reminder,
                     commit=False,
                 )

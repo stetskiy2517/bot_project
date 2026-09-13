@@ -375,7 +375,11 @@ def create_web_app() -> Flask:
     @app.post("/api/library/reminders/<int:reminder_id>/complete")
     def complete_library_reminder(reminder_id: int):
         user_id = _require_user_id()
-        reminder = complete_reminder(user_id, reminder_id)
+        payload = request.get_json(silent=True) or {}
+        completed = payload.get("completed", True)
+        if not isinstance(completed, bool):
+            return jsonify({"error": "invalid_completion_state"}), 400
+        reminder = complete_reminder(user_id, reminder_id, completed=completed)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
         return {"ok": True, "reminder": _library_reminder_payload(reminder)}
