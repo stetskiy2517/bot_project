@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import logging
 import re
 import threading
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session
 
-from config import WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
+from config import BASE_URL, WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
     DEFAULT_CATEGORY_COLORS,
     GOOGLE_EVENT_COLOR_IDS,
@@ -41,6 +42,7 @@ WEB_DIR = Path(__file__).parent / "web"
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 VOICE_MAX_BYTES = 25 * 1024 * 1024
 VOICE_MIN_DURATION_MS = 400
+WEB_SESSION_LIFETIME_DAYS = 90
 VOICE_MIME_SUFFIXES = {
     "audio/webm": ".webm",
     "audio/ogg": ".ogg",
@@ -137,13 +139,25 @@ def create_web_app() -> Flask:
     start_reminder_push_worker()
     app = Flask("personal-secretary-web", static_folder=None)
     app.secret_key = WEB_SESSION_SECRET
-    app.config["MAX_CONTENT_LENGTH"] = VOICE_MAX_BYTES
+    app.config.update(
+        MAX_CONTENT_LENGTH=VOICE_MAX_BYTES,
+        PERMANENT_SESSION_LIFETIME=timedelta(days=WEB_SESSION_LIFETIME_DAYS),
+        SESSION_REFRESH_EACH_REQUEST=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=bool(BASE_URL and BASE_URL.lower().startswith("https://")),
+    )
 
     @app.before_request
     def protect_api():
+        user_id = _current_user_id()
+        # Older releases created browser-session cookies. Upgrade any still-valid
+        # authenticated session in place so the user does not have to sign in again.
+        if user_id is not None and not session.permanent:
+            session.permanent = True
         if not request.path.startswith("/api/") or request.path in {"/api/health", "/api/google/login"}:
             return None
-        if _current_user_id() is None:
+        if user_id is None:
             return jsonify({"error": "unauthorized"}), 401
         return None
 
@@ -198,6 +212,7 @@ def create_web_app() -> Flask:
             logger.exception("Web Google sign-in failed")
             return f"Не удалось войти через Google: {exc}", 400
         session.clear()
+        session.permanent = True
         session["user_id"] = user_id
         return redirect("/?google=connected")
 
