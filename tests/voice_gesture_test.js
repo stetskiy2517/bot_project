@@ -192,7 +192,7 @@ function loadGestureScript() {
   vm.createContext(context);
   const source = fs.readFileSync(path.join(__dirname, "..", "web", "voice_gesture.js"), "utf8");
   vm.runInContext(source, context, { filename: "voice_gesture.js" });
-  const trash = body.children.find((item) => item.classList.contains("voice-trash-target"));
+  const trash = body.children[0];
   return { context, mainButton, chatButton, voiceCaption, voiceSub, trash };
 }
 
