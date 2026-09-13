@@ -1,0 +1,45 @@
+name: Browser regression audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'tests/browser_audit.py'
+      - '.github/workflows/browser-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser test tools
+        run: |
+          pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Run desktop and mobile viewport scenarios
+        run: |
+          mkdir -p audit-evidence/browser
+          git rev-parse HEAD > audit-evidence/revision.txt
+          git archive HEAD -o audit-evidence/source.tar
+          set -o pipefail
+          python tests/browser_audit.py --output audit-evidence/browser 2>&1 | tee audit-evidence/browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-audit-evidence
+          path: audit-evidence/
+          retention-days: 7
