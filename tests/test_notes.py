@@ -25,6 +25,13 @@ class NoteParsingTests(unittest.TestCase):
         self.assertEqual(_note_body("запиши заметку купить фильтр для воды"), "купить фильтр для воды")
         self.assertEqual(_note_body("заметка: Иван ждёт смету"), "Иван ждёт смету")
 
+    def test_list_style_commands_are_notes(self):
+        phrase = "запиши список продуктов бананы масло сливочное"
+        self.assertEqual(detect_note_intent(phrase), NOTE_CREATE)
+        self.assertEqual(_note_body(phrase), "список продуктов бананы масло сливочное")
+        self.assertEqual(detect_note_intent("создай список вещей в поездку"), NOTE_CREATE)
+        self.assertEqual(detect_note_intent("составь список покупок молоко хлеб"), NOTE_CREATE)
+
     def test_append_intents_and_payload(self):
         command = "добавь в заметку про Иванова, что он согласовал цену"
         self.assertEqual(detect_note_intent(command), NOTE_APPEND)
@@ -144,6 +151,18 @@ class NoteRouterTests(unittest.IsolatedAsyncioTestCase):
             handled = await route_text(update, context)
         self.assertTrue(handled)
         note_handler.assert_awaited_once()
+        calendar_create.assert_not_awaited()
+
+    async def test_router_sends_spoken_list_to_notes_not_calendar(self):
+        update = self._update("запиши список продуктов бананы масло сливочное")
+        context = self._context()
+        with (
+            patch("modules.router.handle_note_text", new=AsyncMock(return_value=True)) as note_handler,
+            patch("modules.router.create_from_text", new=AsyncMock(return_value=True)) as calendar_create,
+        ):
+            handled = await route_text(update, context)
+        self.assertTrue(handled)
+        self.assertEqual(note_handler.await_args.args[3], NOTE_CREATE)
         calendar_create.assert_not_awaited()
 
     async def test_router_sends_append_command_to_notes_not_calendar(self):
