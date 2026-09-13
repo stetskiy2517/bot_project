@@ -17,6 +17,7 @@ from core.note_store import append_note, get_note, list_notes, search_notes
 from modules.notes import (
     NOTE_CREATE,
     NOTE_DELETE,
+    NOTE_LIST,
     NOTE_SEARCH,
     NOTE_SEARCH_PREFIX_RE,
     _note_query,
@@ -85,7 +86,7 @@ def _clean_target(value: str) -> str:
 def _clean_addition(value: str) -> str:
     addition = str(value).strip(" \t\r\n,;:-—–")
     addition = re.sub(r"^(?:ещ[её]\s+)", "", addition, flags=re.IGNORECASE)
-    return addition.rstrip(". ")
+    return addition.rstrip(" .!?")
 
 
 def _ordered_matches(user_id: int, query: str) -> list[dict]:
@@ -245,8 +246,8 @@ async def append_to_note(update: Any, context: Any, note: dict, addition: str) -
 
 
 def remember_after_note_action(user_id: int, context: Any, intent: str, text: str) -> None:
-    """Remember a single note after create/read actions for natural follow-ups."""
-    if intent == NOTE_DELETE:
+    """Remember one unambiguous note after create/read actions for safe follow-ups."""
+    if intent in {NOTE_DELETE, NOTE_LIST}:
         clear_active_note(context)
         return
     if intent == NOTE_CREATE:
@@ -258,24 +259,31 @@ def remember_after_note_action(user_id: int, context: Any, intent: str, text: st
         return
     query = _note_query(text, NOTE_SEARCH_PREFIX_RE)
     if not query:
+        clear_active_note(context)
         return
     matches = _ordered_matches(user_id, query)
     if len(matches) == 1:
         remember_active_note(context, matches[0])
+    else:
+        clear_active_note(context)
 
 
 def resolve_named_note_delete(user_id: int, text: str) -> str | None:
-    """Resolve ``удали <title>`` only when an existing note clearly matches."""
+    """Resolve ``удали <title>`` only for an exact existing note title.
+
+    Exact-title-only behavior is deliberate: a phrase such as
+    ``удали шоколад из списка покупок`` must never delete the whole note merely
+    because the note body contains the word ``шоколад``.
+    """
     match = DELETE_NAMED_RE.match(text)
     if not match:
         return None
     query = _clean_target(match.group("query"))
-    if not query or query.startswith(("встреч", "событ", "созвон", "звонок", "календар", "напоминан")):
+    if not query:
         return None
-    matches = _ordered_matches(user_id, query)
+    matches = search_notes(user_id, query, limit=50)
     if not matches:
         return None
-    exact = [item for item in matches if _normalise(_note_title(item)) == _normalise(query)]
-    if exact or len(matches) == 1:
-        return query
-    return None
+    normal_query = _normalise(query)
+    exact = [item for item in matches if _normalise(_note_title(item)) == normal_query]
+    return query if exact else None
