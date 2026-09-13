@@ -18,7 +18,8 @@ import requests
 from config import YANDEX_GEOCODER_API_KEY, YANDEX_ROUTING_API_KEY
 from core.db import get_category_colors
 from core.navigation_store import get_navigation_preferences
-from modules.calendar_user import _event_end, _event_start, _get_calendar_service, _list_events
+from modules.calendar_availability import _event_end
+from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,8 @@ def delete_travel_for_event(user_id: int, source_event_id: str) -> int:
 def create_travel_for_event(user_id: int, source_event: dict, timezone: str) -> dict | None:
     prefs = get_navigation_preferences(user_id)
     if not prefs.get("enabled") or not navigation_configured():
+        return None
+    if source_event.get("recurrence") or source_event.get("recurringEventId"):
         return None
     source_id = _source_event_id(source_event)
     destination = str(source_event.get("location") or "").strip()
