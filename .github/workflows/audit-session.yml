@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -24,15 +25,19 @@ jobs:
         run: |
           mkdir -p audit-evidence
           git rev-parse HEAD > audit-evidence/revision.txt
-      - name: Install dependencies and audit tools
-        run: pip install -r requirements.txt coverage ruff bandit pip-audit
+      - name: Install audit dependencies
+        run: pip install -q -r requirements.txt coverage ruff bandit pip-audit
       - name: Run test suite with coverage
         run: |
           set -o pipefail
           coverage run --source=core,handlers,integrations,modules,web_app -m unittest discover -s tests -p 'test_*.py' 2>&1 | tee audit-evidence/unittest.log
+      - name: Collect coverage
+        if: always()
+        run: |
           coverage report --skip-covered | tee audit-evidence/coverage.txt
           coverage json -o audit-evidence/coverage.json
-      - name: Validate browser code and voice gestures
+          pip freeze > audit-evidence/installed.txt
+      - name: Validate all tracked source
         if: always()
         run: |
           set -o pipefail
@@ -42,7 +47,7 @@ jobs:
           import ast, io, json, pathlib, re, subprocess, tempfile, tokenize
           from html.parser import HTMLParser
           files = [pathlib.Path(p) for p in subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0') if p]
-          report = {'files': [], 'empty_handlers': [], 'comment_candidates': [], 'long_functions': []}
+          report = {'files': [], 'empty_handlers': [], 'comments': [], 'long_functions': []}
           class Scripts(HTMLParser):
               def __init__(self):
                   super().__init__()
@@ -75,8 +80,8 @@ jobs:
                           report['long_functions'].append({'path': str(path), 'line': node.lineno, 'name': node.name, 'lines': node.end_lineno - node.lineno + 1})
                   if 'tests' not in path.parts:
                       for token in tokenize.generate_tokens(io.StringIO(text).readline):
-                          if token.type == tokenize.COMMENT and (re.search(r'[-=]{4,}|\b(?:Step|TODO|FIXME|HACK)\b', token.string, re.I) or path.name in ('web_app.py', 'router.py', 'calendar.py')):
-                              report['comment_candidates'].append({'path': str(path), 'line': token.start[0], 'text': token.string})
+                          if token.type == tokenize.COMMENT:
+                              report['comments'].append({'path': str(path), 'line': token.start[0], 'text': token.string})
               elif path.suffix == '.sh':
                   subprocess.run(['bash', '-n', str(path)], check=True)
               elif path.suffix == '.html':
@@ -89,12 +94,15 @@ jobs:
                           subprocess.run(['node', '--check', stream.name], check=True)
                       print('INLINE_SCRIPT_OK', str(path), i + 1)
           pathlib.Path('audit-evidence/source-review.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-          print('SOURCE_REVIEW', json.dumps(report, ensure_ascii=False))
+          print('SOURCE_COUNTS', len(report['files']), sum(item['lines'] for item in report['files']))
+          for key in ('empty_handlers', 'comments', 'long_functions'):
+              print(key.upper(), json.dumps(report[key], ensure_ascii=False))
           PY
       - name: Static correctness scan
         if: always()
-        continue-on-error: true
-        run: ruff check --select E9,F63,F7,F82 . --output-format concise | tee audit-evidence/ruff.txt; test ${PIPESTATUS[0]} -eq 0
+        run: |
+          set -o pipefail
+          ruff check --select E9,F63,F7,F82 . --output-format concise | tee audit-evidence/ruff.txt
       - name: Security scan
         if: always()
         continue-on-error: true
@@ -109,7 +117,16 @@ jobs:
       - name: Dependency audit
         if: always()
         continue-on-error: true
-        run: pip-audit -r requirements.txt --progress-spinner off --format json --output audit-evidence/dependencies.json
+        run: |
+          pip-audit -r requirements.txt --progress-spinner off --format json --output audit-evidence/dependencies.json || result=$?
+          python - <<'PY'
+          import json
+          data = json.load(open('audit-evidence/dependencies.json'))
+          for dependency in data['dependencies']:
+              if dependency.get('vulns'):
+                  print('DEPENDENCY_FINDING', json.dumps(dependency))
+          PY
+          exit ${result:-0}
       - name: Upload review evidence
         if: always()
         uses: actions/upload-artifact@v4
