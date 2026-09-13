@@ -36,19 +36,39 @@ self.addEventListener("push", (event) => {
   const tag = notification.tag || `reminder-${Date.now()}`;
   const url = notification.navigate || notificationData.url || payload.url || "/";
   const reminderId = notificationData.reminder_id || payload.reminder_id || null;
+  const actionUrls = notificationData.action_urls || payload.action_urls || {};
+  const actions = Array.isArray(notification.actions)
+    ? notification.actions.slice(0, 2).map((item) => ({
+        action: String(item.action || ""),
+        title: String(item.title || ""),
+        ...(item.navigate ? { navigate: item.navigate } : {}),
+      }))
+    : [];
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       tag,
-      data: { url, reminderId },
+      data: { url, reminderId, actionUrls },
+      ...(actions.length ? { actions } : {}),
     }),
   );
 });
 
+function notificationTargetUrl(notification, action) {
+  const data = notification?.data || {};
+  const actionUrls = data.actionUrls || data.action_urls || {};
+  const target = action && actionUrls[action] ? actionUrls[action] : data.url || "/";
+  try {
+    return new URL(target, self.location.origin).href;
+  } catch (_error) {
+    return new URL("/", self.location.origin).href;
+  }
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const targetUrl = notificationTargetUrl(event.notification, event.action || "");
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {

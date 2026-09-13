@@ -339,15 +339,111 @@
     } catch (_error) {}
   }
 
+  function reminderPushActionUrls(reminderId) {
+    const id = Number(reminderId);
+    const complete = new URL(`/?push_action=complete&reminder_id=${id}`, window.location.origin).href;
+    const reschedule = new URL(`/?push_action=reschedule&reminder_id=${id}`, window.location.origin).href;
+    return { complete, reschedule };
+  }
+
+  function clearPushActionUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("push_action");
+    url.searchParams.delete("reminder_id");
+    const query = url.searchParams.toString();
+    window.history.replaceState({}, "", `${url.pathname}${query ? `?${query}` : ""}${url.hash}`);
+  }
+
+  function showPushActionFeedback(message) {
+    const toast = document.querySelector(".library-toast");
+    if (toast) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.setTimeout(() => toast.classList.remove("show"), 1800);
+      return;
+    }
+    showChat();
+    msg(message, "assistant");
+    armChatIdleTimer();
+  }
+
+  function wait(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function openReminderSnoozeFromPush(reminderId) {
+    const deadline = Date.now() + 5000;
+    let libraryOpenButton = null;
+    let remindersTab = null;
+
+    while (Date.now() < deadline) {
+      libraryOpenButton = document.getElementById("libraryOpenBtn");
+      remindersTab = document.getElementById("libraryRemindersTab");
+      if (libraryOpenButton && remindersTab) break;
+      await wait(80);
+    }
+    if (!libraryOpenButton || !remindersTab) throw new Error("library_not_ready");
+
+    const appNode = document.getElementById("app");
+    if (!appNode?.classList.contains("library-active")) libraryOpenButton.click();
+    remindersTab.click();
+
+    while (Date.now() < deadline) {
+      const row = document.querySelector(`.reminder-swipe-row[data-id="${Number(reminderId)}"]`);
+      const action = row?.querySelector('[data-action="reschedule"]');
+      if (action) {
+        action.click();
+        clearPushActionUrl();
+        return;
+      }
+      await wait(100);
+    }
+    throw new Error("reminder_not_found");
+  }
+
+  async function handlePushActionFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get("push_action");
+    const reminderId = Number(params.get("reminder_id"));
+    if (!Number.isInteger(reminderId) || reminderId <= 0) return;
+    if (action !== "complete" && action !== "reschedule") return;
+
+    try {
+      if (action === "complete") {
+        const payload = await api(`/api/library/reminders/${reminderId}/complete`, { method: "POST" });
+        clearPushActionUrl();
+        showPushActionFeedback(
+          payload?.reminder?.text
+            ? `Выполнено · ${payload.reminder.text}`
+            : "Напоминание отмечено выполненным",
+        );
+        return;
+      }
+      await openReminderSnoozeFromPush(reminderId);
+    } catch (error) {
+      if (error.message !== "unauthorized") {
+        console.warn("Push reminder action failed", error);
+        clearPushActionUrl();
+        showPushActionFeedback("Не удалось выполнить действие с напоминанием");
+      }
+    }
+  }
+
   async function showSystemNotification(reminder) {
     if (!notificationsSupported || Notification.permission !== "granted") return;
     try {
       const registration = await navigator.serviceWorker.ready;
+      const actionUrls = reminderPushActionUrls(reminder.id);
       await registration.showNotification("Напоминание", {
         body: reminder.text,
         icon: "/icon.svg",
         tag: `reminder-${reminder.id}`,
-        data: { url: "/", reminderId: reminder.id },
+        navigate: new URL("/", window.location.origin).href,
+        data: { url: "/", reminderId: reminder.id, actionUrls },
+        actions: [
+          { action: "complete", title: "Выполнено", navigate: actionUrls.complete },
+          { action: "reschedule", title: "Отложить", navigate: actionUrls.reschedule },
+        ],
       });
     } catch (error) {
       console.warn("Local reminder notification failed", error);
@@ -461,4 +557,5 @@
   });
   window.setInterval(pollDueReminders, REMINDER_POLL_MS);
   window.setTimeout(pollDueReminders, 1500);
+  window.setTimeout(handlePushActionFromUrl, 350);
 })();
