@@ -48,6 +48,12 @@ def derive_note_title(text: str) -> str:
     if not first_line:
         first_line = _clean_note_text(raw)
 
+    sentence = re.match(r"^(?P<title>.{2,80}?)[.!?](?:\s|$)", first_line)
+    if sentence:
+        candidate = _clean_note_title(sentence.group("title"))
+        if 2 <= len(candidate) <= MAX_NOTE_TITLE_LENGTH:
+            return candidate
+
     for separator in (":", " — ", " – "):
         if separator in first_line:
             candidate = _clean_note_title(first_line.split(separator, 1)[0])
