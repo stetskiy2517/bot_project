@@ -595,7 +595,7 @@ def _build_event(text: str, start: datetime, end: datetime | None = None, catego
     return event
 
 
-def _create_event(user_id: int, event: dict) -> None:
+def _create_event(user_id: int, event: dict) -> dict:
     token_dict = get_google_token(user_id)
     if not token_dict:
         raise PermissionError("GOOGLE_AUTH_REQUIRED")
@@ -604,7 +604,18 @@ def _create_event(user_id: int, event: dict) -> None:
     insert_kwargs = {"calendarId": "primary", "body": event}
     if event.get("attendees"):
         insert_kwargs["sendUpdates"] = "all"
-    service.events().insert(**insert_kwargs).execute()
+    created = service.events().insert(**insert_kwargs).execute()
+
+    # Navigation is optional and must never break normal calendar creation.
+    # Import lazily to avoid a calendar/navigation import cycle.
+    try:
+        from modules.navigation import safe_create_travel_for_event
+
+        timezone = str(((created.get("start") or {}).get("timeZone") or (event.get("start") or {}).get("timeZone") or CALENDAR_TIMEZONE))
+        safe_create_travel_for_event(user_id, created, timezone)
+    except Exception:
+        logger.exception("Navigation hook failed for user %s event %s", user_id, created.get("id"))
+    return created
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
