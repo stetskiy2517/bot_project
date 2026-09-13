@@ -6,6 +6,7 @@ BRANCH="${BRANCH:-main}"
 TARGET_SHA="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+APP_USER="${APP_USER:-$(stat -c '%U' "$PROJECT_DIR")}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 PREVIOUS_SHA=""
 
@@ -92,7 +93,7 @@ else
 fi
 
 log "Running server preflight"
-.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules
+.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts
 
 log "Restarting $SERVICE_NAME"
 sudo -n systemctl restart "$SERVICE_NAME"
@@ -110,6 +111,15 @@ done
 if [ "$HEALTHY" -ne 1 ]; then
   false
 fi
+
+log "Verifying services survive a VM reboot"
+sudo -n systemctl enable "$SERVICE_NAME" >/dev/null
+sudo -n systemctl enable caddy >/dev/null
+sudo -n systemctl is-enabled --quiet "$SERVICE_NAME"
+sudo -n systemctl is-enabled --quiet caddy
+
+log "Installing automatic state backups"
+APP_USER="$APP_USER" PROJECT_DIR="$PROJECT_DIR" bash "$PROJECT_DIR/scripts/install_backup_timer.sh"
 
 trap - ERR
 log "Deployment successful: $TARGET_SHA"
