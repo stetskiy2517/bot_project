@@ -20,23 +20,96 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-      - name: Archive tracked source for review
+      - name: Prepare evidence
         run: |
           mkdir -p audit-evidence
           git rev-parse HEAD > audit-evidence/revision.txt
-          git archive HEAD -o audit-evidence/source.tar
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run existing test suite
+      - name: Install dependencies and audit tools
+        run: pip install -r requirements.txt coverage ruff bandit pip-audit
+      - name: Run test suite with coverage
         run: |
           set -o pipefail
-          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee audit-evidence/unittest.log
+          coverage run --source=core,handlers,integrations,modules,web_app -m unittest discover -s tests -p 'test_*.py' 2>&1 | tee audit-evidence/unittest.log
+          coverage report --skip-covered | tee audit-evidence/coverage.txt
+          coverage json -o audit-evidence/coverage.json
       - name: Validate browser code and voice gestures
         if: always()
         run: |
           set -o pipefail
           find web -type f -name '*.js' -print0 | xargs -0 -r -n1 node --check
           node tests/voice_gesture_test.js 2>&1 | tee audit-evidence/voice-gestures.log
+          python - <<'PY'
+          import ast, io, json, pathlib, re, subprocess, tempfile, tokenize
+          from html.parser import HTMLParser
+          files = [pathlib.Path(p) for p in subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0') if p]
+          report = {'files': [], 'empty_handlers': [], 'comment_candidates': [], 'long_functions': []}
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.active = False
+                  self.parts = []
+                  self.scripts = []
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+                  if tag == 'script':
+                      self.active = 'src' not in attrs and attrs.get('type', '') in ('', 'text/javascript', 'application/javascript', 'module')
+                      self.parts = []
+              def handle_data(self, data):
+                  if self.active:
+                      self.parts.append(data)
+              def handle_endtag(self, tag):
+                  if tag == 'script' and self.active:
+                      self.scripts.append(''.join(self.parts))
+                      self.active = False
+          for path in files:
+              if path.suffix not in ('.py', '.js', '.html', '.sh'):
+                  continue
+              text = path.read_text(encoding='utf-8')
+              report['files'].append({'path': str(path), 'lines': len(text.splitlines())})
+              if path.suffix == '.py':
+                  tree = ast.parse(text, filename=str(path))
+                  for node in ast.walk(tree):
+                      if isinstance(node, ast.ExceptHandler) and all(isinstance(x, ast.Pass) for x in node.body):
+                          report['empty_handlers'].append({'path': str(path), 'line': node.lineno, 'type': ast.unparse(node.type) if node.type else 'bare'})
+                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.end_lineno - node.lineno > 100:
+                          report['long_functions'].append({'path': str(path), 'line': node.lineno, 'name': node.name, 'lines': node.end_lineno - node.lineno + 1})
+                  if 'tests' not in path.parts:
+                      for token in tokenize.generate_tokens(io.StringIO(text).readline):
+                          if token.type == tokenize.COMMENT and (re.search(r'[-=]{4,}|\b(?:Step|TODO|FIXME|HACK)\b', token.string, re.I) or path.name in ('web_app.py', 'router.py', 'calendar.py')):
+                              report['comment_candidates'].append({'path': str(path), 'line': token.start[0], 'text': token.string})
+              elif path.suffix == '.sh':
+                  subprocess.run(['bash', '-n', str(path)], check=True)
+              elif path.suffix == '.html':
+                  parser = Scripts()
+                  parser.feed(text)
+                  for i, script in enumerate(parser.scripts):
+                      with tempfile.NamedTemporaryFile('w', suffix='.js') as stream:
+                          stream.write(script)
+                          stream.flush()
+                          subprocess.run(['node', '--check', stream.name], check=True)
+                      print('INLINE_SCRIPT_OK', str(path), i + 1)
+          pathlib.Path('audit-evidence/source-review.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          print('SOURCE_REVIEW', json.dumps(report, ensure_ascii=False))
+          PY
+      - name: Static correctness scan
+        if: always()
+        continue-on-error: true
+        run: ruff check --select E9,F63,F7,F82 . --output-format concise | tee audit-evidence/ruff.txt; test ${PIPESTATUS[0]} -eq 0
+      - name: Security scan
+        if: always()
+        continue-on-error: true
+        run: |
+          bandit -r core handlers integrations modules scripts web_app.py bot.py config.py -f json -o audit-evidence/bandit.json || result=$?
+          python - <<'PY'
+          import json
+          data = json.load(open('audit-evidence/bandit.json'))
+          print('BANDIT_FINDINGS', json.dumps([{k: x[k] for k in ('filename', 'line_number', 'test_id', 'issue_severity', 'issue_confidence', 'issue_text')} for x in data['results']]))
+          PY
+          exit ${result:-0}
+      - name: Dependency audit
+        if: always()
+        continue-on-error: true
+        run: pip-audit -r requirements.txt --progress-spinner off --format json --output audit-evidence/dependencies.json
       - name: Upload review evidence
         if: always()
         uses: actions/upload-artifact@v4
