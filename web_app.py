@@ -232,6 +232,7 @@ def create_web_app() -> Flask:
         scripts = (
             '    <script src="/reminders.js"></script>\n'
             '    <script src="/library.js"></script>\n'
+            '    <script src="/voice-gesture.js"></script>\n'
             "  </body>"
         )
         html = html.replace("</body>", scripts)
@@ -244,6 +245,10 @@ def create_web_app() -> Flask:
     @app.get("/library.js")
     def library_js():
         return send_from_directory(WEB_DIR, "library.js", mimetype="application/javascript")
+
+    @app.get("/voice-gesture.js")
+    def voice_gesture_js():
+        return send_from_directory(WEB_DIR, "voice_gesture.js", mimetype="application/javascript")
 
     @app.get("/manifest.webmanifest")
     def manifest():

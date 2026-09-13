@@ -21,7 +21,9 @@ jobs:
       - name: Validate deploy scripts
         run: bash -n deploy.sh scripts/deploy_update.sh
       - name: Validate web JavaScript
-        run: node --check web/library.js && node --check web/reminders.js && node --check web/sw.js
+        run: node --check web/library.js && node --check web/reminders.js && node --check web/voice_gesture.js && node --check web/sw.js
+      - name: Test voice gestures
+        run: node tests/voice_gesture_test.js
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
       - name: Run tests
