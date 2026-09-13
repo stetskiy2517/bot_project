@@ -40,6 +40,10 @@ ACTIVE_APPEND_RE = re.compile(
     rf"^\s*{_APPEND_VERBS}\s+(?:мне\s+)?(?P<addition>.+?)\s*$",
     re.IGNORECASE,
 )
+ACTIVE_CONTINUATION_RE = re.compile(
+    r"^\s*(?:и|ещ[её])\s+(?P<addition>.+?)\s*$",
+    re.IGNORECASE,
+)
 DELETE_NAMED_RE = re.compile(
     r"^\s*(?:удали|удалить|убери|убрать)\s+(?P<query>.+?)\s*[.!]*$",
     re.IGNORECASE,
@@ -53,6 +57,11 @@ TARGET_FILLER_RE = re.compile(
     r"^\s*(?:(?:мою|мой|мое|моё|мои)\s+)?"
     r"(?:(?:заметку|заметка|запись)\s+)?"
     r"(?:(?:про|о|об)\s+)?",
+    re.IGNORECASE,
+)
+DIRECT_MODULE_TARGET_RE = re.compile(
+    r"^(?:календар\w*|расписани\w*|напоминани\w*|задач\w*|"
+    r"встреч\w*|событ\w*|созвон\w*|звонок\w*)\b",
     re.IGNORECASE,
 )
 CALENDAR_ACTIVE_GUARD_RE = re.compile(
@@ -85,7 +94,7 @@ def _clean_target(value: str) -> str:
 
 def _clean_addition(value: str) -> str:
     addition = str(value).strip(" \t\r\n,;:-—–")
-    addition = re.sub(r"^(?:ещ[её]\s+)", "", addition, flags=re.IGNORECASE)
+    addition = re.sub(r"^(?:(?:ещ[её]|туда|сюда)\s+)+", "", addition, flags=re.IGNORECASE)
     return addition.rstrip(" .!?")
 
 
@@ -99,7 +108,12 @@ def _ordered_matches(user_id: int, query: str) -> list[dict]:
 
 
 def _split_target_first(user_id: int, payload: str) -> NoteAppendResolution | None:
-    payload = _clean_target(payload)
+    raw_payload = payload.strip()
+    # "add to calendar / reminder / task ..." must stay with its explicit module.
+    # An actual note with such a title remains addressable via "add to note ...".
+    if DIRECT_MODULE_TARGET_RE.match(raw_payload):
+        return None
+    payload = _clean_target(raw_payload)
     if not payload:
         return None
 
@@ -147,7 +161,7 @@ def _split_reverse(user_id: int, payload: str) -> NoteAppendResolution | None:
     for separator in reversed(separators):
         addition = _clean_addition(payload[: separator.start()])
         query = _clean_target(payload[separator.end() :])
-        if not addition or not query:
+        if not addition or not query or DIRECT_MODULE_TARGET_RE.match(query):
             continue
         matches = _ordered_matches(user_id, query)
         if matches:
@@ -181,6 +195,14 @@ def remember_active_note(context: Any, note: dict) -> None:
     }
 
 
+def remember_latest_note(user_id: int, context: Any) -> None:
+    notes = list_notes(user_id, limit=1)
+    if notes:
+        remember_active_note(context, notes[0])
+    else:
+        clear_active_note(context)
+
+
 def clear_active_note(context: Any) -> None:
     context.user_data.pop(ACTIVE_NOTE_KEY, None)
 
@@ -207,8 +229,8 @@ def get_active_note(context: Any, user_id: int, *, now: float | None = None) -> 
 
 
 def active_note_addition(text: str) -> str | None:
-    """Extract a safe short follow-up such as ``добавь воду``."""
-    match = ACTIVE_APPEND_RE.match(text)
+    """Extract a safe short follow-up such as ``добавь воду`` or ``и молоко``."""
+    match = ACTIVE_APPEND_RE.match(text) or ACTIVE_CONTINUATION_RE.match(text)
     if not match:
         return None
     addition = _clean_addition(match.group("addition"))
@@ -251,9 +273,7 @@ def remember_after_note_action(user_id: int, context: Any, intent: str, text: st
         clear_active_note(context)
         return
     if intent == NOTE_CREATE:
-        notes = list_notes(user_id, limit=1)
-        if notes:
-            remember_active_note(context, notes[0])
+        remember_latest_note(user_id, context)
         return
     if intent != NOTE_SEARCH:
         return
