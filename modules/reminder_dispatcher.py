@@ -43,6 +43,10 @@ def _push_navigate_url(path: str = "/") -> str:
     return f"{base}{suffix}" if base else suffix
 
 
+def _reminder_action_path(action: str, reminder_id: int) -> str:
+    return f"/?push_action={action}&reminder_id={int(reminder_id)}"
+
+
 def _notification_payload(
     *,
     title: str,
@@ -53,20 +57,45 @@ def _notification_payload(
 ) -> dict:
     """Build one payload that works declaratively on Apple and via SW elsewhere."""
     data = {"url": url}
+    actions: list[dict[str, str]] = []
     if reminder_id is not None:
+        reminder_id = int(reminder_id)
         data["reminder_id"] = reminder_id
+        complete_path = _reminder_action_path("complete", reminder_id)
+        reschedule_path = _reminder_action_path("reschedule", reminder_id)
+        data["action_urls"] = {
+            "complete": complete_path,
+            "reschedule": reschedule_path,
+        }
+        actions = [
+            {
+                "action": "complete",
+                "title": "Выполнено",
+                "navigate": _push_navigate_url(complete_path),
+            },
+            {
+                "action": "reschedule",
+                "title": "Отложить",
+                "navigate": _push_navigate_url(reschedule_path),
+            },
+        ]
+
+    notification = {
+        "title": title,
+        "lang": "ru-RU",
+        "dir": "ltr",
+        "body": body,
+        "navigate": _push_navigate_url(url),
+        "silent": False,
+        "tag": tag,
+        "data": data,
+    }
+    if actions:
+        notification["actions"] = actions
+
     return {
         "web_push": 8030,
-        "notification": {
-            "title": title,
-            "lang": "ru-RU",
-            "dir": "ltr",
-            "body": body,
-            "navigate": _push_navigate_url(url),
-            "silent": False,
-            "tag": tag,
-            "data": data,
-        },
+        "notification": notification,
     }
 
 
