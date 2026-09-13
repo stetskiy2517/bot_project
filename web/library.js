@@ -199,9 +199,18 @@
       inset: 0;
       display: flex;
       align-items: stretch;
+      pointer-events: none;
     }
-    .reminder-actions.delete-side { justify-content: flex-start; }
-    .reminder-actions.manage-side { justify-content: flex-end; }
+    .reminder-actions.delete-side {
+      right: auto;
+      width: 88px;
+      justify-content: flex-start;
+    }
+    .reminder-actions.manage-side {
+      left: auto;
+      width: max-content;
+      justify-content: flex-end;
+    }
     .reminder-action {
       min-width: 88px;
       padding: 0 12px;
@@ -210,6 +219,8 @@
       font-size: 12px;
       font-weight: 650;
       cursor: pointer;
+      pointer-events: auto;
+      touch-action: manipulation;
     }
     .reminder-action.delete { background: #f2dddd; color: #8a2d2d; }
     .reminder-action.complete { background: #e0ece3; color: #315c3b; }
@@ -475,6 +486,20 @@
     row.dataset.offset = String(bounded);
   }
 
+  function isolateReminderActionPointer(button) {
+    const stopPointer = (event) => {
+      event.stopPropagation();
+      if (event.type === "pointerdown" && button.setPointerCapture) {
+        try {
+          button.setPointerCapture(event.pointerId);
+        } catch (_error) {}
+      }
+    };
+    button.addEventListener("pointerdown", stopPointer);
+    button.addEventListener("pointerup", stopPointer);
+    button.addEventListener("pointercancel", stopPointer);
+  }
+
   function setTab(tab) {
     activeTab = tab === "reminders" ? "reminders" : "notes";
     const notesActive = activeTab === "notes";
@@ -531,6 +556,7 @@
     deleteButton.className = "reminder-action delete";
     deleteButton.dataset.action = "delete";
     deleteButton.textContent = "Удалить";
+    isolateReminderActionPointer(deleteButton);
     deleteSide.appendChild(deleteButton);
 
     const manageSide = document.createElement("div");
@@ -541,6 +567,7 @@
       completeButton.className = "reminder-action complete";
       completeButton.dataset.action = "complete";
       completeButton.textContent = "Выполнено";
+      isolateReminderActionPointer(completeButton);
       manageSide.appendChild(completeButton);
     }
     const rescheduleButton = document.createElement("button");
@@ -548,6 +575,7 @@
     rescheduleButton.className = "reminder-action reschedule";
     rescheduleButton.dataset.action = "reschedule";
     rescheduleButton.textContent = "Перенести";
+    isolateReminderActionPointer(rescheduleButton);
     manageSide.appendChild(rescheduleButton);
 
     const button = document.createElement("button");
@@ -774,6 +802,7 @@
     if (performance.now() < suppressClickUntil) return;
     const actionButton = event.target.closest(".reminder-action");
     if (actionButton) {
+      event.stopPropagation();
       handleReminderAction(actionButton, actionButton.closest(".reminder-swipe-row"));
       return;
     }
