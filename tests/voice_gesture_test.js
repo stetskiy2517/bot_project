@@ -16,8 +16,43 @@ class FakeClassList {
     names.forEach((name) => this.values.delete(name));
   }
 
+  toggle(name, force) {
+    if (force === true) {
+      this.values.add(name);
+      return true;
+    }
+    if (force === false) {
+      this.values.delete(name);
+      return false;
+    }
+    if (this.values.has(name)) {
+      this.values.delete(name);
+      return false;
+    }
+    this.values.add(name);
+    return true;
+  }
+
   contains(name) {
     return this.values.has(name);
+  }
+}
+
+class FakeStyle {
+  constructor() {
+    this.values = new Map();
+  }
+
+  setProperty(name, value) {
+    this.values.set(name, String(value));
+  }
+
+  removeProperty(name) {
+    this.values.delete(name);
+  }
+
+  getPropertyValue(name) {
+    return this.values.get(name) || "";
   }
 }
 
@@ -26,10 +61,12 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.listeners = new Map();
     this.attributes = new Map();
-    this.style = { setProperty() {} };
+    this.style = new FakeStyle();
+    this.children = [];
     this.disabled = false;
     this.title = "";
     this.textContent = "";
+    this.innerHTML = "";
   }
 
   addEventListener(type, listener, options = false) {
@@ -43,7 +80,14 @@ class FakeElement {
     this.attributes.set(name, String(value));
   }
 
-  appendChild() {}
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  getBoundingClientRect() {
+    return { left: 100, top: 240, width: 148, height: 148 };
+  }
 
   dispatch(type, event) {
     const listeners = [...(this.listeners.get(type) || [])].sort(
@@ -148,7 +192,8 @@ function loadGestureScript() {
   vm.createContext(context);
   const source = fs.readFileSync(path.join(__dirname, "..", "web", "voice_gesture.js"), "utf8");
   vm.runInContext(source, context, { filename: "voice_gesture.js" });
-  return { context, mainButton, chatButton, voiceCaption, voiceSub };
+  const trash = body.children.find((item) => item.classList.contains("voice-trash-target"));
+  return { context, mainButton, chatButton, voiceCaption, voiceSub, trash };
 }
 
 function emulateBasePointerDown(context, button, pointerId = 7) {
@@ -159,8 +204,25 @@ function emulateBasePointerDown(context, button, pointerId = 7) {
   context.voiceChunks = ["audio"];
 }
 
+(function testTrashAppearsAndButtonFollowsFinger() {
+  const { context, mainButton, trash } = loadGestureScript();
+  assert.ok(trash);
+
+  mainButton.dispatch("pointerdown", pointerEvent({ clientY: 220 }));
+  emulateBasePointerDown(context, mainButton);
+  context.recorder = createRecorder(context);
+
+  mainButton.dispatch("pointermove", pointerEvent({ clientY: 190 }));
+
+  assert.equal(trash.classList.contains("visible"), true);
+  assert.equal(trash.classList.contains("armed"), false);
+  assert.equal(mainButton.classList.contains("voice-gesture-dragging"), true);
+  assert.equal(mainButton.style.getPropertyValue("--voice-drag-y"), "-24px");
+  assert.notEqual(mainButton.style.getPropertyValue("--voice-drag-scale"), "");
+})();
+
 (function testSwipeUpCancelsAndDoesNotSend() {
-  const { context, mainButton, voiceCaption, voiceSub } = loadGestureScript();
+  const { context, mainButton, voiceCaption, voiceSub, trash } = loadGestureScript();
   assert.match(voiceSub.textContent, /Потяни вверх/);
 
   mainButton.dispatch("pointerdown", pointerEvent({ clientY: 220 }));
@@ -169,6 +231,7 @@ function emulateBasePointerDown(context, button, pointerId = 7) {
 
   mainButton.dispatch("pointermove", pointerEvent({ clientY: 140 }));
   assert.equal(mainButton.classList.contains("voice-cancel-armed"), true);
+  assert.equal(trash.classList.contains("armed"), true);
   assert.equal(voiceCaption.textContent, "Отпусти — запись удалится");
 
   const release = pointerEvent({ clientY: 140 });
@@ -176,6 +239,8 @@ function emulateBasePointerDown(context, button, pointerId = 7) {
 
   assert.equal(release.defaultPrevented, true);
   assert.equal(release.immediateStopped, true);
+  assert.equal(mainButton.classList.contains("voice-cancel-drop"), true);
+  assert.equal(trash.classList.contains("consume"), true);
   assert.equal(context.sentVoiceCount, 0);
   assert.equal(context.voiceRecordingStartedAt, 0);
   assert.equal(context.voiceChunks.length, 0);
@@ -183,17 +248,20 @@ function emulateBasePointerDown(context, button, pointerId = 7) {
 })();
 
 (function testSmallMovementStillUsesNormalReleaseFlow() {
-  const { context, mainButton } = loadGestureScript();
+  const { context, mainButton, trash } = loadGestureScript();
   mainButton.dispatch("pointerdown", pointerEvent({ clientY: 220 }));
   emulateBasePointerDown(context, mainButton);
   context.recorder = createRecorder(context);
 
   mainButton.dispatch("pointermove", pointerEvent({ clientY: 180 }));
+  assert.equal(trash.classList.contains("visible"), true);
   const release = pointerEvent({ clientY: 180 });
   mainButton.dispatch("pointerup", release);
 
   assert.equal(release.defaultPrevented, false);
   assert.equal(release.immediateStopped, false);
+  assert.equal(mainButton.classList.contains("voice-gesture-dragging"), false);
+  assert.equal(trash.classList.contains("visible"), false);
   assert.equal(context.recorder.state, "recording");
   assert.equal(context.voiceRecordingStartedAt, 1000);
 })();
