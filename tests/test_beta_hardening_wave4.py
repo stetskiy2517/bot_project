@@ -6,6 +6,7 @@ from modules.reminders import REMINDER_CREATE, detect_reminder_intent, _reminder
 from modules.router import (
     INTENT_SEARCH,
     INTENT_VIEW,
+    _creation_text,
     _normalise_pending_reply,
     detect_intent,
 )
@@ -35,7 +36,7 @@ class ShortNaturalCalendarPhrasesTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(detect_intent(text).name, INTENT_SEARCH)
 
-    def test_short_bare_hour_after_date_is_time(self):
+    def test_short_bare_hour_after_date_is_repaired_before_calendar_parser(self):
         cases = {
             "встреча завтра 14": datetime(2026, 9, 14, 14, 0),
             "врач 15 сентября 19": datetime(2026, 9, 15, 19, 0),
@@ -43,7 +44,9 @@ class ShortNaturalCalendarPhrasesTests(unittest.TestCase):
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
-                self.assertEqual(_parse_datetime(text, self.now), expected)
+                repaired = _creation_text(text)
+                self.assertNotEqual(repaired, text)
+                self.assertEqual(_parse_datetime(repaired, self.now), expected)
 
 
 class ReminderVoiceOrderTests(unittest.TestCase):
