@@ -14,7 +14,8 @@ from modules.calendar_actions import create_from_text, delete_from_text, resume_
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
-from modules.notes import detect_note_intent, handle_note_text, resume_pending_note
+from modules.note_reference import resolve_note_reference
+from modules.notes import NOTE_SEARCH, detect_note_intent, handle_note_text, resume_pending_note
 from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
 from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
 
@@ -326,6 +327,19 @@ def _normalise_search_text(text: str) -> str:
     return text
 
 
+def _has_explicit_calendar_reference(text: str) -> bool:
+    """Protect clear calendar reads from contextual note matching."""
+    lower = _normalise(text)
+    if DATE_HINT_RE.search(lower) or TIME_HINT_RE.search(lower):
+        return True
+    if _extract_time(lower) is not None or _relative_offset(lower) is not None:
+        return True
+    calendar_markers = (
+        "календар", "расписан", "встреч", "событ", "созвон", "звонок", "свобод", "окно",
+    )
+    return any(marker in lower for marker in calendar_markers)
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -349,6 +363,18 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if task_intent:
         logger.info("Router task_intent=%s", task_intent)
         return await handle_task_text(update, context, text, task_intent)
+
+    user_id = getattr(update.effective_user, "id", None)
+    if user_id is not None:
+        note_query = resolve_note_reference(
+            user_id,
+            text,
+            allow_generic=not _has_explicit_calendar_reference(text),
+        )
+        if note_query:
+            logger.info("Router contextual note_query=%s", note_query)
+            note_search_text = f"найди заметки про {note_query}"
+            return await handle_note_text(update, context, note_search_text, NOTE_SEARCH)
 
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
