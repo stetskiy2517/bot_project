@@ -14,8 +14,18 @@ from modules.calendar_actions import create_from_text, delete_from_text, resume_
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
 from modules.calendar_user import search_from_text, view_from_text
+from modules.note_conversation import (
+    active_note_addition,
+    append_to_note,
+    clear_active_note,
+    get_active_note,
+    open_note_selection,
+    remember_after_note_action,
+    resolve_named_note_append,
+    resolve_named_note_delete,
+)
 from modules.note_reference import resolve_note_reference
-from modules.notes import NOTE_SEARCH, detect_note_intent, handle_note_text, resume_pending_note
+from modules.notes import NOTE_APPEND, NOTE_DELETE, NOTE_SEARCH, detect_note_intent, handle_note_text, resume_pending_note
 from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
 from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
 
@@ -296,7 +306,12 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     if pending_type.startswith("reminder_"):
         return await resume_pending_reminder(update, context, reply_text, pending)
     if pending_type.startswith("note_"):
-        return await resume_pending_note(update, context, reply_text, pending)
+        handled = await resume_pending_note(update, context, reply_text, pending)
+        if handled and not _pending(context) and pending_type == "note_text":
+            user_id = getattr(update.effective_user, "id", None)
+            if user_id is not None:
+                remember_after_note_action(user_id, context, "note_create", reply_text)
+        return handled
     if pending_type.startswith("task_"):
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
@@ -340,6 +355,13 @@ def _has_explicit_calendar_reference(text: str) -> bool:
     return any(marker in lower for marker in calendar_markers)
 
 
+def _blocks_active_note_append(text: str) -> bool:
+    if _has_explicit_calendar_reference(text):
+        return True
+    lower = _normalise(text)
+    return any(word in lower for word in EVENT_WORDS)
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -349,6 +371,8 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if await _resume_pending(update, context, text):
         return True
 
+    user_id = getattr(update.effective_user, "id", None)
+
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
         logger.info("Router reminder_intent=%s", reminder_intent)
@@ -356,16 +380,58 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     note_intent = detect_note_intent(text)
     if note_intent:
+        if user_id is not None and note_intent == NOTE_APPEND:
+            resolution = resolve_named_note_append(user_id, text)
+            if resolution and resolution.addition and len(resolution.matches) == 1:
+                logger.info("Router direct note append query=%s", resolution.query)
+                return await append_to_note(update, context, resolution.matches[0], resolution.addition)
         logger.info("Router note_intent=%s", note_intent)
-        return await handle_note_text(update, context, text, note_intent)
+        handled = await handle_note_text(update, context, text, note_intent)
+        if handled and user_id is not None and not _pending(context):
+            remember_after_note_action(user_id, context, note_intent, text)
+        return handled
+
+    if user_id is not None and await open_note_selection(update, context, text):
+        logger.info("Router ordinal note selection")
+        return True
 
     task_intent = detect_task_intent(text)
     if task_intent:
         logger.info("Router task_intent=%s", task_intent)
         return await handle_task_text(update, context, text, task_intent)
 
-    user_id = getattr(update.effective_user, "id", None)
     if user_id is not None:
+        resolution = resolve_named_note_append(user_id, text)
+        if resolution:
+            logger.info("Router named note append query=%s", resolution.query)
+            if resolution.addition and len(resolution.matches) == 1:
+                return await append_to_note(update, context, resolution.matches[0], resolution.addition)
+            canonical = f"добавь в заметку {resolution.query}"
+            if resolution.addition:
+                canonical += f": {resolution.addition}"
+            return await handle_note_text(update, context, canonical, NOTE_APPEND)
+
+        if not _blocks_active_note_append(text):
+            addition = active_note_addition(text)
+            if addition:
+                active_note = get_active_note(context, user_id)
+                if active_note:
+                    logger.info("Router active note append note_id=%s", active_note.get("note_id"))
+                    return await append_to_note(update, context, active_note, addition)
+                await update.message.reply_text(
+                    "Куда добавить? Назови заметку, например: «добавь воду в список покупок»."
+                )
+                return True
+
+        if not _blocks_active_note_append(text):
+            delete_query = resolve_named_note_delete(user_id, text)
+            if delete_query:
+                logger.info("Router named note delete query=%s", delete_query)
+                handled = await handle_note_text(update, context, f"удали заметку {delete_query}", NOTE_DELETE)
+                if handled:
+                    clear_active_note(context)
+                return handled
+
         note_query = resolve_note_reference(
             user_id,
             text,
@@ -374,7 +440,10 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         if note_query:
             logger.info("Router contextual note_query=%s", note_query)
             note_search_text = f"найди заметки про {note_query}"
-            return await handle_note_text(update, context, note_search_text, NOTE_SEARCH)
+            handled = await handle_note_text(update, context, note_search_text, NOTE_SEARCH)
+            if handled and not _pending(context):
+                remember_after_note_action(user_id, context, NOTE_SEARCH, note_search_text)
+            return handled
 
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
