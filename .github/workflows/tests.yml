@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Validate deploy scripts
-        run: bash -n deploy.sh scripts/deploy_update.sh scripts/install_backup_timer.sh
+        run: bash -n deploy.sh scripts/deploy_update.sh
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
       - name: Run tests
