@@ -19,6 +19,7 @@ from modules.note_conversation import (
     append_to_note,
     clear_active_note,
     get_active_note,
+    open_note_selection,
     remember_after_note_action,
     resolve_named_note_append,
     resolve_named_note_delete,
@@ -389,6 +390,10 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         if handled and user_id is not None and not _pending(context):
             remember_after_note_action(user_id, context, note_intent, text)
         return handled
+
+    if user_id is not None and await open_note_selection(update, context, text):
+        logger.info("Router ordinal note selection")
+        return True
 
     task_intent = detect_task_intent(text)
     if task_intent:
