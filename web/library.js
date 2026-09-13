@@ -564,7 +564,7 @@
     row.className = "library-swipe-row reminder-swipe-row";
     row.dataset.id = String(reminder.id);
     row.dataset.type = "reminder";
-    row.dataset.leftWidth = reminder.status === "completed" ? "88" : "176";
+    row.dataset.leftWidth = "176";
     row.dataset.offset = "0";
 
     const deleteSide = document.createElement("div");
@@ -579,7 +579,15 @@
 
     const manageSide = document.createElement("div");
     manageSide.className = "reminder-actions manage-side";
-    if (reminder.status !== "completed") {
+    if (reminder.status === "completed") {
+      const reopenButton = document.createElement("button");
+      reopenButton.type = "button";
+      reopenButton.className = "reminder-action complete";
+      reopenButton.dataset.action = "reopen";
+      reopenButton.textContent = "Вернуть";
+      isolateLibraryActionPointer(reopenButton);
+      manageSide.appendChild(reopenButton);
+    } else {
       const completeButton = document.createElement("button");
       completeButton.type = "button";
       completeButton.className = "reminder-action complete";
@@ -778,6 +786,19 @@
     }
   }
 
+  async function reopenReminder(reminderId) {
+    try {
+      const payload = await request(`/api/library/reminders/${Number(reminderId)}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ completed: false }),
+      });
+      replaceReminder(payload.reminder);
+      showToast("Отметка выполнения снята");
+    } catch (error) {
+      if (error.message !== "unauthorized") showToast("Не удалось вернуть напоминание");
+    }
+  }
+
   async function deleteReminder(reminderId) {
     try {
       await request(`/api/library/reminders/${Number(reminderId)}`, { method: "DELETE" });
@@ -822,6 +843,7 @@
     if (action === "delete-note") deleteNote(itemId);
     else if (action === "delete-reminder") deleteReminder(itemId);
     else if (action === "complete") completeReminder(itemId);
+    else if (action === "reopen") reopenReminder(itemId);
     else if (action === "reschedule") {
       setSwipeOffset(row, 0);
       openSnoozeSheet(itemId);
