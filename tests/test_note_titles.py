@@ -15,6 +15,10 @@ class NoteTitleParsingTests(unittest.TestCase):
             derive_note_title("Иван ждёт смету и просит отправить расчёт до пятницы"),
             "Иван ждёт смету и просит отправить",
         )
+        self.assertEqual(
+            derive_note_title("Список покупок. Бананы, масло сливочное, масло оливковое"),
+            "Список покупок",
+        )
 
     def test_explicit_title_is_split_from_body(self):
         self.assertEqual(
