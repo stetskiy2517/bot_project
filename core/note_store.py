@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import re
 
+from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
 
 MAX_NOTE_LENGTH = 5000
 MAX_NOTE_TITLE_LENGTH = 120
 TITLE_WORD_LIMIT = 6
 SELECT_COLUMNS = (
-    "note_id,user_id,title,normalized_title,text,normalized_text,created_at,updated_at"
+    "note_id,user_id,title,normalized_title,text,normalized_text,created_at,updated_at,deleted_at"
 )
 SEARCH_STOP_WORDS = {
     "про",
@@ -77,7 +78,8 @@ def init_note_store() -> None:
                 text TEXT NOT NULL,
                 normalized_text TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
             )"""
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(notes)").fetchall()}
@@ -86,6 +88,7 @@ def init_note_store() -> None:
             "normalized_title": "TEXT",
             "normalized_text": "TEXT",
             "updated_at": "TEXT",
+            "deleted_at": "TEXT",
         }
         for column, sql_type in migrations.items():
             if column not in columns:
@@ -129,6 +132,10 @@ def init_note_store() -> None:
             "CREATE INDEX IF NOT EXISTS idx_notes_user_title "
             "ON notes(user_id, normalized_title)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notes_user_deleted_updated "
+            "ON notes(user_id, deleted_at, updated_at DESC, note_id DESC)"
+        )
         conn.commit()
 
 
@@ -142,6 +149,7 @@ def _from_row(row) -> dict:
         "normalized_text": row[5],
         "created_at": row[6],
         "updated_at": row[7],
+        "deleted_at": row[8],
     }
 
 
@@ -162,18 +170,31 @@ def create_note(user_id: int, text: str, *, title: str | None = None) -> dict:
     normalized = normalize_note_text(cleaned)
     normalized_title = normalize_note_text(cleaned_title)
     with db_lock:
-        cur = conn.execute(
-            "INSERT INTO notes "
-            "(user_id,title,normalized_title,text,normalized_text,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (int(user_id), cleaned_title, normalized_title, cleaned, normalized, now, now),
-        )
-        conn.commit()
-        row = conn.execute(
-            f"SELECT {SELECT_COLUMNS} FROM notes WHERE note_id=?",
-            (cur.lastrowid,),
-        ).fetchone()
-    return _from_row(row)
+        try:
+            cur = conn.execute(
+                "INSERT INTO notes "
+                "(user_id,title,normalized_title,text,normalized_text,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (int(user_id), cleaned_title, normalized_title, cleaned, normalized, now, now),
+            )
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM notes WHERE note_id=?",
+                (cur.lastrowid,),
+            ).fetchone()
+            note = _from_row(row)
+            record_ai_memory_event(
+                user_id,
+                "note",
+                note["note_id"],
+                "created",
+                note,
+                commit=False,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return note
 
 
 def append_note(user_id: int, note_id: int, addition: str) -> dict | None:
@@ -181,40 +202,56 @@ def append_note(user_id: int, note_id: int, addition: str) -> dict | None:
     if not addition:
         raise ValueError("Текст для дополнения заметки пустой")
     with db_lock:
-        row = conn.execute(
-            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND note_id=?",
-            (int(user_id), int(note_id)),
-        ).fetchone()
-        if not row:
-            return None
-        current = _from_row(row)
-        combined = f"{current['text'].rstrip()}\n{addition}".strip()
-        if len(combined) > MAX_NOTE_LENGTH:
-            raise ValueError(f"Заметка слишком длинная. Максимум {MAX_NOTE_LENGTH} символов")
-        updated_at = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "UPDATE notes SET text=?,normalized_text=?,updated_at=? WHERE user_id=? AND note_id=?",
-            (
-                combined,
-                normalize_note_text(combined),
-                updated_at,
-                int(user_id),
-                int(note_id),
-            ),
-        )
-        conn.commit()
-        row = conn.execute(
-            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND note_id=?",
-            (int(user_id), int(note_id)),
-        ).fetchone()
-    return _from_row(row)
+        try:
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM notes "
+                "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
+                (int(user_id), int(note_id)),
+            ).fetchone()
+            if not row:
+                return None
+            current = _from_row(row)
+            combined = f"{current['text'].rstrip()}\n{addition}".strip()
+            if len(combined) > MAX_NOTE_LENGTH:
+                raise ValueError(f"Заметка слишком длинная. Максимум {MAX_NOTE_LENGTH} символов")
+            updated_at = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE notes SET text=?,normalized_text=?,updated_at=? "
+                "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
+                (
+                    combined,
+                    normalize_note_text(combined),
+                    updated_at,
+                    int(user_id),
+                    int(note_id),
+                ),
+            )
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM notes "
+                "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
+                (int(user_id), int(note_id)),
+            ).fetchone()
+            note = _from_row(row)
+            record_ai_memory_event(
+                user_id,
+                "note",
+                note["note_id"],
+                "updated",
+                note,
+                commit=False,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return note
 
 
 def list_notes(user_id: int, *, limit: int = 100) -> list[dict]:
     safe_limit = max(1, min(int(limit), 500))
     with db_lock:
         rows = conn.execute(
-            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? "
+            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND deleted_at IS NULL "
             "ORDER BY updated_at DESC,created_at DESC,note_id DESC LIMIT ?",
             (int(user_id), safe_limit),
         ).fetchall()
@@ -232,7 +269,7 @@ def search_notes(user_id: int, query: str, *, limit: int = 50) -> list[dict]:
     if not tokens:
         return []
 
-    clauses = ["user_id=?"]
+    clauses = ["user_id=?", "deleted_at IS NULL"]
     values: list[object] = [int(user_id)]
     for token in tokens:
         prefix_len = 4 if len(token) >= 4 else len(token)
@@ -264,20 +301,48 @@ def search_notes(user_id: int, query: str, *, limit: int = 50) -> list[dict]:
 def get_note(user_id: int, note_id: int) -> dict | None:
     with db_lock:
         row = conn.execute(
-            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND note_id=?",
+            f"SELECT {SELECT_COLUMNS} FROM notes "
+            "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
             (int(user_id), int(note_id)),
         ).fetchone()
     return _from_row(row) if row else None
 
 
 def delete_note(user_id: int, note_id: int) -> bool:
+    """Hide a note from the user while retaining it and its deletion event for AI memory."""
+    deleted_at = datetime.now(timezone.utc).isoformat()
     with db_lock:
-        cur = conn.execute(
-            "DELETE FROM notes WHERE user_id=? AND note_id=?",
-            (int(user_id), int(note_id)),
-        )
-        conn.commit()
-    return cur.rowcount > 0
+        try:
+            row = conn.execute(
+                f"SELECT {SELECT_COLUMNS} FROM notes "
+                "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
+                (int(user_id), int(note_id)),
+            ).fetchone()
+            if not row:
+                return False
+            note = _from_row(row)
+            snapshot = {**note, "deleted_at": deleted_at}
+            cur = conn.execute(
+                "UPDATE notes SET deleted_at=?,updated_at=? "
+                "WHERE user_id=? AND note_id=? AND deleted_at IS NULL",
+                (deleted_at, deleted_at, int(user_id), int(note_id)),
+            )
+            if cur.rowcount <= 0:
+                conn.rollback()
+                return False
+            record_ai_memory_event(
+                user_id,
+                "note",
+                note["note_id"],
+                "deleted",
+                snapshot,
+                commit=False,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return True
 
 
 init_note_store()
