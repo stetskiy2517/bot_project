@@ -136,7 +136,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v6', worker)
+        self.assertIn('personal-secretary-v7', worker)
         self.assertIn('"/library.js"', worker)
         self.assertIn("payload.web_push === 8030", worker)
         self.assertIn("payload.notification", worker)
