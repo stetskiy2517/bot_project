@@ -140,8 +140,13 @@
       box-shadow: 0 3px 14px rgba(0,0,0,.035);
     }
     .library-card:active { transform: scale(.992); }
-    .library-card.delivered { opacity: .8; }
-    .library-card.completed { opacity: .56; }
+    .library-card.completed .library-card-title {
+      color: #777773;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+      text-decoration-color: #8c8c88;
+    }
+    .library-card.completed .library-card-meta { color: #b0b0ac; }
     .library-card-head {
       display: flex;
       align-items: flex-start;
@@ -155,18 +160,6 @@
       line-height: 1.3;
       overflow-wrap: anywhere;
     }
-    .library-card-status {
-      flex: 0 0 auto;
-      padding: 4px 7px;
-      border-radius: 999px;
-      background: #f0f0ed;
-      color: #777773;
-      font-size: 10px;
-      font-weight: 650;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .library-card-status.pending { background: #ededeb; color: #333; }
     .library-card-preview {
       margin-top: 7px;
       color: #656561;
@@ -196,6 +189,7 @@
       position: relative;
       z-index: 2;
       margin: 0;
+      background: #fff;
       will-change: transform;
       transition: transform .2s cubic-bezier(.22,.8,.24,1);
     }
@@ -519,9 +513,8 @@
 
   function reminderStatusText(status) {
     if (status === "completed") return "Выполнено";
-    if (status === "delivered") return "Сработало";
-    if (status === "delivering") return "Отправляется";
-    return "Активно";
+    // Delivery is an internal state. Never render the old visual status "Сработало".
+    return "";
   }
 
   function reminderCard(reminder) {
@@ -560,7 +553,6 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "library-card";
-    if (reminder.status === "delivered") button.classList.add("delivered");
     if (reminder.status === "completed") button.classList.add("completed");
     button.dataset.type = "reminder";
     button.dataset.id = String(reminder.id);
@@ -570,10 +562,13 @@
     const title = document.createElement("div");
     title.className = "library-card-title";
     title.textContent = reminder.text || "Напоминание";
-    const status = document.createElement("span");
-    status.className = "library-card-status " + (reminder.status === "pending" ? "pending" : "");
-    status.textContent = reminderStatusText(reminder.status);
-    head.append(title, status);
+    head.appendChild(title);
+
+    const accessibilityStatus = reminderStatusText(reminder.status);
+    button.setAttribute(
+      "aria-label",
+      accessibilityStatus ? `${title.textContent}. ${accessibilityStatus}` : title.textContent,
+    );
 
     const meta = document.createElement("div");
     meta.className = "library-card-meta";
