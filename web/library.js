@@ -264,6 +264,7 @@
   let suppressClickUntil = 0;
   let wheelX = 0;
   let wheelTimer = null;
+  let openedLibraryItem = false;
 
   function modalOpen() {
     return Boolean(login?.classList.contains("open") || settingsPanel?.classList.contains("open"));
@@ -436,11 +437,30 @@
     if (!app.classList.contains("chat-active") || !chatCollapseButton) return false;
     chatCollapseButton.click();
     const closed = !app.classList.contains("chat-active");
-    if (closed && chatLabel) chatLabel.textContent = "Чат";
+    if (closed) {
+      openedLibraryItem = false;
+      if (chatLabel) chatLabel.textContent = "Чат";
+    }
     return closed;
   }
 
+  function returnToLibraryFromDocument() {
+    if (!openedLibraryItem || !app.classList.contains("chat-active")) return false;
+    const returnTab = activeTab;
+    if (!closeChatToMain()) return false;
+    setTab(returnTab);
+    openLibrary();
+    return true;
+  }
+
+  function navigateBackFromChat() {
+    if (openedLibraryItem) return returnToLibraryFromDocument();
+    return closeChatToMain();
+  }
+
   function showDocumentInChat(payload) {
+    setTab(payload.type === "reminder" ? "reminders" : "notes");
+    openedLibraryItem = true;
     app.classList.remove("library-active");
     chat.replaceChildren();
     app.classList.add("chat-active");
@@ -511,7 +531,7 @@
       suppressClickUntil = performance.now() + 350;
       if (dx < 0 && !app.classList.contains("library-active")) openLibrary();
       else if (dx > 0 && app.classList.contains("library-active")) closeLibrary();
-      else if (dx > 0 && app.classList.contains("chat-active")) closeChatToMain();
+      else if (dx > 0 && app.classList.contains("chat-active")) navigateBackFromChat();
     },
     { passive: true },
   );
@@ -529,7 +549,7 @@
       if (Math.abs(wheelX) < 85) return;
       if (wheelX > 0 && !app.classList.contains("library-active")) openLibrary();
       else if (wheelX < 0 && app.classList.contains("library-active")) closeLibrary();
-      else if (wheelX < 0 && app.classList.contains("chat-active")) closeChatToMain();
+      else if (wheelX < 0 && app.classList.contains("chat-active")) navigateBackFromChat();
       wheelX = 0;
     },
     { passive: false },
@@ -540,6 +560,6 @@
     if (event.target.matches("input, textarea, select")) return;
     if (event.key === "ArrowRight" && !app.classList.contains("library-active")) openLibrary();
     if (event.key === "ArrowLeft" && app.classList.contains("library-active")) closeLibrary();
-    else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) closeChatToMain();
+    else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) navigateBackFromChat();
   });
 })();
