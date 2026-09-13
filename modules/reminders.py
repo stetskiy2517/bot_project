@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from core.db import get_user_timezone
 from core.reminder_store import claim_due_reminders, create_reminder, delete_reminder, list_reminders
-from modules.calendar import _extract_title, _parse_datetime
+from modules.calendar import _extract_time, _extract_title, _parse_datetime
 from modules.calendar_user import _user_zone
 
 REMINDER_CREATE = "reminder_create"
@@ -61,11 +61,50 @@ REMINDER_DELETE_PREFIX_RE = re.compile(
     r"^\s*(?:удали|удалить|убери|убрать|отмени|отменить)\s+напоминани\w*\s*[,.:;\-]?\s*",
     re.IGNORECASE,
 )
+BARE_DATE_HOUR_RE = re.compile(
+    r"\b(?P<date>сегодня|завтра|завтро|послезавтра|послезавтро|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)"
+    r"\s+(?P<hour>[01]?\d|2[0-3])\b",
+    re.IGNORECASE,
+)
+CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
+QUERY_STOP_WORDS = {"про", "напоминание", "напоминания", "напоминанию"}
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
 
 
 def _normalise(text: str) -> str:
     return text.lower().replace("ё", "е").strip(" \t\r\n.,!?;:…\"'«»")
+
+
+def _repair_reminder_text(text: str) -> str:
+    """Repair safe ASR shorthand like «завтра 9 напомни…» without guessing arbitrary numbers."""
+    if _extract_time(text) is not None:
+        return text
+
+    def repl(match: re.Match) -> str:
+        return f"{match.group('date')} в {match.group('hour')}"
+
+    return BARE_DATE_HOUR_RE.sub(repl, text, count=1)
+
+
+def _choice_index(text: str) -> int | None:
+    stripped = text.strip()
+    if stripped.isdigit():
+        index = int(stripped) - 1
+        return index if index >= 0 else None
+    match = CHOICE_WORD_RE.search(_normalise(text))
+    if not match:
+        return None
+    token = match.group(1)
+    if token.startswith("втор"):
+        return 1
+    if token.startswith("трет"):
+        return 2
+    if token.startswith("четверт"):
+        return 3
+    if token.startswith("пят"):
+        return 4
+    return 0
 
 
 def detect_reminder_intent(text: str) -> str | None:
@@ -89,14 +128,14 @@ def _local_now(timezone: str, now: datetime | None = None) -> datetime:
 
 def _reminder_due_at(text: str, timezone: str, now: datetime | None = None) -> datetime | None:
     local_now = _local_now(timezone, now)
-    parsed = _parse_datetime(text, local_now.replace(tzinfo=None))
+    parsed = _parse_datetime(_repair_reminder_text(text), local_now.replace(tzinfo=None))
     if not parsed:
         return None
     return parsed.replace(tzinfo=local_now.tzinfo) if parsed.tzinfo is None else parsed.astimezone(local_now.tzinfo)
 
 
 def _reminder_title(text: str) -> str:
-    raw = text.strip()
+    raw = _repair_reminder_text(text).strip()
     if TIME_FIRST_REMINDER_RE.search(raw):
         command = REMINDER_COMMAND_ANY_RE.search(raw)
         body = raw[command.end():].lstrip(" ,.:;-") if command else raw
@@ -138,12 +177,14 @@ def _tokens(value: str) -> list[str]:
 
 
 def _matches(reminder: dict, query: str) -> bool:
-    query_tokens = _tokens(query)
+    query_tokens = [token for token in _tokens(query) if token not in QUERY_STOP_WORDS]
     if not query_tokens:
         return False
     hay = _tokens(str(reminder.get("text") or ""))
     for token in query_tokens:
-        prefix = token[:4] if len(token) >= 4 else token
+        is_cyrillic = bool(re.fullmatch(r"[а-я]+", token))
+        prefix_len = 3 if is_cyrillic and len(token) >= 4 else min(4, len(token))
+        prefix = token[:prefix_len]
         if not any(word.startswith(prefix) or prefix in word for word in hay):
             return False
     return True
@@ -264,10 +305,10 @@ async def resume_pending_reminder(
         return True
 
     if pending_type == "reminder_select_delete":
-        if not text.strip().isdigit():
-            await update.message.reply_text("Напиши номер напоминания или «отмена».")
+        index = _choice_index(text)
+        if index is None:
+            await update.message.reply_text("Напиши номер напоминания или скажи, например, «второе».")
             return True
-        index = int(text.strip()) - 1
         reminders = pending.get("reminders") or []
         if index < 0 or index >= len(reminders):
             await update.message.reply_text("Такого номера нет. Выбери номер из списка.")
