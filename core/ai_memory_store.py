@@ -20,6 +20,7 @@ EVENT_TYPES = {
     "updated",
     "delivered",
     "completed",
+    "reopened",
     "rescheduled",
     "deleted",
 }
