@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v7";
+const CACHE = "personal-secretary-v8";
 const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js"];
 
 self.addEventListener("install", (event) => {
