@@ -116,6 +116,7 @@ class WebPushApiTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         response.close()
         self.assertIn('<script src="/reminders.js"></script>', html)
+        self.assertIn('<script src="/library.js"></script>', html)
 
         response = self.client.get("/reminders.js")
         script = response.get_data(as_text=True)
@@ -135,7 +136,8 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v5', worker)
+        self.assertIn('personal-secretary-v6', worker)
+        self.assertIn('"/library.js"', worker)
         self.assertIn("payload.web_push === 8030", worker)
         self.assertIn("payload.notification", worker)
         self.assertNotIn('icon: "/icon.svg"', worker)
