@@ -95,6 +95,40 @@ def create_note(user_id: int, text: str) -> dict:
     return _from_row(row)
 
 
+def append_note(user_id: int, note_id: int, addition: str) -> dict | None:
+    addition = " ".join(str(addition).split()).strip()
+    if not addition:
+        raise ValueError("Текст для дополнения заметки пустой")
+    with db_lock:
+        row = conn.execute(
+            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND note_id=?",
+            (int(user_id), int(note_id)),
+        ).fetchone()
+        if not row:
+            return None
+        current = _from_row(row)
+        combined = f"{current['text'].rstrip()}\n{addition}".strip()
+        if len(combined) > MAX_NOTE_LENGTH:
+            raise ValueError(f"Заметка слишком длинная. Максимум {MAX_NOTE_LENGTH} символов")
+        updated_at = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE notes SET text=?,normalized_text=?,updated_at=? WHERE user_id=? AND note_id=?",
+            (
+                combined,
+                normalize_note_text(combined),
+                updated_at,
+                int(user_id),
+                int(note_id),
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? AND note_id=?",
+            (int(user_id), int(note_id)),
+        ).fetchone()
+    return _from_row(row)
+
+
 def list_notes(user_id: int, *, limit: int = 100) -> list[dict]:
     safe_limit = max(1, min(int(limit), 500))
     with db_lock:
@@ -126,7 +160,7 @@ def search_notes(user_id: int, query: str, *, limit: int = 50) -> list[dict]:
     with db_lock:
         rows = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM notes WHERE {' AND '.join(clauses)} "
-            "ORDER BY created_at DESC,note_id DESC LIMIT ?",
+            "ORDER BY updated_at DESC,created_at DESC,note_id DESC LIMIT ?",
             values,
         ).fetchall()
     return [_from_row(row) for row in rows]
