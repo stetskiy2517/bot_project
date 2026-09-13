@@ -22,6 +22,18 @@ REMINDER_CREATE_RE = re.compile(
     r"(?:добавь|добавить|создай|создать|поставь|поставить)\s+напоминани\w*)\b",
     re.IGNORECASE,
 )
+REMINDER_COMMAND_ANY_RE = re.compile(
+    r"\b(?:напомни|напомнить|напомню)(?:\s+мне)?\b",
+    re.IGNORECASE,
+)
+TIME_FIRST_REMINDER_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:(?:сегодня|завтра|послезавтра)\b[^,.!?]{0,32})|"
+    r"(?:(?:в|к)\s+[^,.!?]{1,24})|"
+    r"(?:через\s+[^,.!?]{1,32})"
+    r")\s+(?:напомни|напомнить|напомню)(?:\s+мне)?\b",
+    re.IGNORECASE,
+)
 REMINDER_LIST_RE = re.compile(
     r"^\s*(?:какие\s+(?:у\s+меня\s+)?напоминани\w*|покажи\s+(?:мои\s+)?напоминани\w*|"
     r"список\s+напоминани\w*|мои\s+напоминани\w*)\b",
@@ -32,7 +44,12 @@ REMINDER_DELETE_RE = re.compile(
     re.IGNORECASE,
 )
 CALENDAR_REMINDER_PROPERTY_RE = re.compile(
-    r"\b(?:у|для)\s+(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b",
+    r"\b(?:у|для|к)\s+(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b",
+    re.IGNORECASE,
+)
+CALENDAR_INLINE_REMINDER_RE = re.compile(
+    r"\b(?:встреч\w*|событ\w*|созвон\w*|звонк\w*)\b[^.!?]{0,120}"
+    r"\b(?:напомни|напоминани\w*)\s+за\b",
     re.IGNORECASE,
 )
 REMINDER_PREFIX_RE = re.compile(
@@ -52,13 +69,13 @@ def _normalise(text: str) -> str:
 
 
 def detect_reminder_intent(text: str) -> str | None:
+    if CALENDAR_REMINDER_PROPERTY_RE.search(text) or CALENDAR_INLINE_REMINDER_RE.search(text):
+        return None
     if REMINDER_DELETE_RE.search(text):
-        if CALENDAR_REMINDER_PROPERTY_RE.search(text):
-            return None
         return REMINDER_DELETE
     if REMINDER_LIST_RE.search(text):
         return REMINDER_LIST
-    if REMINDER_CREATE_RE.search(text):
+    if REMINDER_CREATE_RE.search(text) or TIME_FIRST_REMINDER_RE.search(text):
         return REMINDER_CREATE
     return None
 
@@ -79,7 +96,12 @@ def _reminder_due_at(text: str, timezone: str, now: datetime | None = None) -> d
 
 
 def _reminder_title(text: str) -> str:
-    body = REMINDER_PREFIX_RE.sub("", text.strip(), count=1)
+    raw = text.strip()
+    if TIME_FIRST_REMINDER_RE.search(raw):
+        command = REMINDER_COMMAND_ANY_RE.search(raw)
+        body = raw[command.end():].lstrip(" ,.:;-") if command else raw
+    else:
+        body = REMINDER_PREFIX_RE.sub("", raw, count=1)
     title = _extract_title(body)
     if title == "Встреча" and not re.search(r"\bвстреч\w*\b", body, re.IGNORECASE):
         return ""
