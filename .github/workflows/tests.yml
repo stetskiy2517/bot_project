@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - fix/smart-planner-parser
+      - beta/hardening-wave5
   pull_request:
 
 jobs:
