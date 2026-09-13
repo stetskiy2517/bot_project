@@ -35,11 +35,12 @@ CREATE_WORDS = (
 SEARCH_WORDS = (
     "когда у меня", "найди встреч", "найди событ", "найди созвон", "найди звонок",
     "найди запись", "найти встреч", "найти событ", "покажи когда", "покажи где",
+    "найди мне встреч", "найди мне событ", "найди мне созвон", "найди мне звонок",
 )
 VIEW_WORDS = (
     "что у меня", "что мне", "покажи", "покажи календар", "какие встречи", "какие события",
     "что запланировано", "что запланирован", "расписание", "что на неделе",
-    "что на неделю", "планы на неделю", "планы на завтра",
+    "что на неделю", "планы на неделю", "планы на завтра", "какие планы",
 )
 UPDATE_WORDS = (
     "перенеси", "перенести", "сдвинь", "сдвинуть", "измени", "изменить", "поменяй", "поменять",
@@ -90,6 +91,15 @@ TIME_HINT_RE = re.compile(
 )
 QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|зачем|как|сколько|есть ли|можно ли)\b", re.IGNORECASE)
 WHEN_SEARCH_RE = re.compile(r"^\s*когда\s+(?!свобод\w*\b|я\s+свобод\w*\b|у\s+меня\b)(.+)", re.IGNORECASE)
+TIME_SEARCH_RE = re.compile(r"^\s*во\s+сколько\b", re.IGNORECASE)
+SHORT_VIEW_PREFIX_RE = re.compile(
+    r"^\s*(?:что\b|есть\s+что(?:-|\s)?нибудь\b|какие\s+планы\b)",
+    re.IGNORECASE,
+)
+TRAILING_BARE_HOUR_RE = re.compile(
+    r"(?<!\d)(?P<hour>[01]?\d|2[0-3])(?P<punct>\s*[.!?]*)$",
+    re.IGNORECASE,
+)
 CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
 REMIND_ME_AS_COMMAND_RE = re.compile(r"^\s*напомню\b", re.IGNORECASE)
 PROPERTY_UPDATE_RE = re.compile(
@@ -107,6 +117,13 @@ PROPERTY_DELETE_RE = re.compile(
 PENDING_CONTROL_REPLIES = {
     "да", "ага", "подтверждаю", "подтвердить", "создавай", "удаляй", "меняй", "ок", "окей",
     "нет", "не надо", "отмена", "отменить", "стоп",
+}
+PENDING_REPLY_ALIASES = {
+    "да конечно": "да",
+    "конечно": "да",
+    "конечно да": "да",
+    "нет спасибо": "нет",
+    "не надо спасибо": "не надо",
 }
 FORCE_CONFLICT_REPLIES = {
     "все равно",
@@ -143,13 +160,26 @@ def _normalise(text: str) -> str:
 
 def _creation_text(text: str) -> str:
     """Исправить безопасные разговорные/ASR-варианты только для создания события."""
-    if REMIND_ME_AS_COMMAND_RE.search(text):
-        return REMIND_ME_AS_COMMAND_RE.sub("напомни", text, count=1)
-    return text
+    result = text
+    if REMIND_ME_AS_COMMAND_RE.search(result):
+        result = REMIND_ME_AS_COMMAND_RE.sub("напомни", result, count=1)
+
+    # Voice recognition often drops the preposition before a final hour:
+    # «встреча завтра 14». Only repair it when an explicit date is present,
+    # which avoids treating arbitrary trailing numbers as clock times.
+    lower = _normalise(result)
+    if DATE_HINT_RE.search(lower) and _extract_time(lower) is None:
+        match = TRAILING_BARE_HOUR_RE.search(result)
+        if match:
+            hour = match.group("hour")
+            punct = match.group("punct") or ""
+            result = f"{result[:match.start('hour')]}в {hour}{punct}"
+    return result
 
 
 def detect_intent(text: str) -> IntentResult:
-    lower = _normalise(text)
+    candidate = _creation_text(text)
+    lower = _normalise(candidate)
     if NEGATED_CREATE_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)
     if PROPERTY_UPDATE_RE.search(lower) or PROPERTY_DELETE_RE.search(lower):
@@ -162,8 +192,12 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
         return IntentResult(INTENT_SEARCH, 0.97)
-    if WHEN_SEARCH_RE.search(lower):
+    if WHEN_SEARCH_RE.search(lower) or TIME_SEARCH_RE.search(lower):
         return IntentResult(INTENT_SEARCH, 0.93)
+
+    has_action = any(word in lower for word in ACTION_WORDS)
+    if DATE_HINT_RE.search(lower) and SHORT_VIEW_PREFIX_RE.search(lower) and not has_action:
+        return IntentResult(INTENT_VIEW, 0.95)
     if any(word in lower for word in VIEW_WORDS):
         return IntentResult(INTENT_VIEW, 0.96)
     if INFO_CREATE_QUESTION_RE.search(lower) and any(word in lower for word in CREATE_WORDS):
@@ -176,7 +210,6 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_UNKNOWN, 0.0)
 
     has_event = any(word in lower for word in EVENT_WORDS)
-    has_action = any(word in lower for word in ACTION_WORDS)
     has_date = bool(DATE_HINT_RE.search(lower))
     has_time = _extract_time(lower) is not None or _relative_offset(lower) is not None
     is_question = bool(QUESTION_PREFIX_RE.search(lower)) or text.rstrip().endswith("?")
@@ -213,6 +246,12 @@ def _normalise_pending_reply(text: str) -> str:
     normal = _normalise(candidate)
     if normal in PENDING_CONTROL_REPLIES or normal.isdigit():
         return candidate
+
+    spoken = re.sub(r"[,.!?;:…]+", " ", candidate)
+    spoken = re.sub(r"\s+", " ", _normalise(spoken)).strip()
+    alias = PENDING_REPLY_ALIASES.get(spoken)
+    if alias:
+        return alias
     return original
 
 
@@ -256,6 +295,8 @@ def _normalise_search_text(text: str) -> str:
     match = WHEN_SEARCH_RE.search(text)
     if match:
         return f"когда у меня {match.group(1)}"
+    if TIME_SEARCH_RE.search(text):
+        return TIME_SEARCH_RE.sub("когда у меня", text, count=1)
     return text
 
 
@@ -306,7 +347,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if handled:
             return
         if update.message:
-            await update.message.reply_text("Не понял команду. Например: «врач завтра в 19:00» или «добавь задачу купить билеты».")
+            await update.message.reply_text("Не понял команду. Например: «врач завтра в 19:00» или «напомни через 30 минут позвонить».")
     except Exception:
         logger.exception("Unhandled error in text router")
         if update.message:
