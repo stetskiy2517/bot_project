@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_user_timezone
-from core.reminder_store import claim_due_reminders, create_reminder, delete_reminder, list_reminders
+from core.reminder_recurrence import repeat_label
+from core.reminder_store import (
+    claim_due_reminders,
+    create_reminder,
+    delete_reminder,
+    list_active_reminders,
+    list_reminders,
+)
 from modules.calendar import _extract_time, _extract_title, _parse_datetime
 from modules.calendar_user import _user_zone
 
@@ -67,13 +74,56 @@ BARE_DATE_HOUR_RE = re.compile(
     r"\s+(?P<hour>[01]?\d|2[0-3])\b",
     re.IGNORECASE,
 )
+RECURRING_DAYPART_CLOCK_RE = re.compile(
+    r"\bкажд\w*\s+(?P<part>утр\w*|вечер\w*|дн\w*|ноч\w*)\s+"
+    r"(?:в\s+)?(?P<hour>\d{1,2})(?:\s*(?::|\.)\s*(?P<minute>[0-5]\d))?\b",
+    re.IGNORECASE,
+)
+REPEAT_CLEAN_RE = re.compile(
+    r"\b(?:"
+    r"ежедневно|еженедельно|"
+    r"по\s+(?:будням|выходным|понедельникам|вторникам|средам|четвергам|пятницам|субботам|воскресеньям)|"
+    r"кажд\w*\s+(?:будн\w*\s+день|день|утр\w*|вечер\w*|ноч\w*|выходн\w*|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|недел\w*)"
+    r")\b",
+    re.IGNORECASE,
+)
 CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
 QUERY_STOP_WORDS = {"про", "напоминание", "напоминания", "напоминанию"}
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
+WEEKDAY_REPEAT_PATTERNS = (
+    (0, r"(?:кажд\w*\s+понедельник\w*|по\s+понедельникам)"),
+    (1, r"(?:кажд\w*\s+вторник\w*|по\s+вторникам)"),
+    (2, r"(?:кажд\w*\s+сред\w*|по\s+средам)"),
+    (3, r"(?:кажд\w*\s+четверг\w*|по\s+четвергам)"),
+    (4, r"(?:кажд\w*\s+пятниц\w*|по\s+пятницам)"),
+    (5, r"(?:кажд\w*\s+суббот\w*|по\s+субботам)"),
+    (6, r"(?:кажд\w*\s+воскресень\w*|по\s+воскресеньям)"),
+)
 
 
 def _normalise(text: str) -> str:
     return text.lower().replace("ё", "е").strip(" \t\r\n.,!?;:…\"'«»")
+
+
+def _repeat_rule(text: str) -> str | None:
+    """Return the deterministic recurrence rule for standalone reminders."""
+    lower = _normalise(text)
+    if re.search(r"\b(?:по\s+будням|кажд\w*\s+будн\w*\s+день)\b", lower):
+        return "weekdays"
+    if re.search(r"\b(?:по\s+выходным|кажд\w*\s+выходн\w*)\b", lower):
+        return "weekends"
+    for weekday, pattern in WEEKDAY_REPEAT_PATTERNS:
+        if re.search(rf"\b{pattern}\b", lower):
+            return f"weekly:{weekday}"
+    if re.search(
+        r"\b(?:ежедневно|кажд\w*\s+день|кажд\w*\s+(?:утр\w*|вечер\w*|ноч\w*))\b",
+        lower,
+    ):
+        return "daily"
+    if re.search(r"\b(?:еженедельно|кажд\w*\s+недел\w*|раз\s+в\s+недел\w*)\b", lower):
+        return "weekly"
+    return None
 
 
 def _repair_reminder_text(text: str) -> str:
@@ -116,6 +166,10 @@ def detect_reminder_intent(text: str) -> str | None:
         return REMINDER_LIST
     if REMINDER_CREATE_RE.search(text) or TIME_FIRST_REMINDER_RE.search(text):
         return REMINDER_CREATE
+    # Recurring requests often put the schedule before the action:
+    # «каждый вечер в 11 напомни выпить таблетку».
+    if _repeat_rule(text) and REMINDER_COMMAND_ANY_RE.search(text):
+        return REMINDER_CREATE
     return None
 
 
@@ -126,7 +180,80 @@ def _local_now(timezone: str, now: datetime | None = None) -> datetime:
     return now.astimezone(zone) if now.tzinfo else now.replace(tzinfo=zone)
 
 
+def _daypart_hour(hour: int, part: str) -> int | None:
+    if not 0 <= hour <= 23:
+        return None
+    if hour > 12:
+        return hour
+    lower = part.lower().replace("ё", "е")
+    if lower.startswith("вечер") or lower.startswith("дн"):
+        if 1 <= hour < 12:
+            return hour + 12
+        return hour if hour == 12 else None
+    if lower.startswith("ноч") or lower.startswith("утр"):
+        if hour == 12:
+            return 0
+        return hour if 0 <= hour <= 11 else None
+    return hour
+
+
+def _reminder_clock(text: str) -> tuple[int, int] | None:
+    recurring_part = RECURRING_DAYPART_CLOCK_RE.search(_normalise(text))
+    if recurring_part:
+        hour = _daypart_hour(int(recurring_part.group("hour")), recurring_part.group("part"))
+        if hour is None:
+            return None
+        return hour, int(recurring_part.group("minute") or 0)
+    return _extract_time(text)
+
+
+def _first_repeat_due(
+    text: str,
+    timezone: str,
+    rule: str,
+    now: datetime | None = None,
+) -> datetime | None:
+    clock = _reminder_clock(text)
+    if clock is None:
+        return None
+    hour, minute = clock
+    local_now = _local_now(timezone, now)
+    candidate = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    if rule == "daily":
+        if candidate <= local_now:
+            candidate += timedelta(days=1)
+        return candidate
+
+    if rule == "weekdays":
+        while candidate <= local_now or candidate.weekday() >= 5:
+            candidate += timedelta(days=1)
+        return candidate
+
+    if rule == "weekends":
+        while candidate <= local_now or candidate.weekday() < 5:
+            candidate += timedelta(days=1)
+        return candidate
+
+    if rule.startswith("weekly:"):
+        weekday = int(rule.split(":", 1)[1])
+        days = (weekday - candidate.weekday()) % 7
+        candidate += timedelta(days=days)
+        if candidate <= local_now:
+            candidate += timedelta(days=7)
+        return candidate
+
+    if rule == "weekly":
+        if candidate <= local_now:
+            candidate += timedelta(days=7)
+        return candidate
+    return None
+
+
 def _reminder_due_at(text: str, timezone: str, now: datetime | None = None) -> datetime | None:
+    repeat_rule = _repeat_rule(text)
+    if repeat_rule:
+        return _first_repeat_due(text, timezone, repeat_rule, now)
     local_now = _local_now(timezone, now)
     parsed = _parse_datetime(_repair_reminder_text(text), local_now.replace(tzinfo=None))
     if not parsed:
@@ -136,11 +263,12 @@ def _reminder_due_at(text: str, timezone: str, now: datetime | None = None) -> d
 
 def _reminder_title(text: str) -> str:
     raw = _repair_reminder_text(text).strip()
-    if TIME_FIRST_REMINDER_RE.search(raw):
-        command = REMINDER_COMMAND_ANY_RE.search(raw)
-        body = raw[command.end():].lstrip(" ,.:;-") if command else raw
+    command = REMINDER_COMMAND_ANY_RE.search(raw)
+    if command:
+        body = raw[command.end():].lstrip(" ,.:;-")
     else:
         body = REMINDER_PREFIX_RE.sub("", raw, count=1)
+    body = REPEAT_CLEAN_RE.sub(" ", body)
     title = _extract_title(body)
     if title == "Встреча" and not re.search(r"\bвстреч\w*\b", body, re.IGNORECASE):
         return ""
@@ -167,9 +295,14 @@ def _format_when(reminder: dict, timezone: str, now: datetime | None = None) -> 
     return f"{day}, {due.strftime('%H:%M')}"
 
 
+def _repeat_suffix(reminder: dict) -> str:
+    label = repeat_label(reminder.get("repeat_rule"))
+    return f" · {label}" if label else ""
+
+
 def _format_line(reminder: dict, timezone: str, index: int | None = None) -> str:
     prefix = f"{index}." if index is not None else "•"
-    return f"{prefix} {_format_when(reminder, timezone)} — {reminder['text']}"
+    return f"{prefix} {_format_when(reminder, timezone)} — {reminder['text']}{_repeat_suffix(reminder)}"
 
 
 def _tokens(value: str) -> list[str]:
@@ -205,14 +338,30 @@ async def create_reminder_from_text(
     if not title:
         await update.message.reply_text("О чём напомнить?")
         return True
+    repeat_rule = _repeat_rule(text)
     due_at = _reminder_due_at(text, timezone)
     if not due_at:
-        _store_pending(context, {"type": "reminder_time", "text": text, "title": title, "timezone": timezone})
+        _store_pending(
+            context,
+            {
+                "type": "reminder_time",
+                "text": text,
+                "title": title,
+                "timezone": timezone,
+                "repeat_rule": repeat_rule,
+            },
+        )
         await update.message.reply_text("Когда напомнить?")
         return True
-    reminder = create_reminder(user_id, title, due_at)
+    reminder = create_reminder(
+        user_id,
+        title,
+        due_at,
+        repeat_rule=repeat_rule,
+        repeat_timezone=timezone if repeat_rule else None,
+    )
     await update.message.reply_text(
-        f"Напоминание · «{reminder['text']}»\n{_format_when(reminder, timezone)}"
+        f"Напоминание · «{reminder['text']}»\n{_format_when(reminder, timezone)}{_repeat_suffix(reminder)}"
     )
     return True
 
@@ -224,7 +373,7 @@ async def list_reminders_from_text(
 ) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
-    reminders = list_reminders(user_id, limit=100)
+    reminders = list_active_reminders(user_id, limit=100)
     if not reminders:
         await update.message.reply_text("Активных напоминаний нет.")
         return True
@@ -245,7 +394,7 @@ async def delete_reminder_from_text(
     if not query:
         await update.message.reply_text("Какое напоминание удалить?")
         return True
-    matches = [item for item in list_reminders(user_id, limit=200) if _matches(item, query)]
+    matches = [item for item in list_active_reminders(user_id, limit=200) if _matches(item, query)]
     if not matches:
         await update.message.reply_text(f"Не нашёл напоминание «{query}».")
         return True
@@ -297,10 +446,17 @@ async def resume_pending_reminder(
         if not due_at:
             await update.message.reply_text("Не понял время. Например: «в 22:00», «завтра в 9» или «через 30 минут».")
             return True
+        repeat_rule = pending.get("repeat_rule") or _repeat_rule(combined)
         context.user_data.pop("smart_planner_pending", None)
-        reminder = create_reminder(update.effective_user.id, pending["title"], due_at)
+        reminder = create_reminder(
+            update.effective_user.id,
+            pending["title"],
+            due_at,
+            repeat_rule=repeat_rule,
+            repeat_timezone=timezone if repeat_rule else None,
+        )
         await update.message.reply_text(
-            f"Напоминание · «{reminder['text']}»\n{_format_when(reminder, timezone)}"
+            f"Напоминание · «{reminder['text']}»\n{_format_when(reminder, timezone)}{_repeat_suffix(reminder)}"
         )
         return True
 
