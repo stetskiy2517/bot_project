@@ -19,7 +19,13 @@ import sqlite3
 import sys
 import tempfile
 
+from dotenv import load_dotenv
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Scheduled SSH jobs do not start inside the systemd service, so load the same
+# environment file explicitly. Existing process environment still wins.
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+
 SNAPSHOT_PREFIX = "snapshot-"
 DEFAULT_RETENTION_DAYS = 14
 MIN_SNAPSHOTS_TO_KEEP = 2
@@ -122,7 +128,8 @@ def create_backup(*, now: datetime | None = None) -> Path:
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
 
-    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    current_time = now or datetime.now(timezone.utc)
+    timestamp = current_time.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     final_dir = root / f"{SNAPSHOT_PREFIX}{timestamp}"
     if final_dir.exists():
         final_dir = root / f"{SNAPSHOT_PREFIX}{timestamp}-{os.getpid()}"
@@ -137,7 +144,7 @@ def create_backup(*, now: datetime | None = None) -> Path:
         vapid_present = _copy_vapid_key(source_vapid, vapid_target)
 
         manifest = {
-            "created_at_utc": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(),
+            "created_at_utc": current_time.astimezone(timezone.utc).isoformat(),
             "database": {
                 "file": db_target.name,
                 "bytes": db_target.stat().st_size,
