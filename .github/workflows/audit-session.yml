@@ -1,0 +1,46 @@
+name: Regression audit evidence
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.head_ref == 'audit/2026-09-13-regression'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Archive tracked source for review
+        run: |
+          mkdir -p audit-evidence
+          git rev-parse HEAD > audit-evidence/revision.txt
+          git archive HEAD -o audit-evidence/source.tar
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run existing test suite
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee audit-evidence/unittest.log
+      - name: Validate browser code and voice gestures
+        if: always()
+        run: |
+          set -o pipefail
+          find web -type f -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          node tests/voice_gesture_test.js 2>&1 | tee audit-evidence/voice-gestures.log
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-audit-evidence
+          path: audit-evidence/
+          retention-days: 7
