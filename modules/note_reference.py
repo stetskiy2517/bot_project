@@ -53,13 +53,7 @@ def _clean_query(value: str) -> str:
 
 
 def extract_note_reference(text: str) -> tuple[str, bool] | None:
-    """Return (query, explicit_note_language) for a read-like phrase.
-
-    Explicit phrases such as ``что я записывал про Иванова`` are considered a
-    notes request even when the database has no match. Generic phrases such as
-    ``что у меня по проекту Альфа`` are only routed to notes if a matching note
-    actually exists for that user.
-    """
+    """Return ``(query, explicit_note_language)`` for a read-like phrase."""
     for pattern in _EXPLICIT_PATTERNS:
         match = pattern.search(text)
         if match:
@@ -74,12 +68,12 @@ def extract_note_reference(text: str) -> tuple[str, bool] | None:
     return None
 
 
-def resolve_note_reference(user_id: int, text: str) -> str | None:
+def resolve_note_reference(user_id: int, text: str, *, allow_generic: bool = True) -> str | None:
     """Resolve a contextual read request to a note-search query.
 
-    Generic references must match at least one note belonging to ``user_id``.
-    This prevents the router from stealing unrelated questions merely because
-    their wording resembles a note lookup.
+    Explicit storage language (``что я записывал...``) always belongs to notes.
+    Generic language (``что у меня по проекту Альфа``) is accepted only when
+    ``allow_generic`` is true and a matching note exists for this user.
     """
     extracted = extract_note_reference(text)
     if not extracted:
@@ -87,4 +81,6 @@ def resolve_note_reference(user_id: int, text: str) -> str | None:
     query, explicit = extracted
     if explicit:
         return query
+    if not allow_generic:
+        return None
     return query if search_notes(user_id, query, limit=1) else None
