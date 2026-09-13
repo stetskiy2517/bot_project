@@ -3,12 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from modules.calendar import _extract_time
-from modules.calendar_actions import (
-    _extract_delete_query,
-    _extract_update_target,
-    _repair_action_text,
-    resume_pending_action,
-)
+from modules.calendar_actions import _extract_delete_query, _extract_update_target
 from modules.calendar_event_features import _recurrence_rule
 from modules.reminders import (
     REMINDER_CREATE,
@@ -20,7 +15,9 @@ from modules.reminders import (
 from modules.router import (
     INTENT_DELETE,
     INTENT_UPDATE,
+    _action_text,
     _force_conflict_reply,
+    _resume_pending,
     detect_intent,
 )
 
@@ -38,11 +35,17 @@ class TypoAndVoiceActionRoutingTests(unittest.TestCase):
                 self.assertEqual(detect_intent(text).name, expected)
 
     def test_action_target_cleanup_understands_same_typos(self):
-        self.assertEqual(_extract_delete_query("удоли встречу с Иваном завтра"), "встречу с Иваном")
-        self.assertEqual(_extract_update_target("перинеси встречу с Иваном на завтра 14"), "встречу с Иваном")
+        self.assertEqual(
+            _extract_delete_query(_action_text("удоли встречу с Иваном завтра")),
+            "встречу с Иваном",
+        )
+        self.assertEqual(
+            _extract_update_target(_action_text("перинеси встречу с Иваном на завтра 14")),
+            "встречу с Иваном",
+        )
 
     def test_move_command_repairs_voice_dropped_preposition_before_hour(self):
-        repaired = _repair_action_text("перенеси встречу с Иваном на завтра 14")
+        repaired = _action_text("перенеси встречу с Иваном на завтра 14")
         self.assertEqual(_extract_time(repaired), (14, 0))
         self.assertIn("в 14", repaired)
 
@@ -60,10 +63,9 @@ class ReminderVoiceHardeningTests(unittest.TestCase):
         for text, expected in cases.items():
             with self.subTest(text=text):
                 self.assertEqual(detect_reminder_intent(text), REMINDER_CREATE)
-                self.assertEqual(
-                    _reminder_due_at(text, "Europe/Moscow", now=self.now).replace(tzinfo=None),
-                    expected,
-                )
+                due_at = _reminder_due_at(text, "Europe/Moscow", now=self.now)
+                self.assertIsNotNone(due_at)
+                self.assertEqual(due_at.replace(tzinfo=None), expected)
 
     def test_natural_delete_query_tolerates_preposition_and_russian_case(self):
         reminder = {"text": "Позвонить маме"}
@@ -110,21 +112,20 @@ class VoiceChoiceHardeningTests(unittest.IsolatedAsyncioTestCase):
             self.message = VoiceChoiceHardeningTests.Message()
             self.effective_user = VoiceChoiceHardeningTests.User()
 
-    async def test_event_choice_accepts_spoken_ordinal(self):
-        events = [{"id": "one", "summary": "Первая"}, {"id": "two", "summary": "Вторая"}]
+    async def test_event_choice_accepts_spoken_ordinal_through_router(self):
         pending = {
             "type": "select_delete",
-            "events": events,
+            "events": [{"id": "one"}, {"id": "two"}],
             "timezone": "Europe/Moscow",
             "text": "удали встречу",
         }
         context = self.Context(pending)
         update = self.Update()
-        with patch("modules.calendar_actions._prepare_delete_confirmation", new=AsyncMock(return_value=True)) as prepare:
-            handled = await resume_pending_action(update, context, "вторую")
+        with patch("modules.router.resume_pending_action", new=AsyncMock(return_value=True)) as resume:
+            handled = await _resume_pending(update, context, "вторую")
         self.assertTrue(handled)
-        prepare.assert_awaited_once()
-        self.assertEqual(prepare.await_args.args[2]["id"], "two")
+        resume.assert_awaited_once()
+        self.assertEqual(resume.await_args.args[2], "2")
 
     async def test_reminder_choice_accepts_spoken_ordinal(self):
         reminders = [
