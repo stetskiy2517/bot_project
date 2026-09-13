@@ -154,6 +154,10 @@ class WebLibraryTests(unittest.TestCase):
             '"/api/library"',
             '"/api/library/open"',
             "showDocumentInChat",
+            "closeChatToMain",
+            "chatCollapseBtn",
+            'dx > 0 && app.classList.contains("chat-active")',
+            'wheelX < 0 && app.classList.contains("chat-active")',
         ]:
             self.assertIn(marker, script)
 

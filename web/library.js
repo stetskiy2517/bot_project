@@ -5,6 +5,7 @@
   const topbar = app?.querySelector(".topbar");
   const chat = document.getElementById("chat");
   const chatLabel = app?.querySelector(".chat-label");
+  const chatCollapseButton = document.getElementById("chatCollapseBtn");
   const login = document.getElementById("login");
   const settingsPanel = document.getElementById("settingsPanel");
   if (!app || !topbar || !chat || document.getElementById("libraryScreen")) return;
@@ -431,6 +432,14 @@
     if (typeof window.armChatIdleTimer === "function") window.armChatIdleTimer();
   }
 
+  function closeChatToMain() {
+    if (!app.classList.contains("chat-active") || !chatCollapseButton) return false;
+    chatCollapseButton.click();
+    const closed = !app.classList.contains("chat-active");
+    if (closed && chatLabel) chatLabel.textContent = "Чат";
+    return closed;
+  }
+
   function showDocumentInChat(payload) {
     app.classList.remove("library-active");
     chat.replaceChildren();
@@ -502,6 +511,7 @@
       suppressClickUntil = performance.now() + 350;
       if (dx < 0 && !app.classList.contains("library-active")) openLibrary();
       else if (dx > 0 && app.classList.contains("library-active")) closeLibrary();
+      else if (dx > 0 && app.classList.contains("chat-active")) closeChatToMain();
     },
     { passive: true },
   );
@@ -519,6 +529,7 @@
       if (Math.abs(wheelX) < 85) return;
       if (wheelX > 0 && !app.classList.contains("library-active")) openLibrary();
       else if (wheelX < 0 && app.classList.contains("library-active")) closeLibrary();
+      else if (wheelX < 0 && app.classList.contains("chat-active")) closeChatToMain();
       wheelX = 0;
     },
     { passive: false },
@@ -529,5 +540,6 @@
     if (event.target.matches("input, textarea, select")) return;
     if (event.key === "ArrowRight" && !app.classList.contains("library-active")) openLibrary();
     if (event.key === "ArrowLeft" && app.classList.contains("library-active")) closeLibrary();
+    else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) closeChatToMain();
   });
 })();
