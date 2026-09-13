@@ -86,7 +86,26 @@ NOTE_TOPIC_PREFIX_RE = re.compile(r"^\s*(?:про|о|об)\s+", re.IGNORECASE)
 NOTE_APPEND_PUNCT_RE = re.compile(r"\s*[,;:]\s*(?:что\s+)?|\s+[—–-]\s+(?:что\s+)?", re.IGNORECASE)
 NOTE_APPEND_WHAT_RE = re.compile(r"\s+что\s+", re.IGNORECASE)
 NOTE_TITLE_SEPARATOR_RE = re.compile(
-    r"^\s*(?P<title>.{2,120}?)(?:(?<!\d):|\s+[—–]\s+)\s*(?P<body>.+?)\s*$"
+    r"^\s*(?P<title>.{2,120}?)(?:(?<!\d):(?!\d)|(?<!\d)\.(?!\d)|\s+[—–]\s+)\s*(?P<body>.+?)\s*$"
+)
+BARE_NOTE_CONTROL_RE = re.compile(
+    r"^\s*(?:что|чего|когда|где|как|почему|зачем|кто|сколько|можно|есть\s+ли|"
+    r"покажи|открой|найди|поищи|удали|убери|перенеси|измени|создай|добавь|добавить|"
+    r"внеси|внести|запиши|сохрани|поставь|напомни|запланируй|назначь)\b",
+    re.IGNORECASE,
+)
+BARE_NOTE_CALENDAR_RE = re.compile(
+    r"\b(?:сегодня|завтра|послезавтра|понедельник\w*|вторник\w*|сред\w*|четверг\w*|"
+    r"пятниц\w*|суббот\w*|воскресень\w*|следующ\w*\s+недел\w*|"
+    r"встреч\w*|событ\w*|созвон\w*|звонок\w*|календар\w*|расписани\w*|"
+    r"свободн\w*\s+окн\w*|врач\w*|невролог\w*|стоматолог\w*|рейс\w*|полет\w*|полёт\w*)\b|"
+    r"\b(?:в|к|с)\s*(?:[01]?\d|2[0-3])(?:(?::|\.)[0-5]\d)?\b|"
+    r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b",
+    re.IGNORECASE,
+)
+BARE_NOTE_BODY_QUESTION_RE = re.compile(
+    r"^\s*(?:что|чего|когда|где|как|почему|зачем|кто|сколько|можно\s+ли|есть\s+ли)\b",
+    re.IGNORECASE,
 )
 CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
@@ -94,6 +113,34 @@ CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "
 
 def _normalise(text: str) -> str:
     return text.lower().replace("ё", "е").strip(" \t\r\n.,!?;:…\"'«»")
+
+
+def _split_note_payload(payload: str) -> tuple[str | None, str]:
+    """Extract an optional explicit title from ``Название. Текст`` or similar syntax."""
+    cleaned = payload.strip(" \t\r\n.,;")
+    match = NOTE_TITLE_SEPARATOR_RE.match(cleaned)
+    if not match:
+        return None, cleaned
+    title = " ".join(match.group("title").split()).strip()
+    body = " ".join(match.group("body").split()).strip()
+    if not title or not body:
+        return None, cleaned
+    return title, body
+
+
+def detect_bare_note(text: str) -> tuple[str, str] | None:
+    """Recognize a safe title/body note dictated without an explicit command verb."""
+    candidate = text.strip()
+    if not candidate or "?" in candidate:
+        return None
+    if BARE_NOTE_CONTROL_RE.search(candidate) or BARE_NOTE_CALENDAR_RE.search(candidate):
+        return None
+    title, body = _split_note_payload(candidate)
+    if not title or not body:
+        return None
+    if len(title.split()) > 8 or BARE_NOTE_BODY_QUESTION_RE.search(body):
+        return None
+    return title, body
 
 
 def detect_note_intent(text: str) -> str | None:
@@ -105,7 +152,7 @@ def detect_note_intent(text: str) -> str | None:
         return NOTE_SEARCH
     if NOTE_LIST_RE.search(text):
         return NOTE_LIST
-    if NOTE_CREATE_RE.search(text):
+    if NOTE_CREATE_RE.search(text) or detect_bare_note(text):
         return NOTE_CREATE
     return None
 
@@ -132,19 +179,6 @@ def _choice_index(text: str) -> int | None:
 
 def _note_body(text: str) -> str:
     return NOTE_CREATE_PREFIX_RE.sub("", text.strip(), count=1).strip(" \t\r\n.,;:-")
-
-
-def _split_note_payload(payload: str) -> tuple[str | None, str]:
-    """Extract an optional explicit title from ``Название: текст`` syntax."""
-    cleaned = payload.strip(" \t\r\n.,;")
-    match = NOTE_TITLE_SEPARATOR_RE.match(cleaned)
-    if not match:
-        return None, cleaned
-    title = " ".join(match.group("title").split()).strip()
-    body = " ".join(match.group("body").split()).strip()
-    if not title or not body:
-        return None, cleaned
-    return title, body
 
 
 def _note_query(text: str, prefix_re: re.Pattern) -> str:
@@ -197,7 +231,6 @@ def _resolve_append_request(user_id: int, text: str) -> tuple[str, str, list[dic
     words = query.split()
 
     if contextual and len(words) >= 2:
-        # Prefer the longest prefix that exactly matches an existing note title.
         for cut in range(len(words) - 1, 0, -1):
             target = " ".join(words[:cut])
             remainder = " ".join(words[cut:]).strip()
@@ -206,7 +239,6 @@ def _resolve_append_request(user_id: int, text: str) -> tuple[str, str, list[dic
             if exact:
                 return target, remainder, exact
 
-        # Legacy notes may only match by text; use the longest unique prefix.
         for cut in range(len(words) - 1, 0, -1):
             target = " ".join(words[:cut])
             remainder = " ".join(words[cut:]).strip()
