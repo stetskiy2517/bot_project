@@ -11,9 +11,12 @@ from modules.notes import (
     NOTE_LIST,
     NOTE_SEARCH,
     _note_body,
+    _note_query,
     _split_append_payload,
     append_note_from_text,
     detect_note_intent,
+    search_notes_from_text,
+    NOTE_SEARCH_PREFIX_RE,
 )
 from modules.router import route_text
 
@@ -31,6 +34,27 @@ class NoteParsingTests(unittest.TestCase):
         self.assertEqual(_note_body(phrase), "список продуктов бананы масло сливочное")
         self.assertEqual(detect_note_intent("создай список вещей в поездку"), NOTE_CREATE)
         self.assertEqual(detect_note_intent("составь список покупок молоко хлеб"), NOTE_CREATE)
+
+    def test_saved_list_read_intents(self):
+        phrases = [
+            "что у меня в списке продуктов",
+            "что записано в списке продуктов",
+            "покажи список продуктов",
+            "открой мой список покупок",
+            "что есть у меня в списке вещей",
+        ]
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                self.assertEqual(detect_note_intent(phrase), NOTE_SEARCH)
+
+        self.assertEqual(
+            _note_query("что у меня в списке продуктов", NOTE_SEARCH_PREFIX_RE),
+            "списке продуктов",
+        )
+        self.assertEqual(
+            _note_query("покажи список продуктов", NOTE_SEARCH_PREFIX_RE),
+            "список продуктов",
+        )
 
     def test_append_intents_and_payload(self):
         command = "добавь в заметку про Иванова, что он согласовал цену"
@@ -60,6 +84,7 @@ class NoteParsingTests(unittest.TestCase):
     def test_plain_calendar_command_is_not_note(self):
         self.assertIsNone(detect_note_intent("запиши врача завтра в 19"))
         self.assertIsNone(detect_note_intent("удали встречу завтра"))
+        self.assertIsNone(detect_note_intent("что у меня завтра в 19"))
 
 
 class NoteAppendTests(unittest.IsolatedAsyncioTestCase):
@@ -129,6 +154,29 @@ class NoteAppendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pending["note"]["note_id"], 7)
 
 
+class NoteSearchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_list_question_searches_notes(self):
+        update = SimpleNamespace(
+            message=SimpleNamespace(
+                text="что у меня в списке продуктов",
+                reply_text=AsyncMock(),
+            ),
+            effective_user=SimpleNamespace(id=1),
+        )
+        context = SimpleNamespace(user_data={})
+        note = {
+            "note_id": 4,
+            "text": "список продуктов бананы масло сливочное",
+            "created_at": "2026-09-13T09:00:00+00:00",
+            "updated_at": "2026-09-13T09:00:00+00:00",
+        }
+        with patch("modules.notes.search_notes", return_value=[note]) as search:
+            handled = await search_notes_from_text(update, context, update.message.text)
+        self.assertTrue(handled)
+        search.assert_called_once_with(1, "списке продуктов", limit=50)
+        self.assertIn("бананы", update.message.reply_text.await_args.args[0])
+
+
 class NoteRouterTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _update(text: str):
@@ -164,6 +212,18 @@ class NoteRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         self.assertEqual(note_handler.await_args.args[3], NOTE_CREATE)
         calendar_create.assert_not_awaited()
+
+    async def test_router_sends_list_question_to_notes_not_calendar(self):
+        update = self._update("что у меня в списке продуктов")
+        context = self._context()
+        with (
+            patch("modules.router.handle_note_text", new=AsyncMock(return_value=True)) as note_handler,
+            patch("modules.router.query_from_text", new=AsyncMock(return_value=True)) as calendar_query,
+        ):
+            handled = await route_text(update, context)
+        self.assertTrue(handled)
+        self.assertEqual(note_handler.await_args.args[3], NOTE_SEARCH)
+        calendar_query.assert_not_awaited()
 
     async def test_router_sends_append_command_to_notes_not_calendar(self):
         update = self._update("добавь в заметку про Иванова, что созвон в пятницу")
