@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import math
+import re
 import time
 from typing import Any
 
@@ -28,6 +29,10 @@ DISTANCE_MATRIX_URL = "https://api.routing.yandex.net/v2/distancematrix"
 REQUEST_TIMEOUT_SECONDS = 8
 TRAVEL_KIND = "travel"
 MANAGED_VALUE = "1"
+NATURAL_DESTINATION_RE = re.compile(
+    r"\b(?:будет|пройдет|пройдёт|состоится)\s+(?:в|на)\s+(?P<location>.+?)\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,18 @@ def is_managed_travel_event(event: dict) -> bool:
 
 def _source_event_id(event: dict) -> str | None:
     return str(event.get("id") or "").strip() or None
+
+
+def _event_destination(event: dict) -> str | None:
+    location = str(event.get("location") or "").strip()
+    if location:
+        return location
+    summary = str(event.get("summary") or "").strip()
+    match = NATURAL_DESTINATION_RE.search(summary)
+    if not match:
+        return None
+    value = re.sub(r"\s+", " ", match.group("location")).strip(" ,.;")
+    return value[:500] if value else None
 
 
 def _geocode(address: str) -> tuple[float, float]:
@@ -135,7 +152,7 @@ def _previous_event_origin(user_id: int, target_event: dict, timezone: str) -> s
     for event in candidates:
         if event.get("id") == target_id or is_managed_travel_event(event):
             continue
-        location = str(event.get("location") or "").strip()
+        location = _event_destination(event)
         if not location:
             continue
         end = _event_end(event, timezone)
@@ -241,7 +258,7 @@ def create_travel_for_event(user_id: int, source_event: dict, timezone: str) -> 
     if source_event.get("recurrence") or source_event.get("recurringEventId"):
         return None
     source_id = _source_event_id(source_event)
-    destination = str(source_event.get("location") or "").strip()
+    destination = _event_destination(source_event)
     if not source_id or not destination or is_managed_travel_event(source_event):
         return None
     source_start, all_day = _event_start(source_event, timezone)
