@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import re
 import threading
@@ -31,6 +31,7 @@ from core.push_store import (
     list_push_subscriptions,
     save_push_subscription,
 )
+from core.reminder_store import complete_reminder, delete_saved_reminder, reschedule_reminder
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
@@ -144,6 +145,7 @@ def _library_reminder_payload(reminder: dict) -> dict:
         "status": reminder.get("status"),
         "created_at": reminder.get("created_at"),
         "delivered_at": reminder.get("delivered_at"),
+        "completed_at": reminder.get("completed_at"),
     }
 
 
@@ -155,6 +157,15 @@ def _note_chat_text(note: dict) -> str:
     return f"Заметка · {title}\n\n{body}"
 
 
+def _reminder_status_text(status: str) -> str:
+    return {
+        "pending": "Активно",
+        "delivering": "Отправляется",
+        "delivered": "Сработало",
+        "completed": "Выполнено",
+    }.get(status, "Напоминание")
+
+
 def _reminder_chat_text(reminder: dict, timezone: str) -> str:
     when = str(reminder.get("remind_at") or "")
     try:
@@ -162,9 +173,24 @@ def _reminder_chat_text(reminder: dict, timezone: str) -> str:
         when = due.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
     except (TypeError, ValueError, ZoneInfoNotFoundError):
         pass
-    status = str(reminder.get("status") or "")
-    status_text = "Выполнено" if status == "delivered" else "Активно"
+    status_text = _reminder_status_text(str(reminder.get("status") or ""))
     return f"Напоминание · {status_text}\n{when}\n\n{reminder.get('text') or ''}".strip()
+
+
+def _parse_future_reminder_time(value) -> datetime:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("Нужно выбрать новое время")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Некорректная дата или время") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("Время должно содержать часовой пояс")
+    parsed = parsed.astimezone(timezone.utc)
+    if parsed <= datetime.now(timezone.utc):
+        raise ValueError("Новое время должно быть в будущем")
+    return parsed
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
@@ -289,9 +315,9 @@ def create_web_app() -> Flask:
     @app.get("/api/library")
     def library():
         user_id = _require_user_id()
-        timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+        user_timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
         return {
-            "timezone": timezone,
+            "timezone": user_timezone,
             "notes": [_library_note_payload(item) for item in list_notes(user_id, limit=500)],
             "reminders": [
                 _library_reminder_payload(item)
@@ -336,13 +362,45 @@ def create_web_app() -> Flask:
             "reminder_id": int(reminder["reminder_id"]),
             "text": str(reminder.get("text") or ""),
         }
-        timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+        user_timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
         return {
             "type": "reminder",
             "id": int(reminder["reminder_id"]),
             "label": "Напоминание",
-            "chat_text": _reminder_chat_text(reminder, timezone),
+            "chat_text": _reminder_chat_text(reminder, user_timezone),
         }
+
+    @app.post("/api/library/reminders/<int:reminder_id>/complete")
+    def complete_library_reminder(reminder_id: int):
+        user_id = _require_user_id()
+        reminder = complete_reminder(user_id, reminder_id)
+        if not reminder:
+            return jsonify({"error": "library_item_not_found"}), 404
+        return {"ok": True, "reminder": _library_reminder_payload(reminder)}
+
+    @app.post("/api/library/reminders/<int:reminder_id>/reschedule")
+    def reschedule_library_reminder(reminder_id: int):
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        try:
+            remind_at = _parse_future_reminder_time(payload.get("remind_at"))
+        except ValueError as exc:
+            return jsonify({"error": "invalid_reminder_time", "message": str(exc)}), 400
+        reminder = reschedule_reminder(user_id, reminder_id, remind_at)
+        if not reminder:
+            return jsonify({"error": "library_item_not_found"}), 404
+        return {"ok": True, "reminder": _library_reminder_payload(reminder)}
+
+    @app.delete("/api/library/reminders/<int:reminder_id>")
+    def delete_library_reminder(reminder_id: int):
+        user_id = _require_user_id()
+        if not delete_saved_reminder(user_id, reminder_id):
+            return jsonify({"error": "library_item_not_found"}), 404
+        state = _state_for(user_id)
+        active = state.get("smart_planner_active_reminder") or {}
+        if int(active.get("reminder_id") or 0) == reminder_id:
+            state.pop("smart_planner_active_reminder", None)
+        return {"ok": True}
 
     @app.get("/api/push/config")
     def push_config():
@@ -475,12 +533,12 @@ def create_web_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             if "timezone" in payload:
-                timezone = str(payload["timezone"]).strip()
+                user_timezone = str(payload["timezone"]).strip()
                 try:
-                    ZoneInfo(timezone)
+                    ZoneInfo(user_timezone)
                 except ZoneInfoNotFoundError as exc:
                     raise ValueError("Неизвестный часовой пояс") from exc
-                save_user_timezone(user_id, timezone)
+                save_user_timezone(user_id, user_timezone)
 
             work_start = payload.get("work_start")
             work_end = payload.get("work_end")

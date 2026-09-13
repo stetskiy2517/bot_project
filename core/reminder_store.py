@@ -9,9 +9,15 @@ from core.db import conn, db_lock
 REMINDER_PENDING = "pending"
 REMINDER_DELIVERING = "delivering"
 REMINDER_DELIVERED = "delivered"
-REMINDER_STATUSES = {REMINDER_PENDING, REMINDER_DELIVERING, REMINDER_DELIVERED}
+REMINDER_COMPLETED = "completed"
+REMINDER_STATUSES = {
+    REMINDER_PENDING,
+    REMINDER_DELIVERING,
+    REMINDER_DELIVERED,
+    REMINDER_COMPLETED,
+}
 SELECT_COLUMNS = (
-    "reminder_id,user_id,text,remind_at,status,created_at,delivered_at,"
+    "reminder_id,user_id,text,remind_at,status,created_at,delivered_at,completed_at,"
     "lease_until,delivery_attempts,last_error"
 )
 
@@ -27,6 +33,7 @@ def init_reminder_store() -> None:
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
                 delivered_at TEXT,
+                completed_at TEXT,
                 lease_until TEXT,
                 delivery_attempts INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT
@@ -34,6 +41,7 @@ def init_reminder_store() -> None:
         )
         columns = {row[1] for row in conn.execute("PRAGMA table_info(reminders)").fetchall()}
         migrations = {
+            "completed_at": "TEXT",
             "lease_until": "TEXT",
             "delivery_attempts": "INTEGER NOT NULL DEFAULT 0",
             "last_error": "TEXT",
@@ -67,9 +75,10 @@ def _from_row(row) -> dict:
         "status": row[4],
         "created_at": row[5],
         "delivered_at": row[6],
-        "lease_until": row[7],
-        "delivery_attempts": int(row[8] or 0),
-        "last_error": row[9],
+        "completed_at": row[7],
+        "lease_until": row[8],
+        "delivery_attempts": int(row[9] or 0),
+        "last_error": row[10],
     }
 
 
@@ -111,6 +120,7 @@ def list_reminders(
 
 
 def delete_reminder(user_id: int, reminder_id: int) -> bool:
+    """Delete a still-pending reminder from the conversational reminder module."""
     with db_lock:
         cur = conn.execute(
             "DELETE FROM reminders WHERE user_id=? AND reminder_id=? AND status=?",
@@ -118,6 +128,58 @@ def delete_reminder(user_id: int, reminder_id: int) -> bool:
         )
         conn.commit()
     return cur.rowcount > 0
+
+
+def delete_saved_reminder(user_id: int, reminder_id: int) -> bool:
+    """Delete one saved reminder regardless of its history state."""
+    with db_lock:
+        cur = conn.execute(
+            "DELETE FROM reminders WHERE user_id=? AND reminder_id=?",
+            (int(user_id), int(reminder_id)),
+        )
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def complete_reminder(user_id: int, reminder_id: int) -> dict | None:
+    """Mark a reminder as explicitly completed by the user."""
+    completed_at = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        cur = conn.execute(
+            "UPDATE reminders SET status=?,completed_at=COALESCE(completed_at,?),"
+            "lease_until=NULL,last_error=NULL WHERE user_id=? AND reminder_id=?",
+            (REMINDER_COMPLETED, completed_at, int(user_id), int(reminder_id)),
+        )
+        if cur.rowcount <= 0:
+            conn.commit()
+            return None
+        row = conn.execute(
+            f"SELECT {SELECT_COLUMNS} FROM reminders WHERE user_id=? AND reminder_id=?",
+            (int(user_id), int(reminder_id)),
+        ).fetchone()
+        conn.commit()
+    return _from_row(row) if row else None
+
+
+def reschedule_reminder(user_id: int, reminder_id: int, remind_at: datetime) -> dict | None:
+    """Move a saved reminder to a new time and make it active again."""
+    remind_value = _to_utc(remind_at).isoformat()
+    with db_lock:
+        cur = conn.execute(
+            "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"
+            "lease_until=NULL,delivery_attempts=0,last_error=NULL "
+            "WHERE user_id=? AND reminder_id=?",
+            (remind_value, REMINDER_PENDING, int(user_id), int(reminder_id)),
+        )
+        if cur.rowcount <= 0:
+            conn.commit()
+            return None
+        row = conn.execute(
+            f"SELECT {SELECT_COLUMNS} FROM reminders WHERE user_id=? AND reminder_id=?",
+            (int(user_id), int(reminder_id)),
+        ).fetchone()
+        conn.commit()
+    return _from_row(row) if row else None
 
 
 def _recover_expired_leases(current_iso: str) -> None:

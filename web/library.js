@@ -38,9 +38,7 @@
       box-shadow: 0 5px 18px rgba(0,0,0,.05);
       flex: 0 0 auto;
     }
-    .library-open-button {
-      pointer-events: auto;
-    }
+    .library-open-button { pointer-events: auto; }
     .library-open-button svg,
     .library-back-button svg {
       width: 20px;
@@ -62,9 +60,7 @@
       transform: translateX(100%);
       visibility: hidden;
       pointer-events: none;
-      transition:
-        transform .36s cubic-bezier(.22,.8,.24,1),
-        visibility 0s linear .36s;
+      transition: transform .36s cubic-bezier(.22,.8,.24,1), visibility 0s linear .36s;
       touch-action: pan-y;
     }
     .app.library-active .library-screen {
@@ -94,10 +90,7 @@
       font-weight: 650;
       letter-spacing: -.25px;
     }
-    .library-nav-spacer {
-      width: 44px;
-      height: 44px;
-    }
+    .library-nav-spacer { width: 44px; height: 44px; }
     .library-tabs {
       margin-top: 14px;
       padding: 4px;
@@ -105,7 +98,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 4px;
       border-radius: 14px;
-      background: #eaeaE7;
+      background: #eaeae7;
     }
     .library-tab {
       min-width: 0;
@@ -146,12 +139,9 @@
       cursor: pointer;
       box-shadow: 0 3px 14px rgba(0,0,0,.035);
     }
-    .library-card:active {
-      transform: scale(.992);
-    }
-    .library-card.delivered {
-      opacity: .62;
-    }
+    .library-card:active { transform: scale(.992); }
+    .library-card.delivered { opacity: .8; }
+    .library-card.completed { opacity: .56; }
     .library-card-head {
       display: flex;
       align-items: flex-start;
@@ -176,10 +166,7 @@
       text-transform: uppercase;
       letter-spacing: .04em;
     }
-    .library-card-status.pending {
-      background: #ededeb;
-      color: #333;
-    }
+    .library-card-status.pending { background: #ededeb; color: #333; }
     .library-card-preview {
       margin-top: 7px;
       color: #656561;
@@ -197,6 +184,133 @@
       font-size: 11px;
       line-height: 1.3;
     }
+    .reminder-swipe-row {
+      position: relative;
+      overflow: hidden;
+      margin: 0 0 10px;
+      border-radius: 18px;
+      background: #e9e9e6;
+      touch-action: pan-y;
+    }
+    .reminder-swipe-row .library-card {
+      position: relative;
+      z-index: 2;
+      margin: 0;
+      will-change: transform;
+      transition: transform .2s cubic-bezier(.22,.8,.24,1);
+    }
+    .reminder-actions {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      display: flex;
+      align-items: stretch;
+    }
+    .reminder-actions.delete-side { justify-content: flex-start; }
+    .reminder-actions.manage-side { justify-content: flex-end; }
+    .reminder-action {
+      min-width: 88px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 0;
+      font-size: 12px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .reminder-action.delete { background: #f2dddd; color: #8a2d2d; }
+    .reminder-action.complete { background: #e0ece3; color: #315c3b; }
+    .reminder-action.reschedule { background: #e4e4e8; color: #494950; }
+    .reminder-snooze-backdrop {
+      position: absolute;
+      z-index: 90;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      background: rgba(0,0,0,.16);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .18s ease, visibility 0s linear .18s;
+    }
+    .reminder-snooze-backdrop.open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transition-delay: 0s;
+    }
+    .reminder-snooze-sheet {
+      width: 100%;
+      padding: 18px 16px calc(env(safe-area-inset-bottom) + 18px);
+      border-radius: 24px 24px 0 0;
+      background: #fff;
+      box-shadow: 0 -12px 40px rgba(0,0,0,.12);
+      transform: translateY(20px);
+      transition: transform .18s ease;
+    }
+    .reminder-snooze-backdrop.open .reminder-snooze-sheet { transform: translateY(0); }
+    .reminder-snooze-title {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 650;
+      text-align: center;
+    }
+    .reminder-snooze-quick {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .reminder-snooze-button {
+      min-height: 44px;
+      padding: 9px 8px;
+      border-radius: 12px;
+      background: #f1f1ef;
+      color: #222;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .reminder-snooze-custom {
+      display: none;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .reminder-snooze-custom.open { display: grid; }
+    .reminder-snooze-custom input {
+      min-width: 0;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      color: #111;
+      font: inherit;
+    }
+    .reminder-snooze-save {
+      padding: 0 14px;
+      border-radius: 12px;
+      background: #111;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .library-toast {
+      position: absolute;
+      z-index: 110;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom) + 24px);
+      max-width: calc(100% - 32px);
+      transform: translate(-50%, 14px);
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(25,25,25,.92);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1.35;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .library-toast.show { opacity: 1; transform: translate(-50%, 0); }
     .library-empty,
     .library-loading,
     .library-error {
@@ -206,13 +320,13 @@
       font-size: 14px;
       line-height: 1.45;
     }
-    .library-error {
-      color: #6e5c5c;
-    }
+    .library-error { color: #6e5c5c; }
     @media (min-width: 760px) {
-      .library-screen {
-        border-radius: 32px;
-        overflow: hidden;
+      .library-screen { border-radius: 32px; overflow: hidden; }
+      .reminder-snooze-sheet {
+        max-width: 480px;
+        margin: 0 auto 18px;
+        border-radius: 22px;
       }
     }
   `;
@@ -252,10 +366,34 @@
     <div id="libraryList" class="library-list" aria-live="polite"></div>`;
   app.appendChild(screen);
 
+  const snoozeBackdrop = document.createElement("div");
+  snoozeBackdrop.className = "reminder-snooze-backdrop";
+  snoozeBackdrop.innerHTML = `
+    <div class="reminder-snooze-sheet" role="dialog" aria-modal="true" aria-label="Перенести напоминание">
+      <h3 class="reminder-snooze-title">Перенести напоминание</h3>
+      <div class="reminder-snooze-quick">
+        <button type="button" class="reminder-snooze-button" data-snooze="hour">+1 час</button>
+        <button type="button" class="reminder-snooze-button" data-snooze="tomorrow">Завтра</button>
+        <button type="button" class="reminder-snooze-button" data-snooze="custom">Выбрать</button>
+      </div>
+      <div class="reminder-snooze-custom">
+        <input id="reminderSnoozeInput" type="datetime-local" aria-label="Новая дата и время" />
+        <button id="reminderSnoozeSave" class="reminder-snooze-save" type="button">ОК</button>
+      </div>
+    </div>`;
+  app.appendChild(snoozeBackdrop);
+
+  const toast = document.createElement("div");
+  toast.className = "library-toast";
+  app.appendChild(toast);
+
   const backButton = document.getElementById("libraryBackBtn");
   const notesTab = document.getElementById("libraryNotesTab");
   const remindersTab = document.getElementById("libraryRemindersTab");
   const list = document.getElementById("libraryList");
+  const snoozeCustom = snoozeBackdrop.querySelector(".reminder-snooze-custom");
+  const snoozeInput = document.getElementById("reminderSnoozeInput");
+  const snoozeSave = document.getElementById("reminderSnoozeSave");
 
   let activeTab = "notes";
   let data = { notes: [], reminders: [], timezone: "Europe/Moscow" };
@@ -265,9 +403,15 @@
   let wheelX = 0;
   let wheelTimer = null;
   let openedLibraryItem = false;
+  let snoozeReminderId = null;
+  let toastTimer = null;
 
   function modalOpen() {
-    return Boolean(login?.classList.contains("open") || settingsPanel?.classList.contains("open"));
+    return Boolean(
+      login?.classList.contains("open") ||
+      settingsPanel?.classList.contains("open") ||
+      snoozeBackdrop.classList.contains("open")
+    );
   }
 
   async function request(path, options = {}) {
@@ -282,6 +426,13 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.message || payload.error || "request_failed");
     return payload;
+  }
+
+  function showToast(message) {
+    clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.classList.add("show");
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
   }
 
   function formatDate(value, withYear = true) {
@@ -302,10 +453,32 @@
     }
   }
 
+  function toLocalInputValue(date) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   function shortPreview(value, limit = 260) {
     const text = String(value || "").trim();
     if (text.length <= limit) return text;
     return text.slice(0, limit - 1).trimEnd() + "…";
+  }
+
+  function closeSwipeRows(except = null) {
+    list.querySelectorAll(".reminder-swipe-row").forEach((row) => {
+      if (row !== except) setSwipeOffset(row, 0);
+    });
+  }
+
+  function setSwipeOffset(row, offset, animate = true) {
+    if (!row) return;
+    const card = row.querySelector(".library-card");
+    if (!card) return;
+    const leftWidth = Number(row.dataset.leftWidth || 176);
+    const bounded = Math.max(-leftWidth, Math.min(88, Number(offset) || 0));
+    card.style.transition = animate ? "transform .2s cubic-bezier(.22,.8,.24,1)" : "none";
+    card.style.transform = `translateX(${bounded}px)`;
+    row.dataset.offset = String(bounded);
   }
 
   function setTab(tab) {
@@ -344,10 +517,51 @@
     return button;
   }
 
+  function reminderStatusText(status) {
+    if (status === "completed") return "Выполнено";
+    if (status === "delivered") return "Сработало";
+    if (status === "delivering") return "Отправляется";
+    return "Активно";
+  }
+
   function reminderCard(reminder) {
+    const row = document.createElement("div");
+    row.className = "reminder-swipe-row";
+    row.dataset.id = String(reminder.id);
+    row.dataset.leftWidth = reminder.status === "completed" ? "88" : "176";
+    row.dataset.offset = "0";
+
+    const deleteSide = document.createElement("div");
+    deleteSide.className = "reminder-actions delete-side";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "reminder-action delete";
+    deleteButton.dataset.action = "delete";
+    deleteButton.textContent = "Удалить";
+    deleteSide.appendChild(deleteButton);
+
+    const manageSide = document.createElement("div");
+    manageSide.className = "reminder-actions manage-side";
+    if (reminder.status !== "completed") {
+      const completeButton = document.createElement("button");
+      completeButton.type = "button";
+      completeButton.className = "reminder-action complete";
+      completeButton.dataset.action = "complete";
+      completeButton.textContent = "Выполнено";
+      manageSide.appendChild(completeButton);
+    }
+    const rescheduleButton = document.createElement("button");
+    rescheduleButton.type = "button";
+    rescheduleButton.className = "reminder-action reschedule";
+    rescheduleButton.dataset.action = "reschedule";
+    rescheduleButton.textContent = "Перенести";
+    manageSide.appendChild(rescheduleButton);
+
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "library-card" + (reminder.status === "delivered" ? " delivered" : "");
+    button.className = "library-card";
+    if (reminder.status === "delivered") button.classList.add("delivered");
+    if (reminder.status === "completed") button.classList.add("completed");
     button.dataset.type = "reminder";
     button.dataset.id = String(reminder.id);
 
@@ -358,12 +572,7 @@
     title.textContent = reminder.text || "Напоминание";
     const status = document.createElement("span");
     status.className = "library-card-status " + (reminder.status === "pending" ? "pending" : "");
-    status.textContent =
-      reminder.status === "delivered"
-        ? "Выполнено"
-        : reminder.status === "delivering"
-          ? "Отправляется"
-          : "Активно";
+    status.textContent = reminderStatusText(reminder.status);
     head.append(title, status);
 
     const meta = document.createElement("div");
@@ -371,7 +580,8 @@
     meta.textContent = formatDate(reminder.remind_at);
 
     button.append(head, meta);
-    return button;
+    row.append(deleteSide, manageSide, button);
+    return row;
   }
 
   function render() {
@@ -421,14 +631,29 @@
     render();
   }
 
+  function replaceReminder(reminder) {
+    const index = data.reminders.findIndex((item) => Number(item.id) === Number(reminder.id));
+    if (index >= 0) data.reminders[index] = reminder;
+    updateTabLabels();
+    render();
+  }
+
+  function removeReminder(reminderId) {
+    data.reminders = data.reminders.filter((item) => Number(item.id) !== Number(reminderId));
+    updateTabLabels();
+    render();
+  }
+
   function openLibrary() {
     if (modalOpen()) return;
+    closeSwipeRows();
     if (typeof window.clearChatIdleTimer === "function") window.clearChatIdleTimer();
     app.classList.add("library-active");
     loadLibrary();
   }
 
   function closeLibrary() {
+    closeSwipeRows();
     app.classList.remove("library-active");
     if (typeof window.armChatIdleTimer === "function") window.armChatIdleTimer();
   }
@@ -482,9 +707,66 @@
       });
       showDocumentInChat(payload);
     } catch (error) {
-      if (error.message !== "unauthorized") {
-        list.innerHTML = '<div class="library-error">Не удалось открыть выбранный элемент.</div>';
-      }
+      if (error.message !== "unauthorized") showToast("Не удалось открыть элемент");
+    }
+  }
+
+  async function completeReminder(reminderId) {
+    try {
+      const payload = await request(`/api/library/reminders/${Number(reminderId)}/complete`, { method: "POST" });
+      replaceReminder(payload.reminder);
+      showToast("Отмечено выполненным");
+    } catch (error) {
+      if (error.message !== "unauthorized") showToast("Не удалось отметить выполненным");
+    }
+  }
+
+  async function deleteReminder(reminderId) {
+    try {
+      await request(`/api/library/reminders/${Number(reminderId)}`, { method: "DELETE" });
+      removeReminder(reminderId);
+      showToast("Напоминание удалено");
+    } catch (error) {
+      if (error.message !== "unauthorized") showToast("Не удалось удалить напоминание");
+    }
+  }
+
+  async function rescheduleReminder(reminderId, remindAt) {
+    try {
+      const payload = await request(`/api/library/reminders/${Number(reminderId)}/reschedule`, {
+        method: "POST",
+        body: JSON.stringify({ remind_at: remindAt }),
+      });
+      replaceReminder(payload.reminder);
+      closeSnoozeSheet();
+      showToast(`Перенесено на ${formatDate(payload.reminder.remind_at, false)}`);
+    } catch (error) {
+      if (error.message !== "unauthorized") showToast(error.message || "Не удалось перенести напоминание");
+    }
+  }
+
+  function openSnoozeSheet(reminderId) {
+    snoozeReminderId = Number(reminderId);
+    snoozeCustom.classList.remove("open");
+    snoozeInput.value = toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000));
+    snoozeBackdrop.classList.add("open");
+  }
+
+  function closeSnoozeSheet() {
+    snoozeBackdrop.classList.remove("open");
+    snoozeCustom.classList.remove("open");
+    snoozeReminderId = null;
+  }
+
+  function handleReminderAction(actionButton, row) {
+    const reminderId = Number(row?.dataset.id || 0);
+    if (!reminderId) return;
+    const action = actionButton.dataset.action;
+    if (action === "complete") completeReminder(reminderId);
+    else if (action === "delete") deleteReminder(reminderId);
+    else if (action === "reschedule") {
+      setSwipeOffset(row, 0);
+      openSnoozeSheet(reminderId);
     }
   }
 
@@ -492,11 +774,51 @@
   backButton.addEventListener("click", closeLibrary);
   notesTab.addEventListener("click", () => setTab("notes"));
   remindersTab.addEventListener("click", () => setTab("reminders"));
+
   list.addEventListener("click", (event) => {
     if (performance.now() < suppressClickUntil) return;
+    const actionButton = event.target.closest(".reminder-action");
+    if (actionButton) {
+      handleReminderAction(actionButton, actionButton.closest(".reminder-swipe-row"));
+      return;
+    }
     const card = event.target.closest(".library-card");
     if (!card) return;
+    const row = card.closest(".reminder-swipe-row");
+    if (row && Math.abs(Number(row.dataset.offset || 0)) > 1) {
+      setSwipeOffset(row, 0);
+      return;
+    }
     openItem(card.dataset.type, card.dataset.id);
+  });
+
+  snoozeBackdrop.addEventListener("click", (event) => {
+    if (event.target === snoozeBackdrop) closeSnoozeSheet();
+  });
+
+  snoozeBackdrop.querySelectorAll("[data-snooze]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!snoozeReminderId) return;
+      const mode = button.dataset.snooze;
+      if (mode === "hour") {
+        rescheduleReminder(snoozeReminderId, new Date(Date.now() + 60 * 60 * 1000).toISOString());
+      } else if (mode === "tomorrow") {
+        rescheduleReminder(snoozeReminderId, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+      } else {
+        snoozeCustom.classList.add("open");
+        snoozeInput.focus();
+      }
+    });
+  });
+
+  snoozeSave.addEventListener("click", () => {
+    if (!snoozeReminderId || !snoozeInput.value) return;
+    const selected = new Date(snoozeInput.value);
+    if (Number.isNaN(selected.getTime())) {
+      showToast("Выбери корректное время");
+      return;
+    }
+    rescheduleReminder(snoozeReminderId, selected.toISOString());
   });
 
   app.addEventListener(
@@ -506,14 +828,43 @@
         touchStart = null;
         return;
       }
-      if (event.target.closest("input, select, textarea, .record-button, .composer-voice-button")) {
+      if (event.target.closest("input, select, textarea, .record-button, .composer-voice-button, .reminder-action")) {
         touchStart = null;
         return;
       }
       const touch = event.touches[0];
-      touchStart = { x: touch.clientX, y: touch.clientY };
+      const reminderRow = activeTab === "reminders" && app.classList.contains("library-active")
+        ? event.target.closest(".reminder-swipe-row")
+        : null;
+      if (reminderRow) closeSwipeRows(reminderRow);
+      touchStart = {
+        x: touch.clientX,
+        y: touch.clientY,
+        row: reminderRow,
+        startOffset: reminderRow ? Number(reminderRow.dataset.offset || 0) : 0,
+        horizontal: false,
+      };
     },
     { passive: true },
+  );
+
+  app.addEventListener(
+    "touchmove",
+    (event) => {
+      if (!touchStart?.row || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - touchStart.x;
+      const dy = touch.clientY - touchStart.y;
+      if (!touchStart.horizontal) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dy) > Math.abs(dx)) return;
+        touchStart.horizontal = true;
+      }
+      if (!touchStart.horizontal) return;
+      event.preventDefault();
+      setSwipeOffset(touchStart.row, touchStart.startOffset + dx, false);
+    },
+    { passive: false },
   );
 
   app.addEventListener(
@@ -523,10 +874,26 @@
         touchStart = null;
         return;
       }
+      const start = touchStart;
       const touch = event.changedTouches[0];
-      const dx = touch.clientX - touchStart.x;
-      const dy = touch.clientY - touchStart.y;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
       touchStart = null;
+
+      if (start.row) {
+        const horizontal = start.horizontal || (Math.abs(dx) >= 38 && Math.abs(dx) >= Math.abs(dy) * 1.15);
+        if (!horizontal) {
+          setSwipeOffset(start.row, start.startOffset);
+          return;
+        }
+        suppressClickUntil = performance.now() + 350;
+        const total = start.startOffset + dx;
+        if (total < -44) setSwipeOffset(start.row, -Number(start.row.dataset.leftWidth || 176));
+        else if (total > 44) setSwipeOffset(start.row, 88);
+        else setSwipeOffset(start.row, 0);
+        return;
+      }
+
       if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
       suppressClickUntil = performance.now() + 350;
       if (dx < 0 && !app.classList.contains("library-active")) openLibrary();
@@ -540,12 +907,11 @@
     "wheel",
     (event) => {
       if (modalOpen() || Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.05) return;
+      if (event.target.closest(".reminder-swipe-row") && activeTab === "reminders" && app.classList.contains("library-active")) return;
       event.preventDefault();
       wheelX += event.deltaX;
       clearTimeout(wheelTimer);
-      wheelTimer = setTimeout(() => {
-        wheelX = 0;
-      }, 180);
+      wheelTimer = setTimeout(() => { wheelX = 0; }, 180);
       if (Math.abs(wheelX) < 85) return;
       if (wheelX > 0 && !app.classList.contains("library-active")) openLibrary();
       else if (wheelX < 0 && app.classList.contains("library-active")) closeLibrary();
