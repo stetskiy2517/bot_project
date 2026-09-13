@@ -178,7 +178,7 @@ function emulateBasePointerDown(context, button, pointerId = 7) {
   assert.equal(release.immediateStopped, true);
   assert.equal(context.sentVoiceCount, 0);
   assert.equal(context.voiceRecordingStartedAt, 0);
-  assert.deepEqual(context.voiceChunks, []);
+  assert.equal(context.voiceChunks.length, 0);
   assert.equal(context.recorder.state, "inactive");
 })();
 
