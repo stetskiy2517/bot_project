@@ -124,6 +124,11 @@ PENDING_REPLY_ALIASES = {
     "конечно да": "да",
     "нет спасибо": "нет",
     "не надо спасибо": "не надо",
+    "первый": "1", "первая": "1", "первую": "1", "первое": "1",
+    "второй": "2", "вторая": "2", "вторую": "2", "второе": "2",
+    "третий": "3", "третья": "3", "третью": "3", "третье": "3",
+    "четвертый": "4", "четвертая": "4", "четвертую": "4", "четвертое": "4",
+    "пятый": "5", "пятая": "5", "пятую": "5", "пятое": "5",
 }
 FORCE_CONFLICT_REPLIES = {
     "все равно",
@@ -131,6 +136,10 @@ FORCE_CONFLICT_REPLIES = {
     "создавай все равно",
     "оставь время",
     "оставь исходное время",
+    "оставь как есть",
+    "ставь как есть",
+    "все равно ставь",
+    "ставь все равно",
     "несмотря на конфликт",
     "создай несмотря на конфликт",
     "создавай несмотря на конфликт",
@@ -152,6 +161,7 @@ def _normalise(text: str) -> str:
         "пятнцу": "пятницу", "пятнитца": "пятница", "субота": "суббота",
         "суботу": "субботу", "воскрсенье": "воскресенье", "сентебря": "сентября",
         "встеча": "встреча", "втреча": "встреча", "созовон": "созвон",
+        "удоли": "удали", "удолить": "удалить", "перинеси": "перенеси", "измини": "измени",
     }
     for wrong, right in replacements.items():
         normal = re.sub(rf"\b{re.escape(wrong)}\b", right, normal)
@@ -164,9 +174,6 @@ def _creation_text(text: str) -> str:
     if REMIND_ME_AS_COMMAND_RE.search(result):
         result = REMIND_ME_AS_COMMAND_RE.sub("напомни", result, count=1)
 
-    # Voice recognition often drops the preposition before a final hour:
-    # «встреча завтра 14». Only repair it when an explicit date is present,
-    # which avoids treating arbitrary trailing numbers as clock times.
     lower = _normalise(result)
     if DATE_HINT_RE.search(lower) and _extract_time(lower) is None:
         match = TRAILING_BARE_HOUR_RE.search(result)
@@ -175,6 +182,22 @@ def _creation_text(text: str) -> str:
             punct = match.group("punct") or ""
             result = f"{result[:match.start('hour')]}в {hour}{punct}"
     return result
+
+
+def _action_text(text: str) -> str:
+    """Repair safe command typos/ASR shorthand before update/delete parsers see the text."""
+    result = text
+    replacements = {
+        r"^\s*удоли\b": "удали",
+        r"^\s*удолить\b": "удалить",
+        r"^\s*перинеси\b": "перенеси",
+        r"^\s*измини\b": "измени",
+    }
+    for pattern, replacement in replacements.items():
+        if re.search(pattern, result, flags=re.IGNORECASE):
+            result = re.sub(pattern, replacement, result, count=1, flags=re.IGNORECASE)
+            break
+    return _creation_text(result)
 
 
 def detect_intent(text: str) -> IntentResult:
@@ -333,9 +356,9 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if intent.name == INTENT_VIEW:
         return await view_from_text(update, context, text)
     if intent.name == INTENT_UPDATE:
-        return await update_from_text(update, context, text)
+        return await update_from_text(update, context, _action_text(text))
     if intent.name == INTENT_DELETE:
-        return await delete_from_text(update, context, text)
+        return await delete_from_text(update, context, _action_text(text))
     if intent.name == INTENT_FREE:
         return await free_slots_from_text(update, context, text)
     return False
