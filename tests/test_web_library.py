@@ -41,6 +41,7 @@ class WebLibraryTests(unittest.TestCase):
             anonymous.post("/api/library/open", json={"type": "note", "id": 1}).status_code,
             401,
         )
+        self.assertEqual(anonymous.delete("/api/library/notes/1").status_code, 401)
         self.assertEqual(
             anonymous.post("/api/library/reminders/1/complete").status_code,
             401,
@@ -126,7 +127,7 @@ class WebLibraryTests(unittest.TestCase):
             json={"type": "reminder", "id": reminder["reminder_id"]},
         )
         self.assertEqual(opened.status_code, 200)
-        self.assertIn("Сработало", opened.get_json()["chat_text"])
+        self.assertNotIn("Сработало", opened.get_json()["chat_text"])
         self.assertNotIn("Выполнено", opened.get_json()["chat_text"])
         opened.close()
 
@@ -289,21 +290,25 @@ class WebLibraryTests(unittest.TestCase):
             "openedLibraryItem",
             'setTab(payload.type === "reminder" ? "reminders" : "notes")',
             "chatCollapseBtn",
+            "library-swipe-row",
             "reminder-swipe-row",
+            "note-swipe-row",
             'completeButton.dataset.action = "complete"',
             'rescheduleButton.dataset.action = "reschedule"',
-            'deleteButton.dataset.action = "delete"',
+            'deleteButton.dataset.action = "delete-reminder"',
+            'deleteButton.dataset.action = "delete-note"',
+            "/api/library/notes/${Number(noteId)}",
             "/complete`, { method: \"POST\" }",
             "/reschedule`,",
             'method: "DELETE"',
             'data-snooze="hour"',
             'data-snooze="tomorrow"',
-            "Сработало",
             "Выполнено",
             'dx > 0 && app.classList.contains("chat-active")',
             'wheelX < 0 && app.classList.contains("chat-active")',
         ]:
             self.assertIn(marker, script)
+        self.assertNotIn("Сработало", script)
 
 
 if __name__ == "__main__":

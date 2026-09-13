@@ -24,7 +24,7 @@ from core.db import (
     save_user_timezone,
 )
 from core.library_store import get_saved_reminder, list_saved_reminders
-from core.note_store import get_note, list_notes
+from core.note_store import delete_note, get_note, list_notes
 from core.push_store import (
     delete_push_subscription,
     has_push_subscriptions,
@@ -157,15 +157,6 @@ def _note_chat_text(note: dict) -> str:
     return f"Заметка · {title}\n\n{body}"
 
 
-def _reminder_status_text(status: str) -> str:
-    return {
-        "pending": "Активно",
-        "delivering": "Отправляется",
-        "delivered": "Сработало",
-        "completed": "Выполнено",
-    }.get(status, "Напоминание")
-
-
 def _reminder_chat_text(reminder: dict, timezone: str) -> str:
     when = str(reminder.get("remind_at") or "")
     try:
@@ -173,8 +164,8 @@ def _reminder_chat_text(reminder: dict, timezone: str) -> str:
         when = due.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
     except (TypeError, ValueError, ZoneInfoNotFoundError):
         pass
-    status_text = _reminder_status_text(str(reminder.get("status") or ""))
-    return f"Напоминание · {status_text}\n{when}\n\n{reminder.get('text') or ''}".strip()
+    prefix = "Напоминание · Выполнено" if reminder.get("status") == "completed" else "Напоминание"
+    return f"{prefix}\n{when}\n\n{reminder.get('text') or ''}".strip()
 
 
 def _parse_future_reminder_time(value) -> datetime:
@@ -369,6 +360,17 @@ def create_web_app() -> Flask:
             "label": "Напоминание",
             "chat_text": _reminder_chat_text(reminder, user_timezone),
         }
+
+    @app.delete("/api/library/notes/<int:note_id>")
+    def delete_library_note(note_id: int):
+        user_id = _require_user_id()
+        if not delete_note(user_id, note_id):
+            return jsonify({"error": "library_item_not_found"}), 404
+        state = _state_for(user_id)
+        active = state.get("smart_planner_active_note") or {}
+        if int(active.get("note_id") or 0) == note_id:
+            clear_active_note(WebContext(state))
+        return {"ok": True}
 
     @app.post("/api/library/reminders/<int:reminder_id>/complete")
     def complete_library_reminder(reminder_id: int):

@@ -177,7 +177,7 @@
       font-size: 11px;
       line-height: 1.3;
     }
-    .reminder-swipe-row {
+    .library-swipe-row {
       position: relative;
       overflow: hidden;
       margin: 0 0 10px;
@@ -185,7 +185,7 @@
       background: #e9e9e6;
       touch-action: pan-y;
     }
-    .reminder-swipe-row .library-card {
+    .library-swipe-row .library-card {
       position: relative;
       z-index: 2;
       margin: 0;
@@ -470,7 +470,7 @@
   }
 
   function closeSwipeRows(except = null) {
-    list.querySelectorAll(".reminder-swipe-row").forEach((row) => {
+    list.querySelectorAll(".library-swipe-row").forEach((row) => {
       if (row !== except) setSwipeOffset(row, 0);
     });
   }
@@ -479,14 +479,14 @@
     if (!row) return;
     const card = row.querySelector(".library-card");
     if (!card) return;
-    const leftWidth = Number(row.dataset.leftWidth || 176);
+    const leftWidth = Number(row.dataset.leftWidth || 0);
     const bounded = Math.max(-leftWidth, Math.min(88, Number(offset) || 0));
     card.style.transition = animate ? "transform .2s cubic-bezier(.22,.8,.24,1)" : "none";
     card.style.transform = `translateX(${bounded}px)`;
     row.dataset.offset = String(bounded);
   }
 
-  function isolateReminderActionPointer(button) {
+  function isolateLibraryActionPointer(button) {
     const stopPointer = (event) => {
       event.stopPropagation();
       if (event.type === "pointerdown" && button.setPointerCapture) {
@@ -511,6 +511,23 @@
   }
 
   function noteCard(note) {
+    const row = document.createElement("div");
+    row.className = "library-swipe-row note-swipe-row";
+    row.dataset.id = String(note.id);
+    row.dataset.type = "note";
+    row.dataset.leftWidth = "0";
+    row.dataset.offset = "0";
+
+    const deleteSide = document.createElement("div");
+    deleteSide.className = "reminder-actions delete-side";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "reminder-action delete";
+    deleteButton.dataset.action = "delete-note";
+    deleteButton.textContent = "Удалить";
+    isolateLibraryActionPointer(deleteButton);
+    deleteSide.appendChild(deleteButton);
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "library-card";
@@ -533,19 +550,20 @@
     meta.textContent = formatDate(note.updated_at || note.created_at);
 
     button.append(head, preview, meta);
-    return button;
+    row.append(deleteSide, button);
+    return row;
   }
 
   function reminderStatusText(status) {
     if (status === "completed") return "Выполнено";
-    // Delivery is an internal state. Never render the old visual status "Сработало".
     return "";
   }
 
   function reminderCard(reminder) {
     const row = document.createElement("div");
-    row.className = "reminder-swipe-row";
+    row.className = "library-swipe-row reminder-swipe-row";
     row.dataset.id = String(reminder.id);
+    row.dataset.type = "reminder";
     row.dataset.leftWidth = reminder.status === "completed" ? "88" : "176";
     row.dataset.offset = "0";
 
@@ -554,9 +572,9 @@
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "reminder-action delete";
-    deleteButton.dataset.action = "delete";
+    deleteButton.dataset.action = "delete-reminder";
     deleteButton.textContent = "Удалить";
-    isolateReminderActionPointer(deleteButton);
+    isolateLibraryActionPointer(deleteButton);
     deleteSide.appendChild(deleteButton);
 
     const manageSide = document.createElement("div");
@@ -567,7 +585,7 @@
       completeButton.className = "reminder-action complete";
       completeButton.dataset.action = "complete";
       completeButton.textContent = "Выполнено";
-      isolateReminderActionPointer(completeButton);
+      isolateLibraryActionPointer(completeButton);
       manageSide.appendChild(completeButton);
     }
     const rescheduleButton = document.createElement("button");
@@ -575,7 +593,7 @@
     rescheduleButton.className = "reminder-action reschedule";
     rescheduleButton.dataset.action = "reschedule";
     rescheduleButton.textContent = "Перенести";
-    isolateReminderActionPointer(rescheduleButton);
+    isolateLibraryActionPointer(rescheduleButton);
     manageSide.appendChild(rescheduleButton);
 
     const button = document.createElement("button");
@@ -661,6 +679,12 @@
     render();
   }
 
+  function removeNote(noteId) {
+    data.notes = data.notes.filter((item) => Number(item.id) !== Number(noteId));
+    updateTabLabels();
+    render();
+  }
+
   function removeReminder(reminderId) {
     data.reminders = data.reminders.filter((item) => Number(item.id) !== Number(reminderId));
     updateTabLabels();
@@ -734,6 +758,16 @@
     }
   }
 
+  async function deleteNote(noteId) {
+    try {
+      await request(`/api/library/notes/${Number(noteId)}`, { method: "DELETE" });
+      removeNote(noteId);
+      showToast("Заметка удалена");
+    } catch (error) {
+      if (error.message !== "unauthorized") showToast("Не удалось удалить заметку");
+    }
+  }
+
   async function completeReminder(reminderId) {
     try {
       const payload = await request(`/api/library/reminders/${Number(reminderId)}/complete`, { method: "POST" });
@@ -781,15 +815,16 @@
     snoozeReminderId = null;
   }
 
-  function handleReminderAction(actionButton, row) {
-    const reminderId = Number(row?.dataset.id || 0);
-    if (!reminderId) return;
+  function handleLibraryAction(actionButton, row) {
+    const itemId = Number(row?.dataset.id || 0);
+    if (!itemId) return;
     const action = actionButton.dataset.action;
-    if (action === "complete") completeReminder(reminderId);
-    else if (action === "delete") deleteReminder(reminderId);
+    if (action === "delete-note") deleteNote(itemId);
+    else if (action === "delete-reminder") deleteReminder(itemId);
+    else if (action === "complete") completeReminder(itemId);
     else if (action === "reschedule") {
       setSwipeOffset(row, 0);
-      openSnoozeSheet(reminderId);
+      openSnoozeSheet(itemId);
     }
   }
 
@@ -803,12 +838,12 @@
     const actionButton = event.target.closest(".reminder-action");
     if (actionButton) {
       event.stopPropagation();
-      handleReminderAction(actionButton, actionButton.closest(".reminder-swipe-row"));
+      handleLibraryAction(actionButton, actionButton.closest(".library-swipe-row"));
       return;
     }
     const card = event.target.closest(".library-card");
     if (!card) return;
-    const row = card.closest(".reminder-swipe-row");
+    const row = card.closest(".library-swipe-row");
     if (row && Math.abs(Number(row.dataset.offset || 0)) > 1) {
       setSwipeOffset(row, 0);
       return;
@@ -857,15 +892,15 @@
         return;
       }
       const touch = event.touches[0];
-      const reminderRow = activeTab === "reminders" && app.classList.contains("library-active")
-        ? event.target.closest(".reminder-swipe-row")
+      const swipeRow = app.classList.contains("library-active")
+        ? event.target.closest(".library-swipe-row")
         : null;
-      if (reminderRow) closeSwipeRows(reminderRow);
+      if (swipeRow) closeSwipeRows(swipeRow);
       touchStart = {
         x: touch.clientX,
         y: touch.clientY,
-        row: reminderRow,
-        startOffset: reminderRow ? Number(reminderRow.dataset.offset || 0) : 0,
+        row: swipeRow,
+        startOffset: swipeRow ? Number(swipeRow.dataset.offset || 0) : 0,
         horizontal: false,
       };
     },
@@ -912,7 +947,8 @@
         }
         suppressClickUntil = performance.now() + 350;
         const total = start.startOffset + dx;
-        if (total < -44) setSwipeOffset(start.row, -Number(start.row.dataset.leftWidth || 176));
+        const leftWidth = Number(start.row.dataset.leftWidth || 0);
+        if (total < -44 && leftWidth > 0) setSwipeOffset(start.row, -leftWidth);
         else if (total > 44) setSwipeOffset(start.row, 88);
         else setSwipeOffset(start.row, 0);
         return;
@@ -931,7 +967,7 @@
     "wheel",
     (event) => {
       if (modalOpen() || Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.05) return;
-      if (event.target.closest(".reminder-swipe-row") && activeTab === "reminders" && app.classList.contains("library-active")) return;
+      if (event.target.closest(".library-swipe-row") && app.classList.contains("library-active")) return;
       event.preventDefault();
       wheelX += event.deltaX;
       clearTimeout(wheelTimer);
