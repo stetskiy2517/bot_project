@@ -56,6 +56,7 @@ WEEKDAY_BY_RE = {
     "субботу": "SA", "субботам": "SA",
     "воскресенье": "SU", "воскресеньям": "SU",
 }
+RECURRENCE_INTERVAL_WORDS = {"два": 2, "две": 2, "три": 3, "четыре": 4}
 
 
 def is_all_day(text: str) -> bool:
@@ -164,11 +165,16 @@ def _recurrence_rule(text: str) -> str | None:
     if re.search(r"\bкажд(?:ый|ую|ое)\s+день\b|\bежедневно\b", lower):
         return "RRULE:FREQ=DAILY"
 
-    interval = re.search(r"\bкажд\w*\s+(\d+)\s+недел\w*\b", lower)
+    interval = re.search(
+        r"\b(?:кажд\w*|раз\s+в)\s+(?P<amount>\d+|два|две|три|четыре)\s+недел\w*\b",
+        lower,
+    )
     if interval:
-        rule = f"RRULE:FREQ=WEEKLY;INTERVAL={int(interval.group(1))}"
+        raw_amount = interval.group("amount")
+        amount = int(raw_amount) if raw_amount.isdigit() else RECURRENCE_INTERVAL_WORDS[raw_amount]
+        rule = f"RRULE:FREQ=WEEKLY;INTERVAL={amount}"
         for word, code in WEEKDAY_BY_RE.items():
-            if re.search(rf"\b(?:в\s+)?{word}\b", lower):
+            if re.search(rf"\b(?:в\s+|по\s+)?{word}\b", lower):
                 return rule + f";BYDAY={code}"
         return rule
 
@@ -265,7 +271,12 @@ def _clean_title(text: str) -> str:
     cleaned = REMINDER_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b(?:пригласи|участники\s*[:\-]?)\s*", " ", cleaned, flags=re.IGNORECASE)
     cleaned = EMAIL_RE.sub(" ", cleaned)
-    cleaned = re.sub(r"\bкажд\w*\s+\d+\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(?:кажд\w*|раз\s+в)\s+(?:\d+|два|две|три|четыре)\s+недел\w*\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r"\bкажд\w*\s+(?:день|недел\w*|месяц\w*|понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bпо\s+(?:понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*)\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bраз\s+в\s+недел\w*\b", " ", cleaned, flags=re.IGNORECASE)
