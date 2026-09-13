@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import unittest
+from uuid import uuid4
 
 import web_app
 from core.db import get_or_create_google_user
@@ -13,7 +14,7 @@ class WebLibraryTests(unittest.TestCase):
         self.app = web_app.create_web_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
-        stamp = str(id(self))
+        stamp = uuid4().hex
         self.user_id = get_or_create_google_user(
             f"library-user-{stamp}",
             f"library-{stamp}@example.test",
@@ -49,6 +50,7 @@ class WebLibraryTests(unittest.TestCase):
         response = self.client.get("/api/library")
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
+        response.close()
 
         note_ids = {item["id"] for item in payload["notes"]}
         self.assertIn(note["note_id"], note_ids)
@@ -67,6 +69,7 @@ class WebLibraryTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
+        response.close()
         self.assertEqual(payload["label"], "Список покупок")
         self.assertIn("Бананы, масло", payload["chat_text"])
         self.assertEqual(
@@ -90,6 +93,7 @@ class WebLibraryTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
+        response.close()
         self.assertEqual(payload["label"], "Напоминание")
         self.assertIn("Забрать документы", payload["chat_text"])
         self.assertNotIn(ACTIVE_NOTE_KEY, web_app._user_state[self.user_id])
@@ -131,12 +135,15 @@ class WebLibraryTests(unittest.TestCase):
         )
 
     def test_shell_loads_swipe_library_script(self):
-        html = self.client.get("/").get_data(as_text=True)
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+        response.close()
         self.assertIn('src="/library.js"', html)
 
         response = self.client.get("/library.js")
         self.assertEqual(response.status_code, 200)
         script = response.get_data(as_text=True)
+        response.close()
         for marker in [
             "libraryScreen",
             "libraryNotesTab",
