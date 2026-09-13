@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import re
 import threading
@@ -23,6 +23,8 @@ from core.db import (
     save_calendar_preferences,
     save_user_timezone,
 )
+from core.library_store import get_saved_reminder, list_saved_reminders
+from core.note_store import get_note, list_notes
 from core.push_store import (
     delete_push_subscription,
     has_push_subscriptions,
@@ -33,6 +35,7 @@ from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
+from modules.note_conversation import clear_active_note, remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.router import route_text
@@ -123,6 +126,47 @@ def _with_due_reminders(user_id: int, replies: list[str]) -> list[str]:
     return [*(item["message"] for item in due), *replies]
 
 
+def _library_note_payload(note: dict) -> dict:
+    return {
+        "id": int(note["note_id"]),
+        "title": str(note.get("title") or "Без названия"),
+        "text": str(note.get("text") or ""),
+        "created_at": note.get("created_at"),
+        "updated_at": note.get("updated_at"),
+    }
+
+
+def _library_reminder_payload(reminder: dict) -> dict:
+    return {
+        "id": int(reminder["reminder_id"]),
+        "text": str(reminder.get("text") or ""),
+        "remind_at": reminder.get("remind_at"),
+        "status": reminder.get("status"),
+        "created_at": reminder.get("created_at"),
+        "delivered_at": reminder.get("delivered_at"),
+    }
+
+
+def _note_chat_text(note: dict) -> str:
+    title = str(note.get("title") or "Без названия").strip()
+    body = str(note.get("text") or "").strip()
+    if not body or body.casefold() == title.casefold():
+        return f"Заметка · {title}"
+    return f"Заметка · {title}\n\n{body}"
+
+
+def _reminder_chat_text(reminder: dict, timezone: str) -> str:
+    when = str(reminder.get("remind_at") or "")
+    try:
+        due = datetime.fromisoformat(when.replace("Z", "+00:00"))
+        when = due.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        pass
+    status = str(reminder.get("status") or "")
+    status_text = "Выполнено" if status == "delivered" else "Активно"
+    return f"Напоминание · {status_text}\n{when}\n\n{reminder.get('text') or ''}".strip()
+
+
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
     """Route text from any web input channel through the shared command router."""
     update = WebUpdate(user_id, user_name, text)
@@ -168,12 +212,21 @@ def create_web_app() -> Flask:
     @app.get("/")
     def index():
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-        html = html.replace("</body>", '    <script src="/reminders.js"></script>\n  </body>')
+        scripts = (
+            '    <script src="/reminders.js"></script>\n'
+            '    <script src="/library.js"></script>\n'
+            "  </body>"
+        )
+        html = html.replace("</body>", scripts)
         return Response(html, mimetype="text/html")
 
     @app.get("/reminders.js")
     def reminders_js():
         return send_from_directory(WEB_DIR, "reminders.js", mimetype="application/javascript")
+
+    @app.get("/library.js")
+    def library_js():
+        return send_from_directory(WEB_DIR, "library.js", mimetype="application/javascript")
 
     @app.get("/manifest.webmanifest")
     def manifest():
@@ -232,6 +285,64 @@ def create_web_app() -> Flask:
             "name": account["name"],
         }
         return result
+
+    @app.get("/api/library")
+    def library():
+        user_id = _require_user_id()
+        timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+        return {
+            "timezone": timezone,
+            "notes": [_library_note_payload(item) for item in list_notes(user_id, limit=500)],
+            "reminders": [
+                _library_reminder_payload(item)
+                for item in list_saved_reminders(user_id, limit=500)
+            ],
+        }
+
+    @app.post("/api/library/open")
+    def open_library_item():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        item_type = str(payload.get("type") or "").strip().lower()
+        try:
+            item_id = int(payload.get("id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid_library_item"}), 400
+        if item_id <= 0 or item_type not in {"note", "reminder"}:
+            return jsonify({"error": "invalid_library_item"}), 400
+
+        state = _state_for(user_id)
+        state.pop("smart_planner_pending", None)
+        context = WebContext(state)
+
+        if item_type == "note":
+            note = get_note(user_id, item_id)
+            if not note:
+                return jsonify({"error": "library_item_not_found"}), 404
+            remember_active_note(context, note)
+            state.pop("smart_planner_active_reminder", None)
+            return {
+                "type": "note",
+                "id": int(note["note_id"]),
+                "label": str(note.get("title") or "Заметка"),
+                "chat_text": _note_chat_text(note),
+            }
+
+        reminder = get_saved_reminder(user_id, item_id)
+        if not reminder:
+            return jsonify({"error": "library_item_not_found"}), 404
+        clear_active_note(context)
+        state["smart_planner_active_reminder"] = {
+            "reminder_id": int(reminder["reminder_id"]),
+            "text": str(reminder.get("text") or ""),
+        }
+        timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+        return {
+            "type": "reminder",
+            "id": int(reminder["reminder_id"]),
+            "label": "Напоминание",
+            "chat_text": _reminder_chat_text(reminder, timezone),
+        }
 
     @app.get("/api/push/config")
     def push_config():
