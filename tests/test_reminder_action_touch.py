@@ -15,13 +15,13 @@ class ReminderActionTouchTests(unittest.TestCase):
         self.assertIn("width: max-content;", script)
         self.assertIn("pointer-events: auto;", script)
         self.assertIn("touch-action: manipulation;", script)
-        self.assertIn("function isolateReminderActionPointer(button)", script)
+        self.assertIn("function isolateLibraryActionPointer(button)", script)
         self.assertIn('button.addEventListener("pointerdown", stopPointer)', script)
         self.assertIn('button.addEventListener("pointerup", stopPointer)', script)
-        self.assertIn("isolateReminderActionPointer(deleteButton)", script)
-        self.assertIn("isolateReminderActionPointer(completeButton)", script)
-        self.assertIn("isolateReminderActionPointer(rescheduleButton)", script)
-        self.assertIn("event.stopPropagation();\n      handleReminderAction", script)
+        self.assertIn("isolateLibraryActionPointer(deleteButton)", script)
+        self.assertIn("isolateLibraryActionPointer(completeButton)", script)
+        self.assertIn("isolateLibraryActionPointer(rescheduleButton)", script)
+        self.assertIn("event.stopPropagation();\n      handleLibraryAction", script)
 
 
 if __name__ == "__main__":
