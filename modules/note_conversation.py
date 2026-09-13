@@ -3,6 +3,7 @@
 This layer keeps note-specific conversational state out of the central router:
 - resolves both "add to <note> X" and "add X to <note>" word orders;
 - remembers one recently used note for short follow-ups such as "add water";
+- remembers the latest displayed note list for "first/second note" follow-ups;
 - keeps direct note appends concise instead of echoing the whole note body.
 """
 
@@ -24,8 +25,11 @@ from modules.notes import (
 )
 
 ACTIVE_NOTE_KEY = "smart_planner_active_note"
+NOTE_LIST_CONTEXT_KEY = "smart_planner_note_list_context"
 ACTIVE_NOTE_TTL_SECONDS = 10 * 60
+NOTE_LIST_TTL_SECONDS = 10 * 60
 ACTIVE_APPEND_WORD_LIMIT = 8
+NOTE_LIST_LIMIT = 20
 
 _APPEND_VERBS = r"(?:добавь|добавить|внеси|внести|допиши|дописать|дополни|дополнить)"
 TARGET_FIRST_RE = re.compile(
@@ -71,6 +75,23 @@ CALENDAR_ACTIVE_GUARD_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ORDINAL_TOKEN = (
+    r"(?:перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*|шест\w*|"
+    r"седьм\w*|восьм\w*|девят\w*|десят\w*|\d{1,2})"
+)
+NOTE_SELECTION_FIRST_RE = re.compile(
+    rf"^(?:(?:покажи|открой|выведи|дай)\s+)?(?P<ordinal>{_ORDINAL_TOKEN})\s+"
+    rf"(?:заметк\w*|запис\w*)(?:\s+(?:в|из)\s+списк\w*)?$",
+    re.IGNORECASE,
+)
+NOTE_SELECTION_AFTER_RE = re.compile(
+    rf"^(?:(?:покажи|открой|выведи|дай)\s+)?(?:заметк\w*|запис\w*)\s+"
+    rf"(?:номер\s+)?(?P<ordinal>{_ORDINAL_TOKEN})(?:\s+(?:в|из)\s+списк\w*)?$",
+    re.IGNORECASE,
+)
+SELECTION_CORRECTION_RE = re.compile(r"^(?:нет|не\s+это|нет\s+нет)\s*[,;:.!?-]*\s+", re.IGNORECASE)
+SELECTION_NEGATION_RE = re.compile(r"\bне\s+(?:показывай|открывай|выводи|давай)\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class NoteAppendResolution:
@@ -109,8 +130,6 @@ def _ordered_matches(user_id: int, query: str) -> list[dict]:
 
 def _split_target_first(user_id: int, payload: str) -> NoteAppendResolution | None:
     raw_payload = payload.strip()
-    # "add to calendar / reminder / task ..." must stay with its explicit module.
-    # An actual note with such a title remains addressable via "add to note ...".
     if DIRECT_MODULE_TARGET_RE.match(raw_payload):
         return None
     payload = _clean_target(raw_payload)
@@ -130,8 +149,6 @@ def _split_target_first(user_id: int, payload: str) -> NoteAppendResolution | No
         matches = _ordered_matches(user_id, payload)
         return NoteAppendResolution(payload, "", matches) if matches else None
 
-    # Prefer the longest title prefix. This makes
-    # "add to shopping list chocolate" resolve "shopping list" first.
     fallback: NoteAppendResolution | None = None
     for cut in range(len(words) - 1, 0, -1):
         query = _clean_target(" ".join(words[:cut]))
@@ -156,8 +173,6 @@ def _split_reverse(user_id: int, payload: str) -> NoteAppendResolution | None:
     if not separators:
         return None
 
-    # Work from right to left: the final "in/to <name>" is the safest candidate
-    # for a note target and lets the item itself contain ordinary prepositions.
     for separator in reversed(separators):
         addition = _clean_addition(payload[: separator.start()])
         query = _clean_target(payload[separator.end() :])
@@ -228,6 +243,110 @@ def get_active_note(context: Any, user_id: int, *, now: float | None = None) -> 
     return note
 
 
+def _remember_note_list(context: Any, notes: list[dict]) -> None:
+    note_ids = [int(item["note_id"]) for item in notes[:NOTE_LIST_LIMIT] if item.get("note_id") is not None]
+    if not note_ids:
+        context.user_data.pop(NOTE_LIST_CONTEXT_KEY, None)
+        return
+    context.user_data[NOTE_LIST_CONTEXT_KEY] = {
+        "note_ids": note_ids,
+        "touched_at": time.time(),
+    }
+
+
+def _clear_note_list(context: Any) -> None:
+    context.user_data.pop(NOTE_LIST_CONTEXT_KEY, None)
+
+
+def _remembered_note_ids(context: Any, *, now: float | None = None) -> list[int]:
+    value = context.user_data.get(NOTE_LIST_CONTEXT_KEY)
+    if not isinstance(value, dict):
+        return []
+    try:
+        touched_at = float(value.get("touched_at"))
+        raw_ids = list(value.get("note_ids") or [])
+        note_ids = [int(item) for item in raw_ids]
+    except (TypeError, ValueError):
+        _clear_note_list(context)
+        return []
+    current = time.time() if now is None else float(now)
+    if current - touched_at > NOTE_LIST_TTL_SECONDS:
+        _clear_note_list(context)
+        return []
+    return note_ids
+
+
+def _ordinal_index(token: str) -> int | None:
+    value = _normalise(token)
+    if value.isdigit():
+        index = int(value) - 1
+        return index if index >= 0 else None
+    stems = (
+        ("перв", 0), ("втор", 1), ("трет", 2), ("четверт", 3), ("пят", 4),
+        ("шест", 5), ("седьм", 6), ("восьм", 7), ("девят", 8), ("десят", 9),
+    )
+    for stem, index in stems:
+        if value.startswith(stem):
+            return index
+    return None
+
+
+def note_selection_index(text: str) -> int | None:
+    """Parse explicit requests such as ``первая заметка`` or ``покажи заметку 2``."""
+    candidate = _normalise(text)
+    if not candidate or SELECTION_NEGATION_RE.search(candidate):
+        return None
+    candidate = SELECTION_CORRECTION_RE.sub("", candidate, count=1).strip()
+    match = NOTE_SELECTION_FIRST_RE.fullmatch(candidate) or NOTE_SELECTION_AFTER_RE.fullmatch(candidate)
+    if not match:
+        return None
+    return _ordinal_index(match.group("ordinal"))
+
+
+def _note_detail(note: dict) -> str:
+    title = _note_title(note)
+    text = str(note.get("text") or "").strip()
+    if not text or _normalise(text) == _normalise(title):
+        return f"«{title}»"
+    body_limit = 3500
+    if len(text) > body_limit:
+        text = text[: body_limit - 3].rstrip() + "..."
+    return f"«{title}»\n{text}"
+
+
+async def open_note_selection(update: Any, context: Any, text: str) -> bool:
+    """Open an ordinal note from the last shown list, or from the current list as fallback."""
+    index = note_selection_index(text)
+    if index is None:
+        return False
+
+    user_id = update.effective_user.id
+    note_ids = _remembered_note_ids(context)
+    if not note_ids:
+        notes = list_notes(user_id, limit=NOTE_LIST_LIMIT)
+        if not notes:
+            await update.message.reply_text("Заметок пока нет.")
+            return True
+        _remember_note_list(context, notes)
+        note_ids = [int(item["note_id"]) for item in notes]
+
+    if index >= len(note_ids):
+        await update.message.reply_text(
+            f"В списке только {len(note_ids)} заметок. Выбери номер от 1 до {len(note_ids)}."
+        )
+        return True
+
+    note = get_note(user_id, note_ids[index])
+    if not note:
+        _clear_note_list(context)
+        await update.message.reply_text("Эта заметка уже удалена. Покажи список заметок ещё раз.")
+        return True
+
+    remember_active_note(context, note)
+    await update.message.reply_text(_note_detail(note))
+    return True
+
+
 def active_note_addition(text: str) -> str | None:
     """Extract a safe short follow-up such as ``добавь воду`` or ``и молоко``."""
     match = ACTIVE_APPEND_RE.match(text) or ACTIVE_CONTINUATION_RE.match(text)
@@ -239,8 +358,6 @@ def active_note_addition(text: str) -> str | None:
     if len(addition.split()) > ACTIVE_APPEND_WORD_LIMIT:
         return None
     if PREPOSITION_RE.search(addition):
-        # A phrase with an explicit target-like preposition must first go through
-        # resolve_named_note_append instead of silently using stale context.
         return None
     if CALENDAR_ACTIVE_GUARD_RE.search(addition):
         return None
@@ -268,20 +385,30 @@ async def append_to_note(update: Any, context: Any, note: dict, addition: str) -
 
 
 def remember_after_note_action(user_id: int, context: Any, intent: str, text: str) -> None:
-    """Remember one unambiguous note after create/read actions for safe follow-ups."""
-    if intent in {NOTE_DELETE, NOTE_LIST}:
+    """Remember note/list context after note actions for safe conversational follow-ups."""
+    if intent == NOTE_DELETE:
         clear_active_note(context)
+        _clear_note_list(context)
         return
     if intent == NOTE_CREATE:
         remember_latest_note(user_id, context)
+        _clear_note_list(context)
+        return
+    if intent == NOTE_LIST:
+        notes = list_notes(user_id, limit=NOTE_LIST_LIMIT)
+        _remember_note_list(context, notes)
+        clear_active_note(context)
         return
     if intent != NOTE_SEARCH:
         return
+
     query = _note_query(text, NOTE_SEARCH_PREFIX_RE)
     if not query:
         clear_active_note(context)
+        _clear_note_list(context)
         return
-    matches = _ordered_matches(user_id, query)
+    matches = _ordered_matches(user_id, query)[:NOTE_LIST_LIMIT]
+    _remember_note_list(context, matches)
     if len(matches) == 1:
         remember_active_note(context, matches[0])
     else:
