@@ -60,6 +60,10 @@ def init_note_store() -> None:
             "CREATE INDEX IF NOT EXISTS idx_notes_user_created "
             "ON notes(user_id, created_at DESC, note_id DESC)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notes_user_updated "
+            "ON notes(user_id, updated_at DESC, note_id DESC)"
+        )
         conn.commit()
 
 
@@ -134,7 +138,7 @@ def list_notes(user_id: int, *, limit: int = 100) -> list[dict]:
     with db_lock:
         rows = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM notes WHERE user_id=? "
-            "ORDER BY created_at DESC,note_id DESC LIMIT ?",
+            "ORDER BY updated_at DESC,created_at DESC,note_id DESC LIMIT ?",
             (int(user_id), safe_limit),
         ).fetchall()
     return [_from_row(row) for row in rows]
