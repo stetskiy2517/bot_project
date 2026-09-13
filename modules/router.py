@@ -413,8 +413,12 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
                 if active_note:
                     logger.info("Router active note append note_id=%s", active_note.get("note_id"))
                     return await append_to_note(update, context, active_note, addition)
+                await update.message.reply_text(
+                    "Куда добавить? Назови заметку, например: «добавь воду в список покупок»."
+                )
+                return True
 
-        if not _has_explicit_calendar_reference(text):
+        if not _blocks_active_note_append(text):
             delete_query = resolve_named_note_delete(user_id, text)
             if delete_query:
                 logger.info("Router named note delete query=%s", delete_query)
