@@ -1,0 +1,44 @@
+name: production-health
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-health
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://213.171.26.210.sslip.io/api/health' }}
+    steps:
+      - name: Check production HTTPS health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          body=""
+          for attempt in 1 2 3; do
+            if body="$(curl -fsS --connect-timeout 5 --max-time 10 "$HEALTH_URL")"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Production health check failed after 3 attempts: $HEALTH_URL" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+          printf '%s' "$body" | python3 -c '
+          import json, sys
+          payload = json.load(sys.stdin)
+          if payload.get("status") != "ok":
+              raise SystemExit(f"Unexpected health payload: {payload!r}")
+          print("Production health: OK")
+          '

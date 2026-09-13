@@ -92,7 +92,7 @@ else
 fi
 
 log "Running server preflight"
-.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules
+.venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts
 
 log "Restarting $SERVICE_NAME"
 sudo -n systemctl restart "$SERVICE_NAME"
@@ -110,6 +110,13 @@ done
 if [ "$HEALTHY" -ne 1 ]; then
   false
 fi
+
+log "Verifying services survive a VM reboot"
+systemctl is-enabled --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME is not enabled"
+systemctl is-enabled --quiet caddy || fail "caddy is not enabled"
+
+log "Creating verified state backup"
+.venv/bin/python scripts/backup_state.py
 
 trap - ERR
 log "Deployment successful: $TARGET_SHA"
