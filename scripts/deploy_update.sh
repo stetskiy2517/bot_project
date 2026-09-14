@@ -7,16 +7,25 @@ TARGET_SHA="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
+DGIS_KEY_FILE="${DGIS_KEY_FILE:-}"
 PREVIOUS_SHA=""
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+
+cleanup_temp_secrets() {
+  if [ -n "$DGIS_KEY_FILE" ]; then
+    rm -f -- "$DGIS_KEY_FILE" 2>/dev/null || true
+  fi
+}
+trap cleanup_temp_secrets EXIT
 
 cd "$PROJECT_DIR"
 
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v sudo >/dev/null 2>&1 || fail "sudo is required"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 if [ -z "$TARGET_SHA" ]; then
   fail "Target commit SHA is required"
@@ -45,6 +54,46 @@ requirements_hash() {
   else
     printf 'missing\n'
   fi
+}
+
+sync_navigation_secret() {
+  if [ -z "$DGIS_KEY_FILE" ] || [ ! -s "$DGIS_KEY_FILE" ]; then
+    return
+  fi
+
+  log "Updating navigation secret"
+  python3 - "$PROJECT_DIR/.env" "$DGIS_KEY_FILE" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+env_path = Path(sys.argv[1])
+key_path = Path(sys.argv[2])
+key = key_path.read_text(encoding="utf-8").strip()
+if not key:
+    raise SystemExit("DGIS key file is empty")
+
+updates = {
+    "NAVIGATION_PROVIDER": "2gis",
+    "DGIS_API_KEY": key,
+}
+lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+seen = set()
+out = []
+for line in lines:
+    if "=" in line and not line.lstrip().startswith("#"):
+        name = line.split("=", 1)[0].strip()
+        if name in updates:
+            out.append(f"{name}={updates[name]}")
+            seen.add(name)
+            continue
+    out.append(line)
+for name, value in updates.items():
+    if name not in seen:
+        out.append(f"{name}={value}")
+env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+os.chmod(env_path, 0o600)
+PY
 }
 
 OLD_REQUIREMENTS_HASH="$(requirements_hash)"
@@ -77,6 +126,7 @@ trap rollback ERR
 
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
+sync_navigation_secret
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
 if [ ! -x .venv/bin/python ]; then
