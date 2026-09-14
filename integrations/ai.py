@@ -106,7 +106,7 @@ def load_ai_settings() -> AISettings:
     return AISettings(
         enabled=_as_bool(value("AI_ENABLED", "1")),
         provider=(value("AI_PROVIDER", "gigachat") or "gigachat").strip().lower(),
-        model=(value("GIGACHAT_MODEL", "GigaChat-2-Lite") or "GigaChat-2-Lite").strip(),
+        model=(value("GIGACHAT_MODEL", "GigaChat-2") or "GigaChat-2").strip(),
         credentials=credentials.strip() if credentials else None,
         scope=(value("GIGACHAT_SCOPE", "GIGACHAT_API_PERS") or "GIGACHAT_API_PERS").strip(),
         base_url=(value("GIGACHAT_BASE_URL", DEFAULT_GIGACHAT_BASE_URL) or DEFAULT_GIGACHAT_BASE_URL).rstrip("/"),
