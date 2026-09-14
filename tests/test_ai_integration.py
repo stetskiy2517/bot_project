@@ -33,6 +33,7 @@ class AIIntegrationTests(unittest.TestCase):
             settings = ai.load_ai_settings()
         self.assertTrue(settings.enabled)
         self.assertEqual(settings.provider, "gigachat")
+        self.assertEqual(settings.model, "GigaChat-2")
         self.assertFalse(settings.configured)
 
     @patch("integrations.ai.DOTENV_PATH")
@@ -52,7 +53,7 @@ class AIIntegrationTests(unittest.TestCase):
         settings = ai.AISettings(
             enabled=True,
             provider="gigachat",
-            model="GigaChat-2-Lite",
+            model="GigaChat-2",
             credentials="test-credentials",
             scope="GIGACHAT_API_PERS",
             base_url="https://api.giga.chat/v1",
@@ -82,7 +83,7 @@ class AIIntegrationTests(unittest.TestCase):
         settings = ai.AISettings(
             enabled=True,
             provider="gigachat",
-            model="GigaChat-2-Lite",
+            model="GigaChat-2",
             credentials="test-credentials",
             scope="GIGACHAT_API_PERS",
             base_url="https://api.giga.chat/v1",
