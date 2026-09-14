@@ -1,5 +1,5 @@
-const CACHE = "personal-secretary-v9-reliability";
-const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js", "/reliability.js", "/voice-gesture.js", "/assistant.js"];
+const CACHE = "personal-secretary-v10-life-wheel";
+const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js", "/reliability.js", "/voice-gesture.js", "/assistant.js", "/life-wheel.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC)));
