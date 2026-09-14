@@ -5,12 +5,13 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from tests.web_test_support import web_test_app, bind_oauth
 from core.db import get_or_create_google_user
 
 
 class WebSessionPersistenceTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = web_test_app()
         self.client = self.app.test_client()
 
     def test_session_policy_keeps_login_for_ninety_days(self):
@@ -29,6 +30,7 @@ class WebSessionPersistenceTests(unittest.TestCase):
             "persistent-callback@example.test",
             "Persistent User",
         )
+        bind_oauth(self.client)
         with patch("web_app.complete_web_signin", return_value=user_id):
             response = self.client.get("/oauth2callback?state=test-state&code=test-code")
 
@@ -80,13 +82,14 @@ class WebSessionPersistenceTests(unittest.TestCase):
 
     def test_https_public_url_marks_session_cookie_secure(self):
         with patch.object(web_app, "BASE_URL", "https://assistant.example.test"):
-            app = web_app.create_web_app()
+            app = web_test_app()
             client = app.test_client()
             user_id = get_or_create_google_user(
                 "secure-session-sub",
                 "secure-session@example.test",
                 "Secure Session",
             )
+            bind_oauth(client)
             with patch("web_app.complete_web_signin", return_value=user_id):
                 response = client.get("/oauth2callback?state=test-state&code=test-code")
 

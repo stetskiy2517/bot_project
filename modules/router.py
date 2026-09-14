@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from modules.calendar import _extract_time, _relative_offset
+from modules.command_templates import handle_template
 from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
 from modules.calendar_availability import free_slots_from_text
 from modules.calendar_event_features import is_all_day
@@ -265,7 +266,7 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_DELETE, 0.98)
     if any(word in lower for word in UPDATE_WORDS):
         return IntentResult(INTENT_UPDATE, 0.98)
-    if any(word in lower for word in FREE_WORDS):
+    if any(word in lower for word in FREE_WORDS) or re.search(r"\bкогда\b.*\bесть\s+\d+\s*(?:минут|час)", lower):
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
         return IntentResult(INTENT_SEARCH, 0.97)
@@ -368,7 +369,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
         return await resume_pending_action(update, context, reply_text, pending)
-    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет"}:
+    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет", "стоп"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
@@ -420,6 +421,8 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     text = (text if text is not None else update.message.text or "").strip()
     if not text:
         return False
+    if await handle_template(update, context, text):
+        return True
     if await _resume_pending(update, context, text):
         return True
 

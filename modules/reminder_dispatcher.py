@@ -9,7 +9,7 @@ from time import sleep
 
 from pywebpush import WebPushException
 
-from config import BASE_URL, WEB_PUSH_WORKER_INTERVAL_SECONDS
+from config import BASE_URL, WEB_PUSH_WORKER_INTERVAL_SECONDS, WEB_PUSH_WORKER_ENABLED
 from core.push_store import (
     delete_push_subscription_by_id,
     list_push_subscriptions,
@@ -18,6 +18,12 @@ from core.push_store import (
     mark_push_success,
 )
 from core.reminder_store import claim_due_for_push, complete_push_delivery, release_push_delivery
+from core.db import get_google_account
+from core.library_store import get_saved_reminder
+from core.command_store import user_operation, UserBusyError
+from core.assistant_preferences import quiet_until
+from core.notification_policy import activate_repeats, claim_repeat_attempts, postpone_transport
+from modules.daily_review import deliver_reviews_for_user
 from integrations.web_push import send_web_push, web_push_error_details
 
 logger = logging.getLogger(__name__)
@@ -29,8 +35,8 @@ _worker_started = False
 def _push_error_message(exc: WebPushException) -> tuple[int | None, str]:
     status_code, body = web_push_error_details(exc)
     label = f"Web Push error {status_code or 'unknown'}"
-    if body:
-        label = f"{label}: {body}"
+    if body and "BadJwtToken" in body:
+        label += ": BadJwtToken"
     return status_code, label[:1000]
 
 
@@ -99,28 +105,10 @@ def _notification_payload(
     }
 
 
-def send_test_push_for_user(user_id: int) -> dict:
-    """Send an immediate diagnostic notification without touching reminder state."""
+def _deliver_payload(user_id: int, payload: dict) -> dict:
     subscriptions = list_push_subscriptions(user_id)
-    if not subscriptions:
-        return {
-            "ok": False,
-            "subscriptions": 0,
-            "accepted": 0,
-            "failed": 0,
-            "errors": ["На этом устройстве нет активной push-подписки."],
-        }
-
-    accepted = 0
-    failed = 0
-    removed = 0
-    errors: list[str] = []
-    payload = _notification_payload(
-        title="Уведомления работают",
-        body="Тестовый push от Личного секретаря.",
-        tag=f"push-test-{int(datetime.now(timezone.utc).timestamp())}",
-    )
-
+    result = {"ok": False, "subscriptions": len(subscriptions), "accepted": 0,
+              "failed": 0, "removed": 0, "errors": []}
     for subscription in subscriptions:
         subscription_id = subscription["subscription_id"]
         try:
@@ -129,125 +117,98 @@ def send_test_push_for_user(user_id: int) -> dict:
             status_code, message = _push_error_message(exc)
             if status_code in {404, 410}:
                 delete_push_subscription_by_id(subscription_id)
-                removed += 1
+                result["removed"] += 1
             else:
                 mark_push_error(subscription_id, message)
-            failed += 1
-            errors.append(message)
-            logger.warning(
-                "Web Push test failed for subscription %s user %s: %s",
-                subscription_id,
-                user_id,
-                message,
-            )
+            result["failed"] += 1
+            result["errors"].append(message)
+            logger.warning("Push failed for user %s subscription %s: %s", user_id, subscription_id, message)
+        except ValueError:
+            delete_push_subscription_by_id(subscription_id)
+            result["removed"] += 1
+            result["failed"] += 1
+            result["errors"].append("Некорректная push-подписка отключена. Подключи уведомления заново.")
+            logger.warning("Invalid push subscription %s removed for user %s", subscription_id, user_id)
         except Exception as exc:
-            message = f"{type(exc).__name__}: {str(exc)[:400]}"
+            message = "Push transport error: " + type(exc).__name__
             mark_push_error(subscription_id, message)
-            failed += 1
-            errors.append(message)
-            logger.exception(
-                "Unexpected Web Push test failure for subscription %s user %s",
-                subscription_id,
-                user_id,
-            )
+            result["failed"] += 1
+            result["errors"].append(message)
+            logger.warning("Push transport failed for user %s subscription %s (%s)", user_id, subscription_id, type(exc).__name__)
         else:
-            accepted += 1
+            result["accepted"] += 1
             mark_push_success(subscription_id)
+    result["ok"] = result["accepted"] > 0
+    result["errors"] = result["errors"][:3]
+    return result
 
-    return {
-        "ok": accepted > 0,
-        "subscriptions": len(subscriptions),
-        "accepted": accepted,
-        "failed": failed,
-        "removed": removed,
-        "errors": errors[:3],
-    }
+
+def send_test_push_for_user(user_id: int) -> dict:
+    with user_operation(user_id):
+        return _deliver_payload(user_id, _notification_payload(
+            title="Уведомления работают",
+            body="Тестовый push от Личного секретаря.",
+            tag=f"push-test-{int(datetime.now(timezone.utc).timestamp())}",
+        ))
+
+
+def _send_review(user_id: int, text: str, tag: str) -> bool:
+    return _deliver_payload(user_id, _notification_payload(
+        title="Личный секретарь", body=text[:1600], tag=tag,
+        url="/?review=evening" if "evening" in tag else "/?review=morning",
+    ))["ok"]
 
 
 def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
-    user_ids = list_push_user_ids()
-    if not user_ids:
-        return {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0}
-
-    reminders = claim_due_for_push(user_ids, limit=limit)
-    delivered = 0
-    released = 0
-    removed = 0
-
-    for reminder in reminders:
-        subscriptions = list_push_subscriptions(reminder["user_id"])
-        if not subscriptions:
-            release_push_delivery(reminder["reminder_id"], "No active push subscriptions")
-            released += 1
-            continue
-
-        transient_failures = 0
-        accepted = 0
-        last_error = None
-        payload = _notification_payload(
-            title="Напоминание",
-            body=reminder["text"],
-            tag=f"reminder-{reminder['reminder_id']}",
-            reminder_id=reminder["reminder_id"],
-        )
-
-        for subscription in subscriptions:
-            subscription_id = subscription["subscription_id"]
-            try:
-                send_web_push(subscription, payload)
-            except WebPushException as exc:
-                status_code, last_error = _push_error_message(exc)
-                if status_code in {404, 410}:
-                    delete_push_subscription_by_id(subscription_id)
-                    removed += 1
-                    logger.info(
-                        "Removed expired Web Push subscription %s for user %s",
-                        subscription_id,
-                        reminder["user_id"],
+    stats = {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0,
+             "repeated": 0, "reviews": 0}
+    now = datetime.now(timezone.utc)
+    for user_id in list_push_user_ids():
+        if stats["claimed"] >= limit:
+            break
+        try:
+            with user_operation(user_id, blocking=False):
+                if not get_google_account(user_id) or quiet_until(user_id, now):
+                    continue
+                reminders = claim_due_for_push([user_id], limit=limit - stats["claimed"])
+                stats["claimed"] += len(reminders)
+                for claimed in reminders:
+                    reminder = get_saved_reminder(user_id, claimed["reminder_id"])
+                    if not reminder or reminder["status"] != "delivering":
+                        continue
+                    payload = _notification_payload(
+                        title="Напоминание", body=reminder["text"][:1600],
+                        tag=f"reminder-{reminder['reminder_id']}",
+                        reminder_id=reminder["reminder_id"],
                     )
-                else:
-                    transient_failures += 1
-                    mark_push_error(subscription_id, last_error)
-                    logger.warning(
-                        "Web Push failed for subscription %s user %s: %s",
-                        subscription_id,
-                        reminder["user_id"],
-                        last_error,
-                    )
-            except Exception as exc:
-                transient_failures += 1
-                last_error = f"{type(exc).__name__}: {str(exc)[:400]}"
-                mark_push_error(subscription_id, last_error)
-                logger.exception(
-                    "Unexpected Web Push failure for subscription %s user %s",
-                    subscription_id,
-                    reminder["user_id"],
-                )
-            else:
-                accepted += 1
-                mark_push_success(subscription_id)
-
-        if transient_failures:
-            release_push_delivery(reminder["reminder_id"], last_error or "Push delivery failed")
-            released += 1
+                    result = _deliver_payload(user_id, payload)
+                    stats["subscriptions_removed"] += result["removed"]
+                    if result["accepted"]:
+                        if complete_push_delivery(reminder["reminder_id"]):
+                            activate_repeats(reminder, now)
+                            stats["delivered"] += 1
+                    else:
+                        error = (result["errors"] or ["No active push subscriptions"])[0]
+                        if result["subscriptions"] > result["removed"]:
+                            postpone_transport(reminder, now)
+                        release_push_delivery(reminder["reminder_id"], error)
+                        stats["released"] += 1
+                for attempt in claim_repeat_attempts(user_id, now):
+                    reminder = get_saved_reminder(user_id, attempt["reminder_id"])
+                    if not reminder or reminder["status"] != "delivered":
+                        continue
+                    _deliver_payload(user_id, _notification_payload(
+                        title=f"Напоминание · повтор {attempt['attempt']}",
+                        body=reminder["text"][:1600], tag=f"reminder-{reminder['reminder_id']}",
+                        reminder_id=reminder["reminder_id"],
+                    ))
+                    stats["repeated"] += 1
+                stats["reviews"] += deliver_reviews_for_user(user_id, _send_review, now=now)
+        except UserBusyError:
             continue
-
-        if accepted:
-            complete_push_delivery(reminder["reminder_id"])
-            delivered += 1
-            continue
-
-        # Every subscription was permanently expired. Keep the reminder pending so it
-        # can still be shown when the user opens the app and subscribes again.
-        release_push_delivery(reminder["reminder_id"], "No valid push subscriptions")
-        released += 1
-
-    return {
-        "claimed": len(reminders),
-        "delivered": delivered,
-        "released": released,
-        "subscriptions_removed": removed,
-    }
+        except Exception as exc:
+            logger.error("Reminder dispatch failed for user %s (%s)", user_id, type(exc).__name__)
+    return stats
 
 
 def _worker_loop() -> None:
@@ -264,6 +225,8 @@ def _worker_loop() -> None:
 
 def start_reminder_push_worker() -> None:
     global _worker_started
+    if not WEB_PUSH_WORKER_ENABLED:
+        return
     with _worker_lock:
         if _worker_started:
             return

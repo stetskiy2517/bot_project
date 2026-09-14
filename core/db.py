@@ -114,28 +114,34 @@ def save_oauth_state(state:str,user_id:int|None=None)->None:
         conn.commit()
 
 
-def consume_oauth_state(state:str)->int|None:
+def consume_oauth_state(state: str) -> int | None:
     with db_lock:
-        row=conn.execute("SELECT user_id,created_at FROM oauth_states WHERE state=?",(state,)).fetchone()
-        if not row:
-            return None
-        conn.execute("DELETE FROM oauth_states WHERE state=?",(state,))
-        conn.commit()
-    try:
-        created=datetime.fromisoformat(row[1])
-    except (TypeError,ValueError):
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute("SELECT user_id,created_at FROM oauth_states WHERE state=?", (state,)).fetchone()
+            conn.execute("DELETE FROM oauth_states WHERE state=?", (state,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    if not row:
         return None
-    if created.tzinfo is None:
-        created=created.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc)-created>timedelta(minutes=OAUTH_STATE_TTL_MINUTES):
+    try:
+        created = datetime.fromisoformat(row[1])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - created
+    except (TypeError, ValueError):
+        return None
+    if age < timedelta(0) or age > timedelta(minutes=OAUTH_STATE_TTL_MINUTES):
         return None
     return int(row[0]) if row[0] is not None else 0
 
 
-def save_user_timezone(user_id:int,timezone:str)->None:
+def save_user_timezone(user_id:int,timezone:str,*,commit:bool=True)->None:
     with db_lock:
         conn.execute("INSERT INTO users (user_id,timezone) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET timezone=excluded.timezone",(user_id,timezone))
-        conn.commit()
+        if commit: conn.commit()
 
 
 def get_user_timezone(user_id:int,default:str|None=DEFAULT_TIMEZONE)->str|None:
@@ -144,7 +150,7 @@ def get_user_timezone(user_id:int,default:str|None=DEFAULT_TIMEZONE)->str|None:
     return row[0] if row and row[0] else default
 
 
-def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:str|None=None,work_days:list[int]|None=None,buffer_minutes:int|None=None,category_colors:dict[str,str|None]|None=None)->None:
+def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:str|None=None,work_days:list[int]|None=None,buffer_minutes:int|None=None,category_colors:dict[str,str|None]|None=None,commit:bool=True)->None:
     with db_lock:
         conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)",(user_id,));updates=[];values=[]
         if work_start is not None:updates.append("work_start=?");values.append(work_start)
@@ -153,7 +159,8 @@ def save_calendar_preferences(user_id:int,*,work_start:str|None=None,work_end:st
         if buffer_minutes is not None:updates.append("buffer_minutes=?");values.append(int(buffer_minutes))
         if category_colors is not None:updates.append("category_colors=?");values.append(json.dumps(category_colors,sort_keys=True))
         if not updates:return
-        values.append(user_id);conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id=?",values);conn.commit()
+        values.append(user_id);conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id=?",values)
+        if commit: conn.commit()
 
 
 def get_calendar_preferences(user_id:int)->dict:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from core.db import conn, db_lock
+from integrations.push_policy import validate_push_endpoint, validate_push_keys
 
 
 def init_push_store() -> None:
@@ -56,16 +57,18 @@ def save_push_subscription(
     endpoint = str(endpoint or "").strip()
     p256dh = str(p256dh or "").strip()
     auth = str(auth or "").strip()
-    if not endpoint.startswith("https://"):
-        raise ValueError("Push endpoint must use HTTPS")
-    if not p256dh or not auth:
-        raise ValueError("Push subscription keys are required")
-    if len(endpoint) > 4096 or len(p256dh) > 1024 or len(auth) > 1024:
-        raise ValueError("Push subscription is too large")
+    validate_push_endpoint(endpoint)
+    validate_push_keys(p256dh, auth)
 
     now = datetime.now(timezone.utc).isoformat()
     safe_agent = str(user_agent or "")[:1000] or None
     with db_lock:
+        owner = conn.execute("SELECT user_id FROM push_subscriptions WHERE endpoint=?", (endpoint,)).fetchone()
+        if owner and int(owner[0]) != int(user_id):
+            raise ValueError("Подписка принадлежит другой учётной записи. Переподключи уведомления.")
+        count = conn.execute("SELECT COUNT(*) FROM push_subscriptions WHERE user_id=?", (user_id,)).fetchone()[0]
+        if not owner and count >= 20:
+            raise ValueError("Слишком много устройств. Удали старые push-подписки.")
         conn.execute(
             """INSERT INTO push_subscriptions
                (user_id,endpoint,p256dh,auth,user_agent,created_at,updated_at)
@@ -76,7 +79,7 @@ def save_push_subscription(
                  auth=excluded.auth,
                  user_agent=excluded.user_agent,
                  updated_at=excluded.updated_at,
-                 last_error=NULL""",
+                 last_error=NULL WHERE push_subscriptions.user_id=excluded.user_id""",
             (int(user_id), endpoint, p256dh, auth, safe_agent, now, now),
         )
         conn.commit()
@@ -85,6 +88,8 @@ def save_push_subscription(
             "FROM push_subscriptions WHERE endpoint=?",
             (endpoint,),
         ).fetchone()
+        if not row or int(row[1]) != int(user_id):
+            raise ValueError("Подписка принадлежит другой учётной записи")
     return _from_row(row)
 
 
