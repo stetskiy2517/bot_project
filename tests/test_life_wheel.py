@@ -4,7 +4,8 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from core.db import get_or_create_google_user
-from modules.life_wheel import build_life_wheel_snapshot, event_category, reminder_category
+from modules.life_wheel import build_life_wheel_snapshot, event_category
+from modules.reminder_categories import reminder_category
 from tests.web_test_support import web_test_app
 
 
