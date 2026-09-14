@@ -9,6 +9,7 @@ import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
+from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
@@ -64,7 +65,7 @@ def use_ai_for_unhandled_chat(response):
             text = payload.get("transcript")
         if not isinstance(text, str) or not text.strip():
             return response
-        answer = answer_unhandled(text)
+        answer = answer_unhandled(text, user_id=_user())
         if not answer:
             return response
         payload["handled"] = True
@@ -88,14 +89,28 @@ def invalid_request(error):
 
 @assistant_api.get("/api/assistant")
 def assistant_status():
+    user_id = _user()
     return {
-        "preferences": get_assistant_preferences(_user()),
-        "templates": list_templates(_user()),
-        "undo": last_note_action(_user()),
-        "reviews": review_history(_user()),
+        "preferences": get_assistant_preferences(user_id),
+        "templates": list_templates(user_id),
+        "undo": last_note_action(user_id),
+        "reviews": review_history(user_id),
         "privacy": privacy_policy(),
         "ai": ai_status(),
+        "memory": memory_status(user_id),
     }
+
+
+@assistant_api.get("/api/assistant/memory")
+def assistant_memory():
+    return {"memories": list_memories(_user(), limit=200), "status": memory_status(_user())}
+
+
+@assistant_api.delete("/api/assistant/memory/<int:memory_id>")
+def remove_assistant_memory(memory_id: int):
+    if not suppress_memory(_user(), memory_id):
+        return jsonify(error="memory_not_found"), 404
+    return {"ok": True, "memory_id": memory_id}
 
 
 @assistant_api.post("/api/assistant/preferences")
