@@ -63,7 +63,7 @@ class NavigationTests(unittest.TestCase):
 
     @patch("modules.navigation.ors_estimate", return_value=(27, 9100))
     @patch("modules.navigation.ors_configured", return_value=True)
-    @patch("modules.navigation.navigation_provider", return_value="ors")
+    @patch("modules.navigation.navigation_provider", return_value="OpenRouteService")
     def test_estimate_route_uses_ors_provider(self, provider, configured, ors_estimate):
         departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
         result = estimate_route("Дом", "Офис", mode="driving", departure_at=departure)
@@ -106,7 +106,7 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(travel["location"], "ВДНХ")
         private = travel["extendedProperties"]["private"]
         self.assertEqual(private["smartPlannerSourceEventId"], "meeting-123")
-        self.assertEqual(private["smartPlannerRouteProvider"], "ors")
+        self.assertEqual(private["smartPlannerRouteProvider"], "OpenRouteService")
         self.assertEqual(private["smartPlannerRouteMinutes"], "32")
         self.assertEqual(private["smartPlannerArrivalBufferMinutes"], "15")
 
