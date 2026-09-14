@@ -513,6 +513,60 @@
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
         flex: 0 0 auto;
       }
+      .settings-group {
+        margin-top: 22px;
+        border: 1px solid #ececea;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .settings-group summary {
+        min-height: 48px;
+        padding: 13px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .settings-group summary::-webkit-details-marker {
+        display: none;
+      }
+      .settings-group-title {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .settings-group-meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .settings-group-chevron {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: #777773;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 0.18s ease;
+        flex: 0 0 auto;
+      }
+      .settings-group[open] .settings-group-chevron {
+        transform: rotate(180deg);
+      }
+      .settings-group[open] summary {
+        border-bottom: 1px solid #ececea;
+      }
+      .settings-group .grid {
+        border: 0;
+        border-radius: 0;
+      }
+      .settings-group .settings-help {
+        margin: 10px 14px 14px;
+      }
       .settings-help {
         margin: 8px 2px 0;
         color: var(--muted);
@@ -773,9 +827,17 @@
               value="15"
           /></label>
         </div>
-        <div class="section-title">Цвета категорий</div>
-        <div id="categoryColors" class="grid"></div>
-        <p class="settings-help">Цвет применяется к новым событиям.</p>
+        <details id="categoryColorsGroup" class="settings-group">
+          <summary>
+            <span class="settings-group-title">Цвета категорий</span>
+            <span class="settings-group-meta">7 категорий</span>
+            <svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div id="categoryColors" class="grid"></div>
+          <p class="settings-help">Цвет применяется к новым событиям.</p>
+        </details>
         <div class="sheet-actions">
           <button id="logout" class="action danger" type="button">Выйти</button>
           <button id="saveSettings" class="action primary" type="button">Сохранить</button>
