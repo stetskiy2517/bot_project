@@ -3,8 +3,14 @@ import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from integrations.navigation_2gis import _point_from_item, _route_result as _dgis_route_result, _routing_body
-from integrations.navigation_google import _route_body as _google_route_body, _route_result as _google_route_result
+from integrations.navigation_2gis import _route_result as _dgis_route_result
+from integrations.navigation_google import _route_result as _google_route_result
+from integrations.navigation_ors import (
+    _point_from_geocode,
+    _profile_for_mode,
+    _route_body as _ors_route_body,
+    _route_result as _ors_route_result,
+)
 from modules.navigation import (
     RouteEstimate,
     _event_destination,
@@ -26,51 +32,51 @@ class NavigationTests(unittest.TestCase):
             "end": {"dateTime": "2026-09-14T16:00:00+03:00", "timeZone": "Europe/Moscow"},
         }
 
-    def test_google_route_response_parses_duration_and_distance(self):
+    def test_ors_geocoder_point_is_parsed(self):
+        lon, lat = _point_from_geocode({
+            "features": [{"geometry": {"coordinates": [37.6331, 55.8299]}}],
+        })
+        self.assertEqual(lon, 37.6331)
+        self.assertEqual(lat, 55.8299)
+
+    def test_ors_route_response_parses_duration_and_distance(self):
+        seconds, meters = _ors_route_result({
+            "routes": [{"summary": {"duration": 1900.4, "distance": 12800.2}}],
+        })
+        self.assertEqual(seconds, 1901)
+        self.assertEqual(meters, 12801)
+
+    def test_ors_route_body_uses_lon_lat_order(self):
+        body = _ors_route_body((37.61, 55.75), (37.63, 55.82))
+        self.assertEqual(body["coordinates"], [[37.61, 55.75], [37.63, 55.82]])
+        self.assertFalse(body["geometry"])
+        self.assertFalse(body["instructions"])
+        self.assertEqual(body["units"], "m")
+
+    def test_ors_profiles_support_driving_and_walking(self):
+        self.assertEqual(_profile_for_mode("driving"), "driving-car")
+        self.assertEqual(_profile_for_mode("walking"), "foot-walking")
+
+    def test_ors_public_api_does_not_fake_transit_route(self):
+        with self.assertRaisesRegex(ValueError, "public transport"):
+            _profile_for_mode("transit")
+
+    @patch("modules.navigation.ors_estimate", return_value=(27, 9100))
+    @patch("modules.navigation.ors_configured", return_value=True)
+    @patch("modules.navigation.navigation_provider", return_value="ors")
+    def test_estimate_route_uses_ors_provider(self, provider, configured, ors_estimate):
+        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
+        result = estimate_route("Дом", "Офис", mode="driving", departure_at=departure)
+        self.assertEqual(result.duration_minutes, 27)
+        self.assertEqual(result.distance_meters, 9100)
+        ors_estimate.assert_called_once_with("Дом", "Офис", mode="driving", departure_at=departure)
+
+    def test_google_route_response_remains_supported_as_fallback(self):
         seconds, meters = _google_route_result({
             "routes": [{"duration": "1900.4s", "distanceMeters": 12800}],
         })
         self.assertEqual(seconds, 1901)
         self.assertEqual(meters, 12800)
-
-    def test_google_driving_route_uses_traffic_and_future_departure(self):
-        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
-        body = _google_route_body(
-            "Москва, Гиляровского, 53",
-            "ВДНХ, Москва",
-            "driving",
-            departure,
-        )
-        self.assertEqual(body["origin"], {"address": "Москва, Гиляровского, 53"})
-        self.assertEqual(body["destination"], {"address": "ВДНХ, Москва"})
-        self.assertEqual(body["travelMode"], "DRIVE")
-        self.assertEqual(body["routingPreference"], "TRAFFIC_AWARE")
-        self.assertTrue(body["departureTime"].endswith("Z"))
-        self.assertEqual(body["regionCode"], "ru")
-
-    def test_google_walking_route_does_not_request_traffic(self):
-        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
-        body = _google_route_body("Дом", "Офис", "walking", departure)
-        self.assertEqual(body["travelMode"], "WALK")
-        self.assertNotIn("routingPreference", body)
-        self.assertNotIn("departureTime", body)
-
-    def test_google_transit_route_uses_departure_time(self):
-        departure = datetime.now(self.zone).replace(microsecond=0)
-        body = _google_route_body("Дом", "Офис", "transit", departure)
-        self.assertEqual(body["travelMode"], "TRANSIT")
-        self.assertIn("departureTime", body)
-        self.assertNotIn("routingPreference", body)
-
-    @patch("modules.navigation.google_estimate", return_value=(27, 9100))
-    @patch("modules.navigation.google_configured", return_value=True)
-    @patch("modules.navigation.navigation_provider", return_value="google")
-    def test_estimate_route_uses_google_provider(self, provider, configured, google_estimate):
-        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
-        result = estimate_route("Дом", "Офис", mode="driving", departure_at=departure)
-        self.assertEqual(result.duration_minutes, 27)
-        self.assertEqual(result.distance_meters, 9100)
-        google_estimate.assert_called_once_with("Дом", "Офис", mode="driving", departure_at=departure)
 
     def test_2gis_route_response_remains_supported_as_fallback(self):
         seconds, meters = _dgis_route_result({
@@ -79,17 +85,6 @@ class NavigationTests(unittest.TestCase):
         })
         self.assertEqual(seconds, 1901)
         self.assertEqual(meters, 12800)
-
-    def test_2gis_geocoder_point_is_parsed(self):
-        lat, lon = _point_from_item({"point": {"lat": 55.8299, "lon": 37.6331}})
-        self.assertEqual(lat, 55.8299)
-        self.assertEqual(lon, 37.6331)
-
-    def test_2gis_future_driving_route_uses_statistical_traffic(self):
-        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
-        body = _routing_body((55.75, 37.61), (55.82, 37.63), "driving", departure)
-        self.assertEqual(body["traffic_mode"], "statistics")
-        self.assertEqual(body["utc"], int(departure.timestamp()))
 
     def test_travel_block_includes_route_and_arrival_buffer(self):
         estimate = RouteEstimate(
@@ -111,7 +106,7 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(travel["location"], "ВДНХ")
         private = travel["extendedProperties"]["private"]
         self.assertEqual(private["smartPlannerSourceEventId"], "meeting-123")
-        self.assertEqual(private["smartPlannerRouteProvider"], "google")
+        self.assertEqual(private["smartPlannerRouteProvider"], "ors")
         self.assertEqual(private["smartPlannerRouteMinutes"], "32")
         self.assertEqual(private["smartPlannerArrivalBufferMinutes"], "15")
 
