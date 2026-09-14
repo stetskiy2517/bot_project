@@ -18,7 +18,7 @@ class NavigationWebTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["user_id"] = user_id
 
-    @patch("web_app.navigation_provider", return_value="ors")
+    @patch("web_app.navigation_provider", return_value="OpenRouteService")
     @patch("web_app.navigation_configured", return_value=True)
     def test_navigation_settings_are_saved_and_returned(self, configured, provider):
         response = self.client.post(
@@ -38,7 +38,7 @@ class NavigationWebTests(unittest.TestCase):
         navigation = response.get_json()["navigation"]
         self.assertTrue(navigation["enabled"])
         self.assertTrue(navigation["configured"])
-        self.assertEqual(navigation["provider"], "ors")
+        self.assertEqual(navigation["provider"], "OpenRouteService")
         self.assertEqual(navigation["home_address"], "Москва, проспект Мира, 1")
         self.assertEqual(navigation["office_address"], "Москва, Гиляровского, 53")
         self.assertEqual(navigation["default_place"], "home")
@@ -73,7 +73,7 @@ class NavigationWebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.get_json()["error"], "navigation_not_configured")
 
-    @patch("web_app.navigation_provider", return_value="ors")
+    @patch("web_app.navigation_provider", return_value="OpenRouteService")
     @patch("web_app.navigation_configured", return_value=True)
     @patch("web_app.estimate_route")
     def test_navigation_test_returns_route_summary(self, estimate, configured, provider):
@@ -94,7 +94,7 @@ class NavigationWebTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload["provider"], "ors")
+        self.assertEqual(payload["provider"], "OpenRouteService")
         self.assertEqual(payload["duration_minutes"], 18)
         self.assertEqual(payload["distance_meters"], 7400)
         estimate.assert_called_once()
