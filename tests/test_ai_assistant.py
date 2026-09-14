@@ -17,6 +17,18 @@ class AIAssistantTests(unittest.TestCase):
     def test_unhandled_message_gets_ai_answer(self, _available, _complete):
         self.assertEqual(answer_unhandled("Привет"), "Привет. Чем помочь?")
 
+    @patch("modules.ai_assistant.complete", return_value="Я личный помощник. Чем помочь?")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_system_prompt_uses_user_facing_persona_and_current_capabilities(self, _available, complete):
+        answer_unhandled("Кто ты и что умеешь?")
+        messages = complete.call_args.args[0]
+        system_prompt = messages[0]["content"]
+        self.assertIn("личный ИИ-секретарь", system_prompt)
+        self.assertIn("календарь, напоминания, заметки", system_prompt)
+        self.assertIn("Строго соблюдай явные требования пользователя к формату ответа", system_prompt)
+        self.assertIn("Не называй себя «ИИ-модулем»", system_prompt)
+        self.assertNotIn("модули календаря, напоминаний, заметок и задач", system_prompt)
+
     @patch("modules.ai_assistant.complete", side_effect=AIProviderError("provider failed"))
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_provider_failure_falls_back_safely(self, _available, _complete):
