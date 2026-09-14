@@ -24,6 +24,7 @@ from core.db import (
     save_user_timezone,
 )
 from core.library_store import get_saved_reminder, list_saved_reminders
+from core.location_context import save_current_location
 from core.navigation_store import get_navigation_preferences, save_navigation_settings
 from core.note_store import delete_note, get_note, list_notes
 from core.push_store import (
@@ -235,6 +236,7 @@ def create_web_app() -> Flask:
             '    <script src="/reminders.js"></script>\n'
             '    <script src="/library.js"></script>\n'
             '    <script src="/voice-gesture.js"></script>\n'
+            '    <script src="/location.js"></script>\n'
             "  </body>"
         )
         html = html.replace("</body>", scripts)
@@ -251,6 +253,10 @@ def create_web_app() -> Flask:
     @app.get("/voice-gesture.js")
     def voice_gesture_js():
         return send_from_directory(WEB_DIR, "voice_gesture.js", mimetype="application/javascript")
+
+    @app.get("/location.js")
+    def location_js():
+        return send_from_directory(WEB_DIR, "location.js", mimetype="application/javascript")
 
     @app.get("/manifest.webmanifest")
     def manifest():
@@ -309,6 +315,25 @@ def create_web_app() -> Flask:
             "name": account["name"],
         }
         return result
+
+    @app.post("/api/location")
+    def current_location():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        try:
+            location = save_current_location(
+                user_id,
+                payload.get("latitude"),
+                payload.get("longitude"),
+                payload.get("accuracy"),
+            )
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": "invalid_location", "message": str(exc)}), 400
+        return {
+            "ok": True,
+            "accuracy": location.accuracy_meters,
+            "captured_at": location.captured_at.isoformat(),
+        }
 
     @app.get("/api/library")
     def library():

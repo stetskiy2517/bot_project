@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from functools import lru_cache
 import math
+import re
 
 import requests
 
@@ -49,9 +50,25 @@ def _point_from_geocode(data: dict) -> tuple[float, float]:
     return longitude, latitude
 
 
+GEO_ORIGIN_RE = re.compile(r"^geo:(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$")
+
+
+def _coordinate_origin(value: str) -> tuple[float, float] | None:
+    match = GEO_ORIGIN_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    lat = float(match.group("lat"))
+    lon = float(match.group("lon"))
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise ValueError("Invalid current location coordinates")
+    return lon, lat
 @lru_cache(maxsize=512)
 def geocode(address: str) -> tuple[float, float]:
-    value = _normalize_address(address)
+    raw = str(address).strip()
+    coordinate = _coordinate_origin(raw)
+    if coordinate:
+        return coordinate
+    value = _normalize_address(raw)
     response = requests.get(
         GEOCODER_URL,
         headers={"Authorization": _require_key()},

@@ -66,8 +66,17 @@ FREE_WORDS = (
 EVENT_WORDS = (
     "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
     "трениров", "зал", "кино", "ресторан", "рейс", "полет", "полёт", "поезд", "такси", "совещ",
-    "планерк", "клиент", "переговор", "день рождения", "обед", "ужин",
-    "отпуск", "командиров",
+    "планерк", "клиент", "переговор", "день рождения", "обед", "ужин", "завтрак",
+    "отпуск", "командиров", "прогул", "прагул", "погуля", "прогуля", "пробеж", "театр", "концерт",
+    "выстав", "музей", "бассейн", "футбол", "матч", "массаж", "парикмах", "барбер",
+    "маникюр", "стриж", "занят", "урок", "лекци", "экзамен", "прием", "приём", "йог", "пилатес",
+)
+BARE_CREATE_EVENT_WORDS = (
+    "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
+    "трениров", "кино", "совещ", "планерк", "переговор", "день рождения", "обед", "ужин", "завтрак",
+    "отпуск", "командиров", "прогул", "прагул", "погуля", "прогуля", "пробеж", "поездк", "театр", "концерт",
+    "выстав", "музей", "бассейн", "футбол", "матч", "массаж", "парикмах", "барбер",
+    "маникюр", "стриж", "занят", "урок", "лекци", "экзамен", "прием", "приём", "йог", "пилатес",
 )
 ACTION_WORDS = (
     "забрат", "отвез", "купит", "куплю", "оплат", "заех", "позвон", "сход", "поех",
@@ -77,6 +86,11 @@ ACTION_WORDS = (
 NON_EVENT_STATEMENT_RE = re.compile(
     r"\b(?:погод\w*|прогноз\s+погоды|температур\w*|дожд\w*|снег\w*|градус\w*|"
     r"курс\s+(?:доллар\w*|евро|юан\w*)|новост\w*)\b",
+    re.IGNORECASE,
+)
+BARE_EVENT_STATEMENT_RE = re.compile(
+    r"\b(?:люблю|нравит\w*|полезн\w*|обычн\w*|часто|редко|был\w*|была|были|прошл\w*|"
+    r"прошел|прошёл|прошла|закончил\w*|состоял\w*|тяжел\w*|тяжёл\w*)\b",
     re.IGNORECASE,
 )
 INFO_CREATE_QUESTION_RE = re.compile(
@@ -110,6 +124,10 @@ SHORT_VIEW_PREFIX_RE = re.compile(
 )
 TRAILING_BARE_HOUR_RE = re.compile(
     r"(?<!\d)(?P<hour>[01]?\d|2[0-3])(?P<punct>\s*[.!?]*)$",
+    re.IGNORECASE,
+)
+LEADING_BARE_HOUR_RE = re.compile(
+    r"^\s*(?P<hour>[01]?\d|2[0-3])\s+(?P<body>\D.+)$",
     re.IGNORECASE,
 )
 CURRENT_STATE_RE = re.compile(r"\b(?:сейчас|уже|прямо сейчас)\b", re.IGNORECASE)
@@ -180,19 +198,43 @@ def _normalise(text: str) -> str:
     return normal
 
 
+def _contains_event_marker(text: str) -> bool:
+    return any(word in text for word in EVENT_WORDS)
+
+
+def _looks_like_bare_event(text: str) -> bool:
+    normal = _normalise(text)
+    if BARE_EVENT_STATEMENT_RE.search(normal):
+        return False
+    tokens = re.findall(r"[a-zа-я0-9]+", normal)
+    if not tokens or len(tokens) > 10:
+        return False
+    if any(normal.startswith(word) for word in BARE_CREATE_EVENT_WORDS):
+        return True
+    if re.match(r"^(?:после|перед)\b", normal) and any(word in normal for word in BARE_CREATE_EVENT_WORDS):
+        return True
+    return False
 def _creation_text(text: str) -> str:
-    """Исправить безопасные разговорные/ASR-варианты только для создания события."""
     result = text
     if REMIND_ME_AS_COMMAND_RE.search(result):
         result = REMIND_ME_AS_COMMAND_RE.sub("напомни", result, count=1)
 
     lower = _normalise(result)
-    if DATE_HINT_RE.search(lower) and _extract_time(lower) is None:
+    command_like = (
+        bool(DATE_HINT_RE.search(lower))
+        or any(word in lower for word in CREATE_WORDS)
+        or _contains_event_marker(lower)
+        or _looks_like_bare_event(lower)
+    )
+    if command_like and _extract_time(lower) is None:
         match = TRAILING_BARE_HOUR_RE.search(result)
         if match:
-            hour = match.group("hour")
-            punct = match.group("punct") or ""
-            result = f"{result[:match.start('hour')]}в {hour}{punct}"
+            result = f"{result[:match.start('hour')]}в {match.group('hour')}{match.group('punct') or ''}"
+            lower = _normalise(result)
+    if command_like and _extract_time(lower) is None:
+        leading = LEADING_BARE_HOUR_RE.match(result)
+        if leading:
+            result = f"в {leading.group('hour')} {leading.group('body').strip()}"
     return result
 
 
@@ -243,8 +285,10 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_CREATE, 0.99)
     if NON_EVENT_STATEMENT_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)
+    if BARE_EVENT_STATEMENT_RE.search(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
 
-    has_event = any(word in lower for word in EVENT_WORDS)
+    has_event = _contains_event_marker(lower)
     has_date = bool(DATE_HINT_RE.search(lower))
     has_time = _extract_time(lower) is not None or _relative_offset(lower) is not None
     is_question = bool(QUESTION_PREFIX_RE.search(lower)) or text.rstrip().endswith("?")
@@ -256,6 +300,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_CREATE, 0.86)
     if has_action and (has_date or has_time) and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.84)
+    if _looks_like_bare_event(lower) and not is_question and not is_current_state:
+        return IntentResult(INTENT_CREATE, 0.76)
     return IntentResult(INTENT_UNKNOWN, 0.0)
 
 
@@ -263,7 +309,13 @@ def _needs_time(text: str) -> bool:
     if is_all_day(text):
         return False
     lower = _normalise(text)
-    return bool(DATE_HINT_RE.search(lower)) and _extract_time(lower) is None
+    if _extract_time(lower) is not None or _relative_offset(lower) is not None:
+        return False
+    return bool(
+        DATE_HINT_RE.search(lower)
+        or any(word in lower for word in CREATE_WORDS)
+        or _looks_like_bare_event(lower)
+    )
 
 
 def _pending(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
@@ -324,12 +376,12 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     reply = reply_text.strip()
     if not re.match(r"^(?:в|к)\b", _normalise(reply)) and _extract_time(f"в {reply}") is not None:
         reply = f"в {reply}"
-    combined = f"{pending['text']} {reply}"
+    combined = _creation_text(f"{pending['text']} {reply}")
     _clear_pending(context)
     handled = await create_from_text(update, context, combined)
     if not handled:
         context.user_data["smart_planner_pending"] = pending
-        await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или в 7 вечера.")
+        await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или «завтра в 19».")
     return True
 
 
@@ -352,7 +404,7 @@ def _has_explicit_calendar_reference(text: str) -> bool:
     calendar_markers = (
         "календар", "расписан", "встреч", "событ", "созвон", "звонок", "свобод", "окно",
     )
-    return any(marker in lower for marker in calendar_markers)
+    return any(marker in lower for marker in calendar_markers) or _looks_like_bare_event(lower)
 
 
 def _blocks_active_note_append(text: str) -> bool:
@@ -451,7 +503,11 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         create_text = _creation_text(text)
         if _needs_time(create_text):
             context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
-            await update.message.reply_text("Во сколько поставить событие?")
+            if DATE_HINT_RE.search(_normalise(create_text)):
+                prompt = "Во сколько поставить событие?"
+            else:
+                prompt = "Когда поставить событие? Напиши, например: «22:00» или «завтра в 19»."
+            await update.message.reply_text(prompt)
             return True
         return await create_from_text(update, context, create_text)
     if intent.name == INTENT_SEARCH:

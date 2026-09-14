@@ -47,8 +47,24 @@ def _point_from_item(item: dict) -> tuple[float, float]:
     raise ValueError("2GIS geocoder response does not contain coordinates")
 
 
+GEO_ORIGIN_RE = re.compile(r"^geo:(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$")
+
+
+def _coordinate_origin(value: str) -> tuple[float, float] | None:
+    match = GEO_ORIGIN_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    lat = float(match.group("lat"))
+    lon = float(match.group("lon"))
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise ValueError("Invalid current location coordinates")
+    return lat, lon
 def geocode(address: str) -> tuple[float, float]:
-    value = " ".join(str(address).split()).strip(" ,.;")
+    raw = str(address).strip()
+    coordinate = _coordinate_origin(raw)
+    if coordinate:
+        return coordinate
+    value = " ".join(raw.split()).strip(" ,.;")
     if not value:
         raise ValueError("Address is required")
     response = requests.get(
