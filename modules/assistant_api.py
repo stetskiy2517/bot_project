@@ -11,6 +11,7 @@ from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
+from modules.life_wheel import build_life_wheel_snapshot
 
 assistant_api = Blueprint("assistant", __name__)
 
@@ -48,6 +49,16 @@ def assistant_preferences():
 @assistant_api.get("/api/assistant/review")
 def day_review():
     return build_day_review(_user(), request.args.get("kind", "morning"))
+
+
+@assistant_api.get("/api/assistant/life-wheel")
+def life_wheel():
+    raw_days = request.args.get("days", "30")
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Период колеса жизни должен быть числом") from exc
+    return build_life_wheel_snapshot(_user(), days=days)
 
 
 @assistant_api.post("/api/assistant/undo/<int:action_id>")
