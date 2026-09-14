@@ -45,7 +45,7 @@ jobs:
       - name: Local verification dependencies
         if: always()
         run: |
-          pip download -r requirements.txt --dest evidence/wheels
+          pip wheel -r requirements.txt --wheel-dir evidence/wheels
           coverage report > evidence/coverage.txt
       - uses: actions/upload-artifact@v4
         if: always()
