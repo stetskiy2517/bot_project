@@ -299,7 +299,7 @@ def _format_when(reminder: dict, timezone: str, now: datetime | None = None) -> 
 
 def _repeat_suffix(reminder: dict) -> str:
     label = repeat_label(reminder.get("repeat_rule"))
-    return f" · {label}" if label else ""
+    return f" · повтор: {label}" if label else " · повтор: нет"
 
 
 def _format_line(reminder: dict, timezone: str, index: int | None = None) -> str:
