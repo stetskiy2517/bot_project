@@ -27,6 +27,11 @@ NATURAL_DESTINATION_RE = re.compile(
     r"\b(?:будет|пройдет|пройдёт|состоится)\s+(?:в|на)\s+(?P<location>.+?)\s*$",
     re.IGNORECASE,
 )
+HOME_PLACE_RE = re.compile(r"\b(?:дома|домой|у\s+себя\s+дома)\b", re.IGNORECASE)
+OFFICE_PLACE_RE = re.compile(
+    r"\b(?:на\s+работе|на\s+работу|в\s+офисе|в\s+офис)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,61 @@ def _event_destination(event: dict) -> str | None:
     return value[:500] if value else None
 
 
+def _normalise_place_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip(" ,.;")
+
+
+def _place_alias_kind(value: str, *, allow_bare: bool) -> str | None:
+    normalized = _normalise_place_text(value)
+    if allow_bare and normalized in {"дом", "дома", "домой", "у себя дома"}:
+        return "home"
+    if allow_bare and normalized in {
+        "работа",
+        "работе",
+        "работу",
+        "офис",
+        "офисе",
+        "на работе",
+        "на работу",
+        "в офисе",
+        "в офис",
+    }:
+        return "office"
+    if HOME_PLACE_RE.search(normalized):
+        return "home"
+    if OFFICE_PLACE_RE.search(normalized):
+        return "office"
+    return None
+
+
+def _saved_place_address(kind: str, preferences: dict) -> str | None:
+    key = "home_address" if kind == "home" else "office_address"
+    return str(preferences.get(key) or "").strip() or None
+
+
+def _resolved_event_destination(event: dict, preferences: dict) -> str | None:
+    location = str(event.get("location") or "").strip()
+    if location:
+        kind = _place_alias_kind(location, allow_bare=True)
+        if kind:
+            return _saved_place_address(kind, preferences)
+        return location
+
+    summary = str(event.get("summary") or "").strip()
+    match = NATURAL_DESTINATION_RE.search(summary)
+    if match:
+        value = re.sub(r"\s+", " ", match.group("location")).strip(" ,.;")
+        kind = _place_alias_kind(value, allow_bare=True)
+        if kind:
+            return _saved_place_address(kind, preferences)
+        return value[:500] if value else None
+
+    kind = _place_alias_kind(summary, allow_bare=False)
+    if kind:
+        return _saved_place_address(kind, preferences)
+    return None
+
+
 def estimate_route(origin: str, destination: str, *, mode: str, departure_at: datetime) -> RouteEstimate:
     provider = navigation_provider().casefold()
     if provider in {"ors", "openrouteservice"}:
@@ -121,7 +181,12 @@ def estimate_route(origin: str, destination: str, *, mode: str, departure_at: da
     )
 
 
-def _previous_event_origin(user_id: int, target_event: dict, timezone: str) -> str | None:
+def _previous_event_origin(
+    user_id: int,
+    target_event: dict,
+    timezone: str,
+    preferences: dict,
+) -> str | None:
     target_start, all_day = _event_start(target_event, timezone)
     if not target_start or all_day:
         return None
@@ -133,7 +198,7 @@ def _previous_event_origin(user_id: int, target_event: dict, timezone: str) -> s
     for event in candidates:
         if event.get("id") == target_id or is_managed_travel_event(event):
             continue
-        location = _event_destination(event)
+        location = _resolved_event_destination(event, preferences)
         if not location:
             continue
         end = _event_end(event, timezone)
@@ -145,11 +210,16 @@ def _previous_event_origin(user_id: int, target_event: dict, timezone: str) -> s
     return best_location
 
 
-def resolve_origin(user_id: int, target_event: dict, timezone: str) -> str | None:
-    previous = _previous_event_origin(user_id, target_event, timezone)
+def resolve_origin(
+    user_id: int,
+    target_event: dict,
+    timezone: str,
+    preferences: dict | None = None,
+) -> str | None:
+    prefs = preferences or get_navigation_preferences(user_id)
+    previous = _previous_event_origin(user_id, target_event, timezone, prefs)
     if previous:
         return previous
-    prefs = get_navigation_preferences(user_id)
     return str(prefs.get("default_origin") or "").strip() or None
 
 
@@ -240,13 +310,13 @@ def create_travel_for_event(user_id: int, source_event: dict, timezone: str) -> 
     if source_event.get("recurrence") or source_event.get("recurringEventId"):
         return None
     source_id = _source_event_id(source_event)
-    destination = _event_destination(source_event)
+    destination = _resolved_event_destination(source_event, prefs)
     if not source_id or not destination or is_managed_travel_event(source_event):
         return None
     source_start, all_day = _event_start(source_event, timezone)
     if not source_start or all_day:
         return None
-    origin = resolve_origin(user_id, source_event, timezone)
+    origin = resolve_origin(user_id, source_event, timezone, preferences=prefs)
     if not origin or origin.casefold() == destination.casefold():
         return None
     estimate = estimate_route(
