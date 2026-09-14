@@ -567,6 +567,12 @@
       .settings-group .settings-help {
         margin: 10px 14px 14px;
       }
+      .settings-group-actions {
+        padding: 0 14px 14px;
+      }
+      .settings-group-actions .action {
+        width: 100%;
+      }
       .settings-help {
         margin: 8px 2px 0;
         color: var(--muted);
@@ -827,6 +833,49 @@
               value="15"
           /></label>
         </div>
+        <details id="navigationGroup" class="settings-group">
+          <summary>
+            <span class="settings-group-title">Маршруты</span>
+            <span id="navigationMeta" class="settings-group-meta">2ГИС</span>
+            <svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="grid">
+            <label class="field">Автоматически добавлять дорогу
+              <select id="navigationEnabled">
+                <option value="true">Да</option>
+                <option value="false">Нет</option>
+              </select>
+            </label>
+            <label class="field">Дом
+              <input id="homeAddress" type="text" autocomplete="street-address" placeholder="Москва, улица, дом" />
+            </label>
+            <label class="field">Офис
+              <input id="officeAddress" type="text" autocomplete="street-address" placeholder="Москва, улица, дом" />
+            </label>
+            <label class="field">Откуда считать, если до встречи нет другого события
+              <select id="defaultPlace">
+                <option value="home">Из дома</option>
+                <option value="office">Из офиса</option>
+              </select>
+            </label>
+            <label class="field">Обычно передвигаюсь
+              <select id="travelMode">
+                <option value="driving">На машине</option>
+                <option value="transit">Общественный транспорт</option>
+                <option value="walking">Пешком</option>
+              </select>
+            </label>
+            <label class="field">Запас до встречи, минут
+              <input id="arrivalBuffer" type="number" min="0" max="180" value="15" />
+            </label>
+          </div>
+          <p id="navigationStatus" class="settings-help">Проверяю состояние модуля…</p>
+          <div class="settings-group-actions">
+            <button id="testNavigation" class="action" type="button">Проверить маршрут</button>
+          </div>
+        </details>
         <details id="categoryColorsGroup" class="settings-group">
           <summary>
             <span class="settings-group-title">Цвета категорий</span>
@@ -1031,6 +1080,17 @@
         });
       }
 
+      function navigationForm() {
+        return {
+          enabled: document.getElementById("navigationEnabled").value === "true",
+          home_address: document.getElementById("homeAddress").value.trim(),
+          office_address: document.getElementById("officeAddress").value.trim(),
+          default_place: document.getElementById("defaultPlace").value,
+          mode: document.getElementById("travelMode").value,
+          arrival_buffer_minutes: Number(document.getElementById("arrivalBuffer").value),
+        };
+      }
+
       function loadSettings(status) {
         const preferences = status.preferences || {};
         document.getElementById("timezone").value =
@@ -1048,6 +1108,21 @@
           ...(preferences.category_colors || {}),
         };
         renderCategoryColors();
+        const navigation = status.navigation || {};
+        document.getElementById("navigationEnabled").value =
+          String(navigation.enabled !== false);
+        document.getElementById("homeAddress").value = navigation.home_address || "";
+        document.getElementById("officeAddress").value = navigation.office_address || "";
+        document.getElementById("defaultPlace").value = navigation.default_place || "home";
+        document.getElementById("travelMode").value = navigation.mode || "driving";
+        document.getElementById("arrivalBuffer").value =
+          navigation.arrival_buffer_minutes ?? 15;
+        const provider = navigation.provider === "2gis" ? "2ГИС" : navigation.provider || "Маршруты";
+        document.getElementById("navigationMeta").textContent =
+          navigation.configured ? provider + " · готово" : provider + " · нужен ключ";
+        document.getElementById("navigationStatus").textContent = navigation.configured
+          ? "Маршруты подключены. Дорога будет добавляться к новым встречам с адресом."
+          : "Код модуля готов, но на сервере ещё не настроен API-ключ 2ГИС.";
         const name = (status.user && status.user.name) || "Пользователь";
         const email = (status.user && status.user.email) || "Google Calendar";
         document.getElementById("accountName").textContent = name;
@@ -1373,6 +1448,31 @@
         }
       };
 
+      document.getElementById("testNavigation").onclick = async () => {
+        const navigation = navigationForm();
+        const origin = navigation.default_place === "office"
+          ? navigation.office_address
+          : navigation.home_address;
+        const destination = navigation.default_place === "office"
+          ? navigation.home_address
+          : navigation.office_address;
+        const status = document.getElementById("navigationStatus");
+        status.textContent = "Строю маршрут…";
+        try {
+          const result = await api("/api/navigation/test", {
+            method: "POST",
+            body: JSON.stringify({ origin, destination, mode: navigation.mode }),
+          });
+          const distance = result.distance_meters
+            ? " · " + (result.distance_meters / 1000).toFixed(1) + " км"
+            : "";
+          status.textContent =
+            "Маршрут работает: " + result.duration_minutes + " мин" + distance + ".";
+        } catch (error) {
+          status.textContent = error.message;
+        }
+      };
+
       document.getElementById("saveSettings").onclick = async () => {
         try {
           await api("/api/settings", {
@@ -1384,6 +1484,7 @@
               work_days: workDays,
               buffer_minutes: Number(document.getElementById("buffer").value),
               category_colors: categoryColors,
+              navigation: navigationForm(),
             }),
           });
           settingsPanel.classList.remove("open");
