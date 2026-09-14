@@ -380,6 +380,8 @@ def complete_structured(
     settings = load_ai_settings()
     if not settings.enabled or settings.provider != "gigachat" or not settings.credentials:
         raise AIConfigurationError("AI is not configured")
+    if settings.scope == "GIGACHAT_API_PERS":
+        raise AIProviderError("GigaChat structured output unavailable for personal scope: HTTP 400")
     raw = _gigachat_completion(
         settings,
         messages,
