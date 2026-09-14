@@ -44,12 +44,12 @@ import sys
 
 env_path = Path(sys.argv[1])
 key_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
-updates = {"NAVIGATION_PROVIDER": "google"}
+updates = {"NAVIGATION_PROVIDER": "ors"}
 if key_path and key_path.is_file() and key_path.stat().st_size:
     key = key_path.read_text(encoding="utf-8").strip()
     if not key:
-        raise SystemExit("Google Maps key file is empty")
-    updates["GOOGLE_MAPS_API_KEY"] = key
+        raise SystemExit("openrouteservice key file is empty")
+    updates["ORS_API_KEY"] = key
 
 lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
 seen = set()
