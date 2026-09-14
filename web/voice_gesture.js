@@ -1,4 +1,113 @@
 (() => {
+  function installStableMobileViewport() {
+    const style = document.createElement("style");
+    style.id = "stableMobileViewportFix";
+    style.textContent = `
+      @media (max-width: 759px), (pointer: coarse) {
+        :root {
+          --stable-app-height: 100dvh;
+          --keyboard-inset: 0px;
+          --viewport-pan: 0px;
+        }
+        .app,
+        .panel,
+        .login {
+          height: var(--stable-app-height, 100dvh) !important;
+          transform: translateY(var(--viewport-pan, 0px)) !important;
+        }
+        .sheet {
+          max-height: min(88dvh, calc(var(--stable-app-height, 100dvh) - 24px)) !important;
+        }
+        .chat-shell {
+          bottom: calc(
+            env(safe-area-inset-bottom) + 82px + var(--keyboard-inset, 0px)
+          ) !important;
+        }
+        .composer-wrap {
+          bottom: var(--keyboard-inset, 0px) !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const root = document.documentElement;
+    let stableHeight = Math.max(window.innerHeight || 0, root.clientHeight || 0);
+    let settleTimer = null;
+    let finalSettleTimer = null;
+
+    function keyboardFieldFocused() {
+      const active = document.activeElement;
+      if (!active || !(active instanceof HTMLElement)) return false;
+      return active.matches("input, textarea, select, [contenteditable='true']");
+    }
+
+    function measuredViewportPan() {
+      const bodyRect = document.body?.getBoundingClientRect?.();
+      const bodyTop = Number(bodyRect?.top);
+      const bodyPan = Number.isFinite(bodyTop) ? Math.max(0, -bodyTop) : 0;
+      const viewportTop = Number(window.visualViewport?.offsetTop || 0);
+      const viewportPan = Number.isFinite(viewportTop) ? Math.max(0, viewportTop) : 0;
+      return Math.max(bodyPan, viewportPan);
+    }
+
+    function syncStableViewport() {
+      const viewport = window.visualViewport;
+      const layoutHeight = Math.max(window.innerHeight || 0, root.clientHeight || 0);
+      const viewportHeight = Math.max(0, Number(viewport?.height || 0)) || layoutHeight;
+      const focused = keyboardFieldFocused();
+      const heightLoss = Math.max(0, stableHeight - viewportHeight);
+      const viewportPan = measuredViewportPan();
+      const keyboardOpen = focused && (heightLoss > 100 || viewportPan > 20);
+
+      if (!focused && !keyboardOpen) {
+        stableHeight = Math.max(layoutHeight, viewportHeight);
+      }
+
+      const keyboardInset = keyboardOpen
+        ? Math.max(0, stableHeight - viewportHeight)
+        : 0;
+      const panCompensation = keyboardOpen ? viewportPan : 0;
+
+      root.style.setProperty("--stable-app-height", Math.round(stableHeight) + "px");
+      root.style.setProperty("--keyboard-inset", Math.round(keyboardInset) + "px");
+      root.style.setProperty("--viewport-pan", Math.round(panCompensation) + "px");
+
+      if (keyboardInset && document.activeElement?.id === "message") {
+        requestAnimationFrame(() => {
+          const chat = document.getElementById("chat");
+          if (chat) chat.scrollTop = chat.scrollHeight;
+        });
+      }
+    }
+
+    function scheduleStableViewportSync() {
+      syncStableViewport();
+      requestAnimationFrame(syncStableViewport);
+      if (settleTimer) clearTimeout(settleTimer);
+      if (finalSettleTimer) clearTimeout(finalSettleTimer);
+      settleTimer = setTimeout(syncStableViewport, 70);
+      finalSettleTimer = setTimeout(syncStableViewport, 240);
+    }
+
+    scheduleStableViewportSync();
+    window.addEventListener("resize", scheduleStableViewportSync, {passive: true});
+    window.addEventListener("orientationchange", () => {
+      setTimeout(scheduleStableViewportSync, 160);
+    });
+    document.addEventListener("focusin", scheduleStableViewportSync);
+    document.addEventListener("focusout", () => {
+      setTimeout(scheduleStableViewportSync, 120);
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", scheduleStableViewportSync, {passive: true});
+      window.visualViewport.addEventListener("scroll", scheduleStableViewportSync, {passive: true});
+    }
+  }
+
+  installStableMobileViewport();
+})();
+
+(() => {
   const CANCEL_SWIPE_PX = 72;
   const TRASH_REVEAL_PX = 12;
   const CANCEL_FEEDBACK_MS = 700;
