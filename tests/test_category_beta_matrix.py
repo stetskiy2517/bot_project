@@ -4,7 +4,6 @@ import unittest
 from zoneinfo import ZoneInfo
 
 import web_app
-from tests.web_test_support import web_test_app
 from core.db import DEFAULT_CATEGORY_COLORS, get_or_create_google_user
 from modules.calendar import EVENT_CATEGORIES, _detect_category
 from modules.calendar_event_features import build_all_day_event
@@ -74,7 +73,7 @@ class CategoryBetaMatrixTests(unittest.TestCase):
 
 class CategorySettingsCompatibilityTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_test_app()
+        self.app = web_app.create_web_app()
         self.client = self.app.test_client()
         suffix = self._testMethodName
         uid = get_or_create_google_user(

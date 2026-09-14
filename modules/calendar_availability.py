@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 import re
-import secrets
-import time as clock
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -22,7 +20,7 @@ from modules.calendar_user import (
 
 DEFAULT_SLOT_DURATION = timedelta(hours=1)
 SLOT_STEP = timedelta(minutes=30)
-MAX_SUGGESTIONS = 3
+MAX_SUGGESTIONS = 5
 CLOCK_FRAGMENT = r"\d{1,2}(?:(?::|\.)[0-5]\d)?(?:\s+(?:утра|дня|вечера|ночи))?"
 BETWEEN_TIME_RE = re.compile(
     rf"\bмежду\s+(?P<start>{CLOCK_FRAGMENT})\s+и\s+(?P<end>{CLOCK_FRAGMENT})\b",
@@ -60,11 +58,8 @@ def _event_end(event: dict, timezone: str) -> datetime | None:
 
 
 def _requested_duration(text: str) -> timedelta:
-    match = re.search(r"\b(?:есть|найди|нужн\w*)\s+(\d{1,3})\s*(минут\w*|час\w*)\b", text, re.IGNORECASE)
-    duration = _extract_duration(f"на {match.group(1)} {match.group(2)}" if match else text)
-    if not timedelta(minutes=1) <= duration <= timedelta(hours=12):
-        raise ValueError("Длительность окна должна быть от 1 минуты до 12 часов")
-    return duration
+    duration = _extract_duration(text)
+    return duration if duration > timedelta(0) else DEFAULT_SLOT_DURATION
 
 
 def _period_has_explicit_day(text: str) -> bool:
@@ -320,45 +315,13 @@ def create_event_in_slot(
     title: str,
     start: datetime,
     end: datetime,
-    *,
-    allow_non_workday: bool = False,
 ) -> dict:
-    zone = _user_zone(timezone)
-    local_start, local_end = start.astimezone(zone), end.astimezone(zone)
-    prefs = get_calendar_preferences(user_id)
-    if (
-        start <= datetime.now(zone) or end <= start or
-        (not allow_non_workday and local_start.weekday() not in prefs["work_days"]) or
-        local_start.date() != local_end.date() or
-        local_start.time() < _parse_hhmm(prefs["work_start"]) or
-        local_end.time() > _parse_hhmm(prefs["work_end"])
-    ):
-        raise ValueError("Это окно уже недоступно. Запроси свободное время ещё раз.")
-    buffer = timedelta(minutes=prefs["buffer_minutes"])
-    events = _list_events(user_id, start - buffer, end + buffer)
-    if _overlaps(start, end, _busy_intervals(events, timezone, buffer=buffer)):
-        raise ValueError("Выбранное окно уже занято. Запроси новые варианты.")
-    event = _build_event(title, start, end, get_category_colors(user_id))
-    event["summary"] = title.strip()[:200]
+    """Создать обычное календарное событие в уже проверенном свободном интервале."""
+    event = apply_event_features(_build_event(title, start, end, get_category_colors(user_id)), title)
     event["start"]["timeZone"] = timezone
     event["end"]["timeZone"] = timezone
     _create_event(user_id, event)
     return event
-
-
-def slot_choices(context) -> list[dict]:
-    pending = context.user_data.get("smart_planner_pending") or {}
-    kind = pending.get("type")
-    if kind not in {"free_slot_choice", "confirm_free_slot"}:
-        return []
-    token = pending.setdefault("choice_token", secrets.token_urlsafe(18))
-    if kind == "confirm_free_slot":
-        return [{"label": "Поставить", "text": "да", "context": token},
-                {"label": "Отмена", "text": "отмена", "context": token}]
-    return [
-        {"label": _format_slot(slot, include_date=True), "text": str(index), "context": token}
-        for index, slot in enumerate(pending.get("slots", [])[:3], 1)
-    ]
 
 
 async def free_slots_from_text(
@@ -418,20 +381,18 @@ async def free_slots_from_text(
             await update.message.reply_text("Такого свободного варианта не нашёл. Попробуй выбрать другой.")
             return True
         slot_start, slot_end = slots[index]
-        context.user_data["smart_planner_pending"] = {
-            "type": "confirm_free_slot", "slot": (slot_start, slot_end),
-            "timezone": timezone, "title": booking_title, "expires_at": clock.time() + 300,
-            "allow_non_workday": _period_has_explicit_day(text),
-        }
+        try:
+            event = create_event_in_slot(user_id, timezone, booking_title, slot_start, slot_end)
+        except Exception:
+            await update.message.reply_text("Нашёл окно, но не удалось создать в нём событие.")
+            return True
         await update.message.reply_text(
-            f"Поставить «{booking_title}» на {slot_start.strftime('%d.%m %H:%M')}–{slot_end.strftime('%H:%M')}? Да или отмена."
+            f"Поставил «{event['summary']}» на {slot_start.strftime('%d.%m %H:%M')}–{slot_end.strftime('%H:%M')}."
         )
         return True
 
     context.user_data["smart_planner_pending"] = {
         "type": "free_slot_choice",
-        "allow_non_workday": _period_has_explicit_day(text),
-        "expires_at": clock.time() + 300,
         "slots": slots,
         "timezone": timezone,
         "label": label,

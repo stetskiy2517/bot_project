@@ -12,5 +12,3 @@ tokens/
 *.sqlite
 *.sqlite3
 *.log
-.coverage
-htmlcov/

@@ -3,7 +3,6 @@ import unittest
 from uuid import uuid4
 
 import web_app
-from tests.web_test_support import web_test_app
 from core.db import get_or_create_google_user
 from core.note_store import create_note
 from core.reminder_store import (
@@ -17,7 +16,7 @@ from modules.note_conversation import ACTIVE_NOTE_KEY
 
 class WebLibraryTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_test_app()
+        self.app = web_app.create_web_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
         stamp = uuid4().hex

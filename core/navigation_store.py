@@ -111,35 +111,6 @@ def list_navigation_user_ids() -> list[int]:
         ).fetchall()
     return [int(row[0]) for row in rows]
 
-def validate_navigation_settings(
-    *, enabled: bool, home_address: str | None, office_address: str | None,
-    default_place: str, mode: str, arrival_buffer_minutes: int,
-) -> dict:
-    if not isinstance(enabled, bool):
-        raise ValueError("Неверное состояние навигации")
-    if any(value is not None and not isinstance(value, str) for value in (home_address, office_address)):
-        raise ValueError("Адрес должен быть строкой")
-    if isinstance(arrival_buffer_minutes, bool) or not isinstance(arrival_buffer_minutes, int):
-        raise ValueError("Буфер дороги должен быть целым числом минут")
-    if mode not in VALID_MODES:
-        raise ValueError("Unknown navigation mode")
-    if default_place not in VALID_PLACES:
-        raise ValueError("Unknown default navigation place")
-    buffer_value = int(arrival_buffer_minutes)
-    if not 0 <= buffer_value <= 180:
-        raise ValueError("Arrival buffer must be between 0 and 180 minutes")
-
-    home = _clean_address(home_address)
-    office = _clean_address(office_address)
-    default_origin = home if default_place == "home" else office
-    if not default_origin:
-        default_origin = office if default_place == "home" else home
-
-    return {
-        "enabled": enabled, "home_address": home, "office_address": office,
-        "default_place": default_place, "mode": mode, "arrival_buffer_minutes": buffer_value,
-    }
-
 
 def save_navigation_settings(
     user_id: int,
@@ -150,7 +121,6 @@ def save_navigation_settings(
     default_place: str,
     mode: str,
     arrival_buffer_minutes: int,
-    commit: bool = True,
 ) -> None:
     if mode not in VALID_MODES:
         raise ValueError("Unknown navigation mode")
@@ -184,8 +154,7 @@ def save_navigation_settings(
                 int(user_id),
             ),
         )
-        if commit:
-            conn.commit()
+        conn.commit()
 
 
 def save_navigation_place(user_id: int, place: str, address: str, *, make_default: bool = True) -> None:

@@ -1,12 +1,11 @@
 import unittest
 
 import web_app
-from tests.web_test_support import web_test_app
 
 
 class ReminderCardVisualTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_test_app()
+        self.app = web_app.create_web_app()
         self.client = self.app.test_client()
 
     def test_reminder_cards_hide_status_badges_and_strike_completed_items(self):

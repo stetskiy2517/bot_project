@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 import re
-import time as clock
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -499,7 +498,7 @@ def _recurring_scope_label(scope: str) -> str:
     return {"this": "только это событие", "future": "это и все будущие", "series": "всю серию"}.get(scope, scope)
 
 
-async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, *, template: dict | None = None) -> bool:
+async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
@@ -507,7 +506,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
 
     try:
-        if template is None and is_all_day(text):
+        if is_all_day(text):
             event = build_all_day_event(text, timezone, category_colors=get_category_colors(user_id))
             if not event:
                 return False
@@ -526,17 +525,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         start = start_naive.replace(tzinfo=zone) if start_naive.tzinfo is None else start_naive.astimezone(zone)
         end = end_naive.replace(tzinfo=zone) if end_naive.tzinfo is None else end_naive.astimezone(zone)
 
-        colors = get_category_colors(user_id)
-        if template is not None:
-            end = start + timedelta(minutes=template["duration_minutes"])
-            event = _build_event(template["title"], start, end, colors)
-            event["summary"] = template["title"]
-            event["description"] = f"AI Smart Planner category: {template['category']}"
-            event.pop("colorId", None)
-            if colors.get(template["category"]):
-                event["colorId"] = colors[template["category"]]
-        else:
-            event = apply_event_features(_build_event(text, start, end, colors), text)
+        event = apply_event_features(_build_event(text, start, end, get_category_colors(user_id)), text)
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         conflicts = _find_conflicts(user_id, start, end)
@@ -796,62 +785,51 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Хорошо, отменил действие.")
         return True
 
-    if pending_type in {"free_slot_title", "free_slot_choice", "confirm_free_slot"}:
-        if pending.get("expires_at", clock.time() + 1) <= clock.time():
-            context.user_data.pop("smart_planner_pending", None)
-            await update.message.reply_text("Предложение устарело. Запроси свободные окна ещё раз.")
+    if pending_type == "free_slot_title":
+        title = text.strip(" ,.-")
+        if not title:
+            await update.message.reply_text("Напиши, что поставить в это время.")
             return True
-        expires = pending.get("expires_at", clock.time() + 300)
-        if pending_type == "confirm_free_slot":
-            if normal not in YES_WORDS:
-                await update.message.reply_text("Ответь «да» или «отмена».")
-                return True
-            context.user_data.pop("smart_planner_pending", None)
-            slot = pending["slot"]
-            try:
-                event = create_event_in_slot(update.effective_user.id, pending["timezone"], pending["title"], *slot, allow_non_workday=pending.get("allow_non_workday", False))
-                await update.message.reply_text(
-                    f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
-                )
-            except ValueError as exc:
-                await update.message.reply_text(str(exc))
-            except Exception:
-                logger.exception("Free slot booking failed for user %s", update.effective_user.id)
-                await update.message.reply_text("Не удалось подтвердить запись в выбранное окно. Проверь календарь.")
-            return True
-        if pending_type == "free_slot_choice":
-            index = _choice_index(text)
-            if index is None:
-                context.user_data.pop("smart_planner_pending", None)
-                return False
-            slots = pending.get("slots") or []
-            if not 0 <= index < len(slots):
-                await update.message.reply_text("Такого варианта нет. Выбери номер из списка.")
-                return True
-            slot = slots[index]
-            title = _free_choice_title(text)
-        else:
-            slot = pending.get("slot")
-            title = text.strip(" ,.-")
+        slot = pending.get("slot")
         if not slot:
             context.user_data.pop("smart_planner_pending", None)
             return False
-        if not title:
-            _store_pending(context, {"type": "free_slot_title", "slot": slot,
-                                    "timezone": pending["timezone"], "expires_at": expires,
-                                    "allow_non_workday": pending.get("allow_non_workday", False)})
+        context.user_data.pop("smart_planner_pending", None)
+        try:
+            event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
             await update.message.reply_text(
-                f"Выбрал {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}. Что поставить в это время?"
+                f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
             )
+        except Exception:
+            logger.exception("Free slot booking failed for user %s", update.effective_user.id)
+            await update.message.reply_text("Не удалось создать событие в выбранном окне.")
+        return True
+
+    if pending_type == "free_slot_choice":
+        index = _choice_index(text)
+        if index is None:
+            context.user_data.pop("smart_planner_pending", None)
+            return False
+        slots = pending.get("slots") or []
+        if index < 0 or index >= len(slots):
+            await update.message.reply_text("Такого варианта нет. Выбери номер из списка.")
             return True
-        if len(title) > 200:
-            await update.message.reply_text("Сократи название до 200 символов.")
+        slot = slots[index]
+        title = _free_choice_title(text)
+        if title:
+            context.user_data.pop("smart_planner_pending", None)
+            try:
+                event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
+                await update.message.reply_text(
+                    f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
+                )
+            except Exception:
+                logger.exception("Free slot booking failed for user %s", update.effective_user.id)
+                await update.message.reply_text("Не удалось создать событие в выбранном окне.")
             return True
-        _store_pending(context, {"type": "confirm_free_slot", "slot": slot, "title": title,
-                                "timezone": pending["timezone"], "expires_at": expires,
-                                    "allow_non_workday": pending.get("allow_non_workday", False)})
+        _store_pending(context, {"type": "free_slot_title", "slot": slot, "timezone": pending["timezone"]})
         await update.message.reply_text(
-            f"Поставить «{title}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}? Да или отмена."
+            f"Выбрал {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}. Что поставить в это время?"
         )
         return True
 

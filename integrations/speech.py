@@ -17,16 +17,11 @@ ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")
 BASE_URL = "https://api.assemblyai.com"
 TRANSCRIPTION_TIMEOUT_SECONDS = 180
 POLL_INTERVAL_SECONDS = 2
-EXPLICIT_DOTTED_TIME_RE = re.compile(
-    r"\b(?P<prefix>(?:в|к|с|до)\s+)(?P<hour>[01]?\d|2[0-3])"
-    r"\.(?P<minute>[0-5]\d)(?!\d|\.\d)",
-    re.IGNORECASE,
-)
 
 
 def normalize_time_format(text: str) -> str:
-    # Bare dotted numbers may be dates, prices or version numbers.
-    return EXPLICIT_DOTTED_TIME_RE.sub(r"\g<prefix>\g<hour>:\g<minute>", text)
+    """Normalize speech recognition time such as 22.00 -> 22:00."""
+    return re.sub(r"\b([01]?\d|2[0-3])\.(\d{2})\b", r"\1:\2", text)
 
 
 def _upload_audio(audio: BinaryIO) -> str:
@@ -75,8 +70,7 @@ def _wait_for_transcript(transcript_id: str) -> str:
         result = response.json()
         status = result.get("status")
         if status == "completed":
-            text = result.get("text")
-            return text.strip() if isinstance(text, str) else ""
+            return result.get("text", "").strip()
         if status == "error":
             raise RuntimeError(result.get("error") or "Ошибка распознавания речи")
         time.sleep(POLL_INTERVAL_SECONDS)

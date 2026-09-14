@@ -2,7 +2,6 @@ import unittest
 from uuid import uuid4
 
 import web_app
-from tests.web_test_support import web_test_app
 from core.ai_memory_store import list_ai_memory_events
 from core.db import get_or_create_google_user
 from core.note_store import create_note, get_note
@@ -10,7 +9,7 @@ from core.note_store import create_note, get_note
 
 class LibraryNoteDeleteTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_test_app()
+        self.app = web_app.create_web_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
         stamp = uuid4().hex

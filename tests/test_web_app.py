@@ -3,13 +3,12 @@ import unittest
 from unittest.mock import patch
 
 import web_app
-from tests.web_test_support import web_test_app
 from core.db import get_or_create_google_user
 
 
 class WebAppTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_test_app()
+        self.app = web_app.create_web_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
 
@@ -31,10 +30,10 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/voice").status_code, 401)
 
     def test_google_login_is_public(self):
-        with patch("web_app.build_web_signin_url", return_value="https://accounts.google.test/auth?state=test-login-state") as build:
+        with patch("web_app.build_web_signin_url", return_value="https://accounts.google.test/auth") as build:
             response = self.client.get("/api/google/login")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["url"], "https://accounts.google.test/auth?state=test-login-state")
+        self.assertEqual(response.get_json()["url"], "https://accounts.google.test/auth")
         build.assert_called_once_with()
 
     def test_two_google_accounts_have_independent_sessions(self):

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import math
 import threading
 
 _LOCATION_TTL = timedelta(minutes=15)
@@ -19,15 +18,11 @@ class CurrentLocation:
 
 
 def save_current_location(user_id: int, latitude: float, longitude: float, accuracy_meters: float | None = None) -> CurrentLocation:
-    if any(isinstance(value, bool) for value in (latitude, longitude, accuracy_meters)):
-        raise ValueError("Invalid location values")
     latitude = float(latitude)
     longitude = float(longitude)
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
         raise ValueError("Некорректные координаты")
-    accuracy = None if accuracy_meters is None else float(accuracy_meters)
-    if accuracy is not None and (not math.isfinite(accuracy) or accuracy < 0):
-        raise ValueError("Invalid location accuracy")
+    accuracy = None if accuracy_meters is None else max(0.0, float(accuracy_meters))
     location = CurrentLocation(latitude, longitude, accuracy, datetime.now(timezone.utc))
     with _lock:
         _locations[int(user_id)] = location
@@ -50,8 +45,3 @@ def current_location_origin(user_id: int) -> str | None:
     if not location:
         return None
     return f"geo:{location.latitude:.7f},{location.longitude:.7f}"
-
-
-def clear_current_location(user_id: int) -> None:
-    with _lock:
-        _locations.pop(int(user_id), None)

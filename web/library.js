@@ -420,7 +420,17 @@
   }
 
   async function request(path, options = {}) {
-    return window.api(path, options);
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"])
+      headers["Content-Type"] = "application/json";
+    const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
+    if (response.status === 401) {
+      login?.classList.add("open");
+      throw new Error("unauthorized");
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || payload.error || "request_failed");
+    return payload;
   }
 
   function showToast(message) {
@@ -739,7 +749,6 @@
     item.className = "msg assistant";
     item.textContent = payload.chat_text || "Открыто.";
     chat.appendChild(item);
-    document.dispatchEvent(new CustomEvent("planner-library-open", {detail: payload}));
     chat.scrollTop = chat.scrollHeight;
     if (typeof window.clearChatIdleTimer === "function") window.clearChatIdleTimer();
     if (typeof window.armChatIdleTimer === "function") window.armChatIdleTimer();
@@ -762,7 +771,6 @@
       await request(`/api/library/notes/${Number(noteId)}`, { method: "DELETE" });
       removeNote(noteId);
       showToast("Заметка удалена");
-      document.dispatchEvent(new Event("planner-note-changed"));
     } catch (error) {
       if (error.message !== "unauthorized") showToast("Не удалось удалить заметку");
     }
@@ -842,9 +850,6 @@
     }
   }
 
-  document.addEventListener("planner-library-changed", () => {
-    if (app.classList.contains("library-active")) loadLibrary();
-  });
   openButton.addEventListener("click", openLibrary);
   backButton.addEventListener("click", closeLibrary);
   notesTab.addEventListener("click", () => setTab("notes"));

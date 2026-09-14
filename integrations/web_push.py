@@ -12,8 +12,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
-from integrations.push_policy import TrustedPushSession, validate_push_endpoint, validate_push_keys
-
 from config import BASE_URL, DB_PATH, WEB_PUSH_SUBJECT, WEB_PUSH_VAPID_PRIVATE_KEY
 
 
@@ -112,8 +110,6 @@ def web_push_error_details(exc: WebPushException) -> tuple[int | None, str | Non
 
 
 def send_web_push(subscription: dict, payload: dict):
-    validate_push_endpoint(subscription["endpoint"])
-    validate_push_keys(subscription["p256dh"], subscription["auth"])
     subscription_info = {
         "endpoint": subscription["endpoint"],
         "keys": {
@@ -121,18 +117,13 @@ def send_web_push(subscription: dict, payload: dict):
             "auth": subscription["auth"],
         },
     }
-    with TrustedPushSession() as http:
-        response = webpush(
-            subscription_info=subscription_info,
-            data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            vapid_private_key=str(ensure_vapid_private_key()),
-            vapid_claims={"sub": _vapid_subject()},
-            content_encoding="aes128gcm",
-            headers={"Urgency": "high"},
-            ttl=86400,
-            timeout=10,
-            requests_session=http,
-        )
-        if 300 <= response.status_code < 400:
-            raise WebPushException("Push redirects are not allowed", response=response)
-        return response
+    return webpush(
+        subscription_info=subscription_info,
+        data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        vapid_private_key=str(ensure_vapid_private_key()),
+        vapid_claims={"sub": _vapid_subject()},
+        content_encoding="aes128gcm",
+        headers={"Urgency": "high"},
+        ttl=86400,
+        timeout=10,
+    )
