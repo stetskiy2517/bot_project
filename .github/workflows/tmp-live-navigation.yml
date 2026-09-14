@@ -1,0 +1,35 @@
+name: temporary-live-navigation
+
+on:
+  push:
+    branches:
+      - feature/live-navigation-recalculation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/live-navigation-recalculation
+          fetch-depth: 0
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply and test
+        run: |
+          python scripts/tmp_apply_live_navigation.py
+          python -m py_compile modules/navigation.py modules/navigation_monitor.py modules/navigation_notifications.py core/navigation_store.py web_app.py modules/calendar_actions.py tests/test_navigation_monitor.py
+          python -m unittest tests.test_navigation_monitor -v
+          python -m unittest discover -s tests -v
+          git diff --check
+      - name: Commit applied changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add modules/navigation.py web_app.py modules/calendar_actions.py
+          git commit -m "Recalculate travel blocks near departure"
+          git push origin HEAD:feature/live-navigation-recalculation
