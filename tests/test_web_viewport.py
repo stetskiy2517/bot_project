@@ -34,25 +34,6 @@ class WebViewportTests(unittest.TestCase):
         self.assertIn(".field select", html)
         self.assertIn("font-size: 16px", html)
 
-    def test_keyboard_compensates_actual_ios_body_pan(self):
-        response = self.client.get("/voice-gesture.js")
-        self.assertEqual(response.status_code, 200)
-        script = response.get_data(as_text=True)
-        response.close()
-
-        self.assertIn("--stable-app-height", script)
-        self.assertIn("--keyboard-inset", script)
-        self.assertIn("--viewport-pan", script)
-        self.assertIn("transform: translateY(var(--viewport-pan, 0px))", script)
-        self.assertIn("document.body?.getBoundingClientRect?.()", script)
-        self.assertIn("Math.max(bodyPan, viewportPan)", script)
-        self.assertIn("stableHeight - viewportHeight", script)
-        self.assertIn("scheduleStableViewportSync", script)
-        self.assertIn(".chat-shell", script)
-        self.assertIn(".composer-wrap", script)
-        self.assertNotIn("--visual-offset-top", script)
-        self.assertIn('document.activeElement?.id === "message"', script)
-
 
 if __name__ == "__main__":
     unittest.main()

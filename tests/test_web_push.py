@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import web_app
+from tests.web_test_support import web_test_app, push_keys
 from core.db import get_or_create_google_user
 from core.push_store import delete_push_subscription, list_push_subscriptions
 from core.reminder_store import (
@@ -22,7 +23,7 @@ from modules import reminder_dispatcher
 
 class WebPushApiTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = web_test_app()
         self.client = self.app.test_client()
         suffix = str(time.time_ns())
         self.user_id = get_or_create_google_user(
@@ -30,7 +31,7 @@ class WebPushApiTests(unittest.TestCase):
         )
         with self.client.session_transaction() as session:
             session["user_id"] = self.user_id
-        self.endpoint = f"https://push.example.test/{suffix}"
+        self.endpoint = f"https://fcm.googleapis.com/fcm/send/{suffix}"
 
     def tearDown(self):
         delete_push_subscription(self.user_id, self.endpoint)
@@ -38,7 +39,7 @@ class WebPushApiTests(unittest.TestCase):
     def _subscribe(self):
         payload = {
             "endpoint": self.endpoint,
-            "keys": {"p256dh": "p256dh-test", "auth": "auth-test"},
+            "keys": push_keys(),
         }
         response = self.client.post("/api/push/subscriptions", json=payload)
         self.assertEqual(response.status_code, 200)
@@ -136,7 +137,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v8', worker)
+        self.assertIn('personal-secretary-v9-reliability', worker)
         self.assertIn('"/library.js"', worker)
         self.assertIn("payload.web_push === 8030", worker)
         self.assertIn("payload.notification", worker)
@@ -204,11 +205,11 @@ class ReminderDispatcherTests(unittest.TestCase):
         self.assertEqual(notification["data"]["reminder_id"], 12)
 
     def test_expired_subscription_is_removed_and_reminder_released(self):
-        reminder = {"reminder_id": 44, "user_id": 7, "text": "Тест"}
+        reminder = {"reminder_id": 44, "user_id": 7, "text": "Тест", "status": "delivering"}
         subscription = {
             "subscription_id": 9,
             "user_id": 7,
-            "endpoint": "https://push.example.test/expired",
+            "endpoint": "https://fcm.googleapis.com/fcm/send/expired",
             "p256dh": "key",
             "auth": "auth",
         }
@@ -220,7 +221,11 @@ class ReminderDispatcherTests(unittest.TestCase):
         from pywebpush import WebPushException
 
         error = WebPushException("expired", response=Response())
-        with patch.object(reminder_dispatcher, "list_push_user_ids", return_value=[7]), \
+        with patch.object(reminder_dispatcher, "get_google_account", return_value={"user_id": 7}), \
+             patch.object(reminder_dispatcher, "get_saved_reminder", return_value=reminder), \
+             patch.object(reminder_dispatcher, "claim_repeat_attempts", return_value=[]), \
+             patch.object(reminder_dispatcher, "deliver_reviews_for_user", return_value=0), \
+             patch.object(reminder_dispatcher, "list_push_user_ids", return_value=[7]), \
              patch.object(reminder_dispatcher, "claim_due_for_push", return_value=[reminder]), \
              patch.object(reminder_dispatcher, "list_push_subscriptions", return_value=[subscription]), \
              patch.object(reminder_dispatcher, "send_web_push", side_effect=error), \
@@ -237,7 +242,7 @@ class ReminderDispatcherTests(unittest.TestCase):
         subscription = {
             "subscription_id": 3,
             "user_id": 7,
-            "endpoint": "https://push.example.test/ok",
+            "endpoint": "https://fcm.googleapis.com/fcm/send/ok",
             "p256dh": "key",
             "auth": "auth",
         }

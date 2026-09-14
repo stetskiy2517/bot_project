@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import secrets
+import time
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timedelta, timezone
 import logging
+from math import isfinite
 import re
 import threading
 from pathlib import Path
@@ -14,6 +19,7 @@ from flask import Flask, Response, jsonify, redirect, request, send_from_directo
 
 from config import BASE_URL, WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
+    conn, db_lock,
     DEFAULT_CATEGORY_COLORS,
     GOOGLE_EVENT_COLOR_IDS,
     get_google_account,
@@ -23,9 +29,10 @@ from core.db import (
     save_calendar_preferences,
     save_user_timezone,
 )
+from core.assistant_preferences import quiet_until
 from core.library_store import get_saved_reminder, list_saved_reminders
-from core.location_context import save_current_location
-from core.navigation_store import get_navigation_preferences, save_navigation_settings
+from core.location_context import clear_current_location, save_current_location
+from core.navigation_store import get_navigation_preferences, save_navigation_settings, validate_navigation_settings
 from core.note_store import delete_note, get_note, list_notes
 from core.push_store import (
     delete_push_subscription,
@@ -34,6 +41,7 @@ from core.push_store import (
     save_push_subscription,
 )
 from core.reminder_store import complete_reminder, delete_saved_reminder, reschedule_reminder
+from core.web_security import csrf_token, install_web_security, mark_executing
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
@@ -43,13 +51,17 @@ from modules.navigation_monitor import request_navigation_recalculation, start_n
 from modules.note_conversation import clear_active_note, remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
+from modules.assistant_api import assistant_api
+from core.undo_store import init_undo_store
 from modules.router import route_text
+from modules.calendar_availability import slot_choices
 
 logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).parent / "web"
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 VOICE_MAX_BYTES = 25 * 1024 * 1024
 VOICE_MIN_DURATION_MS = 400
+MAX_MESSAGE_LENGTH = 10000
 WEB_SESSION_LIFETIME_DAYS = 90
 VOICE_MIME_SUFFIXES = {
     "audio/webm": ".webm",
@@ -74,7 +86,7 @@ def _state_for(user_id: int) -> dict:
 
 def _current_user_id() -> int | None:
     value = session.get("user_id")
-    return int(value) if value is not None else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 < value < 2**63 else None
 
 
 def _require_user_id() -> int:
@@ -119,13 +131,13 @@ def _voice_duration_ms() -> float | None:
         value = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("Некорректная длительность аудио.") from exc
-    if value < 0:
+    if not isfinite(value) or value < 0:
         raise ValueError("Некорректная длительность аудио.")
     return value
 
 
 def _with_due_reminders(user_id: int, replies: list[str]) -> list[str]:
-    if has_push_subscriptions(user_id):
+    if has_push_subscriptions(user_id) or quiet_until(user_id, datetime.now(timezone.utc)):
         return replies
     due = claim_due_for_user(user_id)
     if not due:
@@ -198,11 +210,15 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
     replies = update.message.replies
     if not handled and not replies:
         replies.append("Не понял команду. Сформулируй её иначе или уточни, что нужно сделать.")
-    return WebPlannerResult(handled=handled, replies=replies)
+    return WebPlannerResult(handled=handled, replies=replies, choices=slot_choices(context))
 
 
 def create_web_app() -> Flask:
+    if BASE_URL and BASE_URL.lower().startswith("https://"):
+        if not WEB_SESSION_SECRET or WEB_SESSION_SECRET == "dev-only-change-me" or len(WEB_SESSION_SECRET) < 32:
+            raise RuntimeError("Set a strong WEB_SESSION_SECRET before exposing the application")
     init_db()
+    init_undo_store()
     start_reminder_push_worker()
     start_navigation_monitor_worker()
     app = Flask("personal-secretary-web", static_folder=None)
@@ -225,7 +241,15 @@ def create_web_app() -> Flask:
             return None
         if user_id is None:
             return jsonify({"error": "unauthorized"}), 401
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.is_json:
+            if not isinstance(request.get_json(silent=True), dict):
+                return jsonify({"error": "invalid_json", "message": "Ожидается JSON-объект."}), 400
         return None
+
+    @app.after_request
+    def prevent_content_sniffing(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        return response
 
     @app.errorhandler(413)
     def request_too_large(_error):
@@ -239,10 +263,20 @@ def create_web_app() -> Flask:
             '    <script src="/library.js"></script>\n'
             '    <script src="/voice-gesture.js"></script>\n'
             '    <script src="/location.js"></script>\n'
+            '    <script src="/assistant.js"></script>\n'
             "  </body>"
         )
+        html = html.replace("    <script>\n", '    <script src="/reliability.js"></script>\n    <script>\n', 1)
         html = html.replace("</body>", scripts)
         return Response(html, mimetype="text/html")
+
+    @app.get("/assistant.js")
+    def assistant_js():
+        return send_from_directory(WEB_DIR, "assistant.js", mimetype="application/javascript")
+
+    @app.get("/reliability.js")
+    def reliability_js():
+        return send_from_directory(WEB_DIR, "reliability.js", mimetype="application/javascript")
 
     @app.get("/reminders.js")
     def reminders_js():
@@ -282,27 +316,58 @@ def create_web_app() -> Flask:
     @app.get("/api/google/login")
     def google_login():
         try:
-            return {"url": build_web_signin_url()}
-        except Exception as exc:
+            url = build_web_signin_url()
+            states = parse_qs(urlsplit(url).query).get("state", [])
+            if len(states) != 1 or not states[0]:
+                raise ValueError("Missing OAuth state")
+            session["oauth_binding"] = {
+                "digest": hashlib.sha256(states[0].encode()).hexdigest(),
+                "issued_at": time.time(),
+            }
+            return {"url": url}
+        except Exception:
             logger.exception("Failed to build Google sign-in URL")
-            return jsonify({"error": "google_oauth_not_configured", "message": str(exc)}), 503
+            return jsonify({"error": "google_oauth_not_configured", "message": "Вход через Google временно недоступен."}), 503
 
     @app.get("/oauth2callback")
     def oauth_callback():
         if request.args.get("error"):
-            return f"Google OAuth error: {request.args['error']}", 400
+            return Response(f"Google OAuth error: {request.args['error']}", status=400, mimetype="text/plain")
+        binding = session.get("oauth_binding")
+        state = request.args.get("state", "")
+        valid_binding = isinstance(binding, dict) and isinstance(binding.get("issued_at"), (int, float))
+        if (
+            not valid_binding or not state or not request.args.get("code")
+            or not 0 <= time.time() - binding["issued_at"] <= 900
+            or not secrets.compare_digest(str(binding.get("digest", "")), hashlib.sha256(state.encode()).hexdigest())
+        ):
+            return Response("Ссылка входа устарела или открыта в другом браузере. Начни вход заново.",
+                            status=400, mimetype="text/plain")
+        session.pop("oauth_binding", None)
         try:
-            user_id = complete_web_signin(request.args.get("state", ""), request.args.get("code", ""))
-        except Exception as exc:
+            user_id = complete_web_signin(state, request.args["code"])
+        except Exception:
             logger.exception("Web Google sign-in failed")
-            return f"Не удалось войти через Google: {exc}", 400
+            return Response("Не удалось войти через Google. Попробуй войти ещё раз.", status=400, mimetype="text/plain")
         session.clear()
         session.permanent = True
         session["user_id"] = user_id
+        session["auth_time"] = time.time()
+        csrf_token()
         return redirect("/?google=connected")
 
     @app.post("/api/logout")
     def logout():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        endpoint = payload.get("endpoint")
+        if isinstance(endpoint, str):
+            delete_push_subscription(user_id, endpoint)
+        _user_state.pop(user_id, None)
+        clear_current_location(user_id)
+        with db_lock:
+            conn.execute("DELETE FROM conversation_state WHERE user_id=?", (user_id,))
+            conn.commit()
         session.clear()
         return {"ok": True}
 
@@ -311,6 +376,8 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         account = get_google_account(user_id)
         result = _status_payload(user_id)
+        result["csrf_token"] = csrf_token()
+        result["server_time_ms"] = int(time.time() * 1000)
         result["user"] = {
             "id": user_id,
             "email": account["email"],
@@ -364,13 +431,13 @@ def create_web_app() -> Flask:
             return jsonify({"error": "invalid_library_item"}), 400
 
         state = _state_for(user_id)
-        state.pop("smart_planner_pending", None)
         context = WebContext(state)
 
         if item_type == "note":
             note = get_note(user_id, item_id)
             if not note:
                 return jsonify({"error": "library_item_not_found"}), 404
+            state.pop("smart_planner_pending", None)
             remember_active_note(context, note)
             state.pop("smart_planner_active_reminder", None)
             return {
@@ -383,6 +450,7 @@ def create_web_app() -> Flask:
         reminder = get_saved_reminder(user_id, item_id)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
+        state.pop("smart_planner_pending", None)
         clear_active_note(context)
         state["smart_planner_active_reminder"] = {
             "reminder_id": int(reminder["reminder_id"]),
@@ -491,6 +559,8 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         payload = request.get_json(silent=True) or {}
         keys = payload.get("keys") or {}
+        if not isinstance(keys, dict):
+            return jsonify({"error": "invalid_push_subscription"}), 400
         try:
             save_push_subscription(
                 user_id,
@@ -515,7 +585,7 @@ def create_web_app() -> Flask:
     @app.get("/api/reminders/due")
     def due_reminders():
         user_id = _require_user_id()
-        if has_push_subscriptions(user_id):
+        if has_push_subscriptions(user_id) or quiet_until(user_id, datetime.now(timezone.utc)):
             return {"reminders": []}
         return {"reminders": claim_due_for_user(user_id)}
 
@@ -558,17 +628,29 @@ def create_web_app() -> Flask:
     def chat():
         user_id = _require_user_id()
         account = get_google_account(user_id)
-        text = str((request.get_json(silent=True) or {}).get("message", "")).strip()
+        payload = request.get_json(silent=True) or {}
+        expected = payload.get("expected_context")
+        if expected is not None:
+            pending = _state_for(user_id).get("smart_planner_pending") or {}
+            if not isinstance(expected, str) or not secrets.compare_digest(expected, str(pending.get("choice_token", ""))):
+                return jsonify(error="stale_choice", message="Этот выбор уже устарел. Запроси новые варианты."), 410
+        text = payload.get("message", "")
+        if not isinstance(text, str):
+            return jsonify({"error": "invalid_message", "message": "Сообщение должно быть текстом."}), 400
+        if len(text) > MAX_MESSAGE_LENGTH:
+            return jsonify({"error": "message_too_long", "message": "Сообщение слишком длинное."}), 400
+        text = text.strip()
         if not text:
             return jsonify({"error": "empty_message"}), 400
         try:
+            mark_executing()
             result = asyncio.run(
                 process_web_message(text, user_id, account.get("name") or account["email"])
             )
         except Exception:
             logger.exception("Web command request failed for user %s", user_id)
             return jsonify({"error": "command_failed", "replies": ["Не удалось обработать сообщение."]}), 500
-        return {"handled": result.handled, "replies": _with_due_reminders(user_id, result.replies)}
+        return {"handled": result.handled, "replies": _with_due_reminders(user_id, result.replies), "choices": result.choices}
 
     @app.post("/api/voice")
     def voice():
@@ -587,9 +669,12 @@ def create_web_app() -> Flask:
             return jsonify({"error": "audio_too_short", "message": "Слишком короткая запись."}), 400
 
         try:
-            text = normalize_time_format(transcribe_audio(audio.stream))
+            text = normalize_time_format(transcribe_audio(audio.stream)).strip()
             if not text:
                 return jsonify({"error": "empty_transcript", "message": "Не удалось распознать речь."}), 400
+            if len(text) > MAX_MESSAGE_LENGTH:
+                return jsonify({"error": "message_too_long", "message": "Голосовое сообщение слишком длинное."}), 400
+            mark_executing()
             result = asyncio.run(
                 process_web_message(text, user_id, account.get("name") or account["email"])
             )
@@ -600,6 +685,7 @@ def create_web_app() -> Flask:
         return {
             "transcript": text,
             "handled": result.handled,
+            "choices": result.choices,
             "replies": _with_due_reminders(user_id, result.replies),
         }
 
@@ -607,6 +693,9 @@ def create_web_app() -> Flask:
     def settings():
         user_id = _require_user_id()
         payload = request.get_json(silent=True) or {}
+        preferences = {}
+        navigation_settings = None
+        user_timezone = None
         try:
             if "timezone" in payload:
                 user_timezone = str(payload["timezone"]).strip()
@@ -614,7 +703,6 @@ def create_web_app() -> Flask:
                     ZoneInfo(user_timezone)
                 except ZoneInfoNotFoundError as exc:
                     raise ValueError("Неизвестный часовой пояс") from exc
-                save_user_timezone(user_id, user_timezone)
 
             work_start = payload.get("work_start")
             work_end = payload.get("work_end")
@@ -623,29 +711,32 @@ def create_web_app() -> Flask:
                 start = str(work_start or current["work_start"])
                 end = str(work_end or current["work_end"])
                 _validate_time_range(start, end)
-                save_calendar_preferences(user_id, work_start=start, work_end=end)
+                preferences.update(work_start=start, work_end=end)
 
             if "work_days" in payload:
                 days = payload["work_days"]
                 if not isinstance(days, list) or not days:
                     raise ValueError("Нужно выбрать хотя бы один рабочий день")
+                if any(isinstance(day, (bool, float)) for day in days):
+                    raise ValueError("Рабочие дни должны быть целыми числами от 0 до 6")
                 parsed = sorted({int(day) for day in days})
                 if any(day < 0 or day > 6 for day in parsed):
                     raise ValueError("Рабочие дни должны быть числами от 0 до 6")
-                save_calendar_preferences(user_id, work_days=parsed)
+                preferences["work_days"] = parsed
 
             if "buffer_minutes" in payload:
+                if isinstance(payload["buffer_minutes"], (bool, float)):
+                    raise ValueError("Буфер должен быть целым числом минут")
                 value = int(payload["buffer_minutes"])
                 if not 0 <= value <= 180:
                     raise ValueError("Буфер должен быть от 0 до 180 минут")
-                save_calendar_preferences(user_id, buffer_minutes=value)
+                preferences["buffer_minutes"] = value
 
             if "category_colors" in payload:
                 colors = payload["category_colors"]
                 if not isinstance(colors, dict) or not colors:
                     raise ValueError("Неверный набор категорий")
-                unknown_categories = set(colors) - set(DEFAULT_CATEGORY_COLORS)
-                if unknown_categories:
+                if set(colors) - set(DEFAULT_CATEGORY_COLORS):
                     raise ValueError("Неверный набор категорий")
                 parsed_colors = dict(_status_payload(user_id)["preferences"]["category_colors"])
                 for category, color_id in colors.items():
@@ -655,28 +746,40 @@ def create_web_app() -> Flask:
                         parsed_colors[category] = str(color_id)
                     else:
                         raise ValueError("Неизвестный цвет категории")
-                save_calendar_preferences(user_id, category_colors=parsed_colors)
+                preferences["category_colors"] = parsed_colors
 
             if "navigation" in payload:
                 navigation = payload["navigation"]
                 if not isinstance(navigation, dict):
                     raise ValueError("Неверные настройки навигации")
-                enabled = navigation.get("enabled", True)
-                if not isinstance(enabled, bool):
-                    raise ValueError("Неверное состояние навигации")
-                save_navigation_settings(
-                    user_id,
-                    enabled=enabled,
+                navigation_settings = validate_navigation_settings(
+                    enabled=navigation.get("enabled", True),
                     home_address=navigation.get("home_address"),
                     office_address=navigation.get("office_address"),
-                    default_place=str(navigation.get("default_place") or "home"),
-                    mode=str(navigation.get("mode") or "driving"),
-                    arrival_buffer_minutes=int(navigation.get("arrival_buffer_minutes", 15)),
+                    default_place=navigation.get("default_place", "home"),
+                    mode=navigation.get("mode", "driving"),
+                    arrival_buffer_minutes=navigation.get("arrival_buffer_minutes", 15),
                 )
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
+
+        with db_lock:
+            try:
+                if user_timezone is not None:
+                    save_user_timezone(user_id, user_timezone, commit=False)
+                if preferences:
+                    save_calendar_preferences(user_id, **preferences, commit=False)
+                if navigation_settings is not None:
+                    save_navigation_settings(user_id, **navigation_settings, commit=False)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.exception("Settings transaction failed for user %s", user_id)
+                return jsonify(error="settings_failed", message="Не удалось сохранить настройки."), 503
         return _status_payload(user_id)
 
+    app.register_blueprint(assistant_api)
+    install_web_security(app, _user_state)
     return app
 
 

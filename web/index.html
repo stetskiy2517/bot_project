@@ -936,6 +936,7 @@
         voicePressActive = false,
         voicePointerId = null,
         voiceRecordingStartedAt = 0,
+        voiceRequestVersion = 0,
         voiceSourceButton = null,
         chatIdleTimer = null;
 
@@ -1055,20 +1056,115 @@
       }
 
       async function api(path, options = {}) {
-        const headers = { ...(options.headers || {}) };
-        if (!(options.body instanceof FormData) && !headers["Content-Type"])
-          headers["Content-Type"] = "application/json";
-        const response = await fetch(path, { ...options, headers });
-        if (response.status === 401) {
-          login.classList.add("open");
-          clearChatIdleTimer();
-          throw Error("unauthorized");
+        try {
+          return await PlannerRequests.request(path, options);
+        } catch (error) {
+          if (error.status === 401) {
+            login.classList.add("open");
+            clearChatIdleTimer();
+            error.message = "unauthorized";
+          }
+          throw error;
         }
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok)
-          throw Error(data.message || data.error || "request_failed");
-        return data;
       }
+
+      let pendingVoice = null;
+      let retryPanel = null;
+      function showRetry(message, retry, discard) {
+        if (retryPanel) retryPanel.remove();
+        retryPanel = msg(message, "assistant");
+        const controls = document.createElement("div");
+        for (const [label, action] of [["Проверить / повторить", retry], ["Убрать черновик", discard]]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "action";
+          button.textContent = label;
+          button.onclick = async () => {
+            button.disabled = true;
+            try {await action();} finally {button.disabled = false;}
+          };
+          controls.appendChild(button);
+        }
+        retryPanel.appendChild(controls);
+      }
+
+      function discardDraft() {
+        PlannerRequests.clearDraft();
+        messageInput.value = "";
+        if (retryPanel) retryPanel.remove();
+        retryPanel = null;
+      }
+
+      function restoreDraft() {
+        const draft = PlannerRequests.draft();
+        if (!draft || !draft.text || messageInput.value) return;
+        messageInput.value = draft.text;
+        showChat();
+        if (draft.pending) showRetry(
+          "Сохранился запрос без подтверждённого ответа. Проверка использует тот же номер запроса.",
+          () => submitPlannerText(draft.text, draft.id, draft.context), discardDraft);
+      }
+
+      function renderCommandResult(result) {
+        (result.replies || []).forEach(reply => msg(reply, "assistant"));
+        if (Array.isArray(result.choices) && result.choices.length) {
+          const row = msg("", "assistant");
+          for (const choice of result.choices.slice(0, 3)) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "action";
+            button.textContent = choice.label;
+            button.onclick = () => submitPlannerText(choice.text, null, choice.context);
+            row.appendChild(button);
+          }
+        }
+        document.dispatchEvent(new CustomEvent("planner-result", {detail: result}));
+      }
+
+      async function submitPlannerText(text, requestId = null, expectedContext = null) {
+        if (!text || sendingChat || sendingVoice || voicePressActive) return;
+        const saved = PlannerRequests.draft();
+        if (!requestId && saved && saved.pending) {
+          if (saved.text === text) {requestId = saved.id; expectedContext = saved.context;}
+          else {
+            showRetry("Сначала проверь прежнюю команду или убери её черновик. Новый текст оставлен в поле ввода.",
+              () => submitPlannerText(saved.text, saved.id, saved.context), discardDraft);
+            return;
+          }
+        }
+        showChat();
+        sendingChat = true;
+        clearChatIdleTimer();
+        try {
+          await PlannerRequests.status();
+          const id = requestId || PlannerRequests.newId();
+          PlannerRequests.saveDraft(text, id, true, expectedContext);
+          msg(text, "user");
+          messageInput.value = "";
+          try {
+            const result = await api("/api/chat", {
+              method: "POST", requestId: id, body: JSON.stringify({message: text, ...(expectedContext ? {expected_context: expectedContext} : {})}),
+            });
+            PlannerRequests.clearDraft();
+            if (retryPanel) retryPanel.remove();
+            retryPanel = null;
+            renderCommandResult(result);
+          } catch (error) {
+            if (!messageInput.value) messageInput.value = text;
+            if (error.message !== "unauthorized") showRetry(
+              error.data?.error === "outcome_unknown" ? error.message :
+              "Ответ не получен: " + error.message + ". Текст сохранён. Повтор не создаст вторую запись.",
+              () => submitPlannerText(text, id, expectedContext), discardDraft);
+          }
+        } catch (error) {
+          if (!messageInput.value) messageInput.value = text;
+          msg("Не удалось отправить: " + error.message, "assistant");
+        } finally {
+          sendingChat = false;
+          armChatIdleTimer();
+        }
+      }
+      window.submitPlannerText = submitPlannerText;
 
       function renderDays() {
         const box = document.getElementById("days");
@@ -1178,6 +1274,8 @@
           const status = await api("/api/status");
           login.classList.remove("open");
           loadSettings(status);
+          restoreDraft();
+          document.dispatchEvent(new Event("planner-ready"));
           if (!status.timezone_set) {
             document.getElementById("onboardingNotice").style.display = "block";
             settingsPanel.classList.add("open");
@@ -1239,7 +1337,7 @@
         return "webm";
       }
 
-      async function sendVoice(blob, durationMs) {
+      async function sendVoice(blob, durationMs, requestId = null) {
         if (!blob.size) {
           reportVoiceError("Не удалось записать звук");
           voiceSourceButton = null;
@@ -1257,13 +1355,20 @@
         const form = new FormData();
         form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
         form.append("duration_ms", String(Math.round(durationMs)));
+        const id = requestId || PlannerRequests.newId();
+        pendingVoice = {blob, durationMs, id};
         try {
-          const result = await api("/api/voice", { method: "POST", body: form });
+          const result = await api("/api/voice", {method: "POST", body: form, requestId: id});
+          pendingVoice = null;
+          if (retryPanel) retryPanel.remove();
+          retryPanel = null;
           msg(result.transcript || "Голосовое сообщение", "user");
-          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+          renderCommandResult(result);
         } catch (error) {
-          if (error.message !== "unauthorized")
-            msg("Не удалось обработать голос", "assistant");
+          if (error.message !== "unauthorized") showRetry(
+            "Не удалось обработать голос. " + error.message + ". Запись доступна до закрытия страницы.",
+            () => pendingVoice && sendVoice(pendingVoice.blob, pendingVoice.durationMs, pendingVoice.id),
+            () => {pendingVoice = null; if (retryPanel) retryPanel.remove(); retryPanel = null;});
         } finally {
           sendingVoice = false;
           setVoiceButtonsDisabled(false);
@@ -1274,7 +1379,8 @@
       }
 
       async function startVoice() {
-        if (sendingVoice || !voicePressActive || !voiceSourceButton) return;
+        if (sendingVoice || recorder || !voicePressActive || !voiceSourceButton) return;
+        const requestVersion = ++voiceRequestVersion;
         clearChatIdleTimer();
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
           voicePressActive = false;
@@ -1285,12 +1391,13 @@
           return;
         }
         try {
-          recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (!voicePressActive || !voiceSourceButton) {
-            stopTracks();
-            resetVoiceButton();
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (requestVersion !== voiceRequestVersion || !voicePressActive || !voiceSourceButton) {
+            stream.getTracks().forEach((track) => track.stop());
+            if (requestVersion === voiceRequestVersion) resetVoiceButton();
             return;
           }
+          recordingStream = stream;
           voiceChunks = [];
           const preferred = [
             "audio/webm;codecs=opus",
@@ -1350,6 +1457,7 @@
             chatVoiceBtn.title = "Отпусти, чтобы отправить";
           voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
         } catch (error) {
+          if (requestVersion !== voiceRequestVersion) return;
           const sourceButton = voiceSourceButton;
           voicePressActive = false;
           voicePointerId = null;
@@ -1368,7 +1476,7 @@
 
       function beginVoicePress(event) {
         const button = event.currentTarget;
-        if (sendingVoice || voicePressActive || button.disabled) return;
+        if (sendingVoice || sendingChat || pendingVoice || voicePressActive || recorder || button.disabled) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
         event.preventDefault();
         voicePressActive = true;
@@ -1414,7 +1522,7 @@
         button.addEventListener("keydown", (event) => {
           if ((event.key === " " || event.key === "Enter") && !event.repeat) {
             event.preventDefault();
-            if (sendingVoice || voicePressActive || button.disabled) return;
+            if (sendingVoice || sendingChat || pendingVoice || voicePressActive || recorder || button.disabled) return;
             voicePressActive = true;
             voicePointerId = null;
             voiceRecordingStartedAt = 0;
@@ -1448,6 +1556,8 @@
       messageInput.addEventListener("focus", noteChatActivity);
       messageInput.addEventListener("input", () => {
         clearChatIdleTimer();
+        const saved = PlannerRequests.draft();
+        if (!saved?.pending) PlannerRequests.saveDraft(messageInput.value);
         if (!messageInput.value.trim()) armChatIdleTimer();
       });
       messageInput.addEventListener("blur", armChatIdleTimer);
@@ -1468,51 +1578,7 @@
 
       document.getElementById("composer").onsubmit = async (event) => {
         event.preventDefault();
-        const text = messageInput.value.trim();
-        if (!text || sendingChat) return;
-        showChat();
-        sendingChat = true;
-        clearChatIdleTimer();
-        msg(text, "user");
-        messageInput.value = "";
-        try {
-          const result = await api("/api/chat", {
-            method: "POST",
-            body: JSON.stringify({ message: text }),
-          });
-          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
-        } catch (error) {
-          if (error.message !== "unauthorized")
-            msg("Ошибка: " + error.message, "assistant");
-        } finally {
-          sendingChat = false;
-          armChatIdleTimer();
-        }
-      };
-
-      document.getElementById("testNavigation").onclick = async () => {
-        const navigation = navigationForm();
-        const origin = navigation.default_place === "office"
-          ? navigation.office_address
-          : navigation.home_address;
-        const destination = navigation.default_place === "office"
-          ? navigation.home_address
-          : navigation.office_address;
-        const status = document.getElementById("navigationStatus");
-        status.textContent = "Строю маршрут…";
-        try {
-          const result = await api("/api/navigation/test", {
-            method: "POST",
-            body: JSON.stringify({ origin, destination, mode: navigation.mode }),
-          });
-          const distance = result.distance_meters
-            ? " · " + (result.distance_meters / 1000).toFixed(1) + " км"
-            : "";
-          status.textContent =
-            "Маршрут работает: " + result.duration_minutes + " мин" + distance + ".";
-        } catch (error) {
-          status.textContent = error.message;
-        }
+        await submitPlannerText(messageInput.value.trim());
       };
 
       document.getElementById("saveSettings").onclick = async () => {
@@ -1539,9 +1605,17 @@
 
       document.getElementById("logout").onclick = async () => {
         try {
-          await api("/api/logout", { method: "POST" });
-        } catch (_error) {}
-        location.reload();
+          let subscription = null;
+          const registration = await navigator.serviceWorker?.getRegistration();
+          if (registration) subscription = await registration.pushManager.getSubscription();
+          await api("/api/logout", {method: "POST", body: JSON.stringify({endpoint: subscription?.endpoint || ""})});
+          if (subscription) await subscription.unsubscribe();
+          PlannerRequests.clearAll();
+          pendingVoice = null;
+          location.reload();
+        } catch (error) {
+          alert("Не удалось выйти: " + error.message);
+        }
       };
 
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {

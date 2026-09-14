@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.command_store import prepare_calendar_create, complete_calendar_create
 from core.db import get_category_colors, get_google_token
 
 logger = logging.getLogger(__name__)
@@ -306,7 +307,10 @@ def _relative_offset(text: str) -> timedelta | None:
         lower,
     )
     if composite:
-        return timedelta(hours=int(composite.group(1)), minutes=int(composite.group(2)))
+        try:
+            return timedelta(hours=int(composite.group(1)), minutes=int(composite.group(2)))
+        except (ValueError, OverflowError):
+            return None
     if re.search(r"\bчерез\s+сутки\b", lower):
         return timedelta(days=1)
     if re.search(r"\bчерез\s+полчаса\b", lower):
@@ -329,16 +333,19 @@ def _relative_offset(text: str) -> timedelta | None:
     if not match:
         return None
     raw_amount = match.group("amount")
-    amount = 1 if not raw_amount else (int(raw_amount) if raw_amount.isdigit() else word_amounts[raw_amount])
     unit = match.group("unit")
-    if unit.startswith("мин"):
-        return timedelta(minutes=amount)
-    if unit == "ч" or unit.startswith("час"):
-        return timedelta(hours=amount)
-    if unit.startswith("дн") or unit in {"день", "дня"}:
-        return timedelta(days=amount)
-    if unit.startswith("недел"):
-        return timedelta(weeks=amount)
+    try:
+        amount = 1 if not raw_amount else (int(raw_amount) if raw_amount.isdigit() else word_amounts[raw_amount])
+        if unit.startswith("мин"):
+            return timedelta(minutes=amount)
+        if unit == "ч" or unit.startswith("час"):
+            return timedelta(hours=amount)
+        if unit.startswith("дн") or unit in {"день", "дня"}:
+            return timedelta(days=amount)
+        if unit.startswith("недел"):
+            return timedelta(weeks=amount)
+    except (ValueError, OverflowError):
+        return None
     return None
 
 
@@ -403,9 +410,46 @@ def _date_from_text(text: str, now: datetime, hour: int, minute: int):
     return None
 
 
+def _invalid_numeric_time(text: str) -> bool:
+    for match in re.finditer(
+        r"\b(?:в|к|с|до)\s*(?P<hour>\d+)(?:(?P<separator>[:.-])(?P<minute>\d*))?",
+        text,
+        re.IGNORECASE,
+    ):
+        raw_hour = match.group("hour")
+        separator = match.group("separator")
+        raw_minute = match.group("minute")
+        tail = text[match.end():]
+        if separator in {".", "-"} and re.match(r"[.-]\d{2,4}\b", tail):
+            continue
+        if not separator and re.match(rf"\s+(?:{MONTHS_PATTERN}|г(?:\.|оду|ода)?)\b", tail, re.IGNORECASE):
+            continue
+        if len(raw_hour) > 4:
+            return True
+        if separator:
+            if separator == "." and not raw_minute:
+                if int(raw_hour) > 23:
+                    return True
+                continue
+            if len(raw_minute) != 2 or int(raw_hour) > 23 or int(raw_minute) > 59:
+                return True
+        elif len(raw_hour) in {3, 4}:
+            if int(raw_hour[:-2]) > 23 or int(raw_hour[-2:]) > 59:
+                return True
+        elif int(raw_hour) > 23:
+            return True
+    for match in RANGE_RE.finditer(text):
+        start_hour, start_minute, end_hour, end_minute = (int(value or 0) for value in match.groups())
+        if max(start_hour, end_hour) > 23 or max(start_minute, end_minute) > 59:
+            return True
+    return False
+
+
 def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now()
     lower = _normalise(text)
+    if _invalid_numeric_time(lower):
+        return None
 
     explicit_clock = EXPLICIT_CLOCK_TOKEN_RE.search(lower)
     if explicit_clock:
@@ -431,24 +475,29 @@ def _parse_datetime(text: str, now: datetime | None = None) -> datetime | None:
 
     parsed_time = _extract_time(text)
     relative = _relative_offset(text)
-    if relative and not parsed_time:
-        return (now + relative).replace(second=0, microsecond=0)
-    if not parsed_time:
+    try:
+        if relative and not parsed_time:
+            return (now + relative).replace(second=0, microsecond=0)
+        if not parsed_time:
+            return None
+        hour, minute = parsed_time
+        base_date = _date_from_text(text, now, hour, minute)
+        if base_date is None and NAMED_DATE_RE.search(lower):
+            return None
+        if base_date is None:
+            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return candidate + timedelta(days=1) if candidate <= now else candidate
+        candidate = now.replace(
+            year=base_date.year,
+            month=base_date.month,
+            day=base_date.day,
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0,
+        )
+    except (ValueError, OverflowError):
         return None
-    hour, minute = parsed_time
-    base_date = _date_from_text(text, now, hour, minute)
-    if base_date is None:
-        candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        return candidate + timedelta(days=1) if candidate <= now else candidate
-    candidate = now.replace(
-        year=base_date.year,
-        month=base_date.month,
-        day=base_date.day,
-        hour=hour,
-        minute=minute,
-        second=0,
-        microsecond=0,
-    )
     if re.search(r"\bсегодня\b", lower) and candidate <= now:
         return None
     return candidate
@@ -507,10 +556,14 @@ def _parse_event_timing(text: str, now: datetime | None = None) -> tuple[datetim
         return None
     lower = _normalise(_strip_explicit_dates(text))
     has_range = bool(RANGE_RE.search(lower) or COMPACT_RANGE_RE.search(lower))
-    range_end = _extract_range_end(text, start)
-    if has_range and not range_end:
+    try:
+        range_end = _extract_range_end(text, start)
+        if has_range and not range_end:
+            return None
+        end = range_end or start + _extract_duration(text)
+    except (ValueError, OverflowError):
         return None
-    return start, (range_end or start + _extract_duration(text))
+    return (start, end) if end > start else None
 
 
 def _detect_category(text: str, category_colors: dict[str, str | None] | None = None) -> tuple[str, str | None]:
@@ -604,7 +657,22 @@ def _create_event(user_id: int, event: dict) -> dict:
     insert_kwargs = {"calendarId": "primary", "body": event}
     if event.get("attendees"):
         insert_kwargs["sendUpdates"] = "all"
-    created = service.events().insert(**insert_kwargs).execute()
+    receipt = prepare_calendar_create(user_id, event)
+    try:
+        created = service.events().insert(**insert_kwargs).execute()
+    except Exception:
+        if not receipt:
+            raise
+        try:
+            existing = service.events().get(calendarId="primary", eventId=receipt[0]).execute()
+        except Exception:
+            raise
+        private = existing.get("extendedProperties", {}).get("private", {})
+        if private.get("smartPlannerRequest") != receipt[1] or existing.get("status") == "cancelled":
+            raise RuntimeError("Calendar creation outcome could not be verified")
+        created = existing
+    if receipt:
+        complete_calendar_create(user_id, receipt[0])
 
     # Navigation is optional and must never break normal calendar creation.
     # Import lazily to avoid a calendar/navigation import cycle.

@@ -215,8 +215,18 @@ def _list_events(user_id: int, start: datetime, end: datetime, query: str | None
     }
     if query:
         params["q"] = query
-    response = service.events().list(**params).execute()
-    return [event for event in response.get("items", []) if event.get("status") != "cancelled"]
+    items = []
+    seen = set()
+    while True:
+        response = service.events().list(**params).execute()
+        items.extend(event for event in response.get("items", []) if event.get("status") != "cancelled")
+        token = response.get("nextPageToken")
+        if not token:
+            return items
+        if token in seen or len(items) >= 10000:
+            raise RuntimeError("Calendar listing incomplete; cannot safely determine availability")
+        seen.add(token)
+        params["pageToken"] = token
 
 
 def _event_start(event: dict, timezone: str) -> tuple[datetime | None, bool]:

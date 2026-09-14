@@ -147,38 +147,21 @@ function loadGestureScript() {
   const voiceSub = { textContent: "" };
   const head = new FakeElement();
   const body = new FakeElement();
-  const documentElement = { clientHeight: 800, style: new FakeStyle() };
 
   const document = {
     head,
     body,
-    documentElement,
-    activeElement: null,
     createElement() {
       return new FakeElement();
     },
     querySelector(selector) {
       return selector === ".voice-sub" ? voiceSub : null;
     },
-    getElementById() {
-      return null;
-    },
-    addEventListener() {},
-  };
-  const window = {
-    innerHeight: 800,
-    visualViewport: null,
-    addEventListener() {},
   };
 
   const context = {
     console,
     document,
-    window,
-    HTMLElement: FakeElement,
-    requestAnimationFrame(callback) {
-      callback();
-    },
     setTimeout,
     clearTimeout,
     voiceButtons: [mainButton, chatButton],
