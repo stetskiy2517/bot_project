@@ -177,6 +177,22 @@
       font-size: 11px;
       line-height: 1.3;
     }
+    .reminder-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .reminder-repeat-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+    }
     .library-swipe-row {
       position: relative;
       overflow: hidden;
@@ -615,8 +631,17 @@
     );
 
     const meta = document.createElement("div");
-    meta.className = "library-card-meta";
-    meta.textContent = formatDate(reminder.remind_at);
+    meta.className = "library-card-meta reminder-card-meta";
+    const date = document.createElement("span");
+    date.textContent = formatDate(reminder.remind_at);
+    meta.appendChild(date);
+    if (reminder.repeat_rule) {
+      const repeatIcon = document.createElement("span");
+      repeatIcon.className = "reminder-repeat-icon";
+      repeatIcon.setAttribute("aria-hidden", "true");
+      repeatIcon.textContent = "↻";
+      meta.appendChild(repeatIcon);
+    }
 
     button.append(head, meta);
     row.append(deleteSide, manageSide, button);
