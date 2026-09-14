@@ -98,6 +98,20 @@ def get_navigation_preferences(user_id: int) -> dict:
     }
 
 
+def list_navigation_user_ids() -> list[int]:
+    """Return Google-connected users whose navigation is not explicitly disabled."""
+    init_navigation_store()
+    with db_lock:
+        rows = conn.execute(
+            """SELECT u.user_id
+               FROM users AS u
+               LEFT JOIN navigation_preferences AS n ON n.user_id=u.user_id
+               WHERE u.google_token IS NOT NULL AND COALESCE(n.enabled, 1)=1
+               ORDER BY u.user_id"""
+        ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
 def save_navigation_settings(
     user_id: int,
     *,

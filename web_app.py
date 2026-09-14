@@ -39,6 +39,7 @@ from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
 from modules.navigation import estimate_route, navigation_configured, navigation_provider
+from modules.navigation_monitor import request_navigation_recalculation, start_navigation_monitor_worker
 from modules.note_conversation import clear_active_note, remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
@@ -203,6 +204,7 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
 def create_web_app() -> Flask:
     init_db()
     start_reminder_push_worker()
+    start_navigation_monitor_worker()
     app = Flask("personal-secretary-web", static_folder=None)
     app.secret_key = WEB_SESSION_SECRET
     app.config.update(
@@ -329,6 +331,7 @@ def create_web_app() -> Flask:
             )
         except (TypeError, ValueError) as exc:
             return jsonify({"error": "invalid_location", "message": str(exc)}), 400
+        request_navigation_recalculation(user_id)
         return {
             "ok": True,
             "accuracy": location.accuracy_meters,

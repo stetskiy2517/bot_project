@@ -45,6 +45,7 @@ from modules.calendar_user import (
     _parse_search_period,
     _user_zone,
 )
+from modules.navigation import safe_delete_travel_for_event, sync_travel_for_event
 
 logger = logging.getLogger(__name__)
 
@@ -906,6 +907,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 trim_recurring_series_from(service, event, pending["timezone"])
             else:
                 service.events().delete(calendarId="primary", eventId=event["id"]).execute()
+                safe_delete_travel_for_event(user_id, event["id"])
             await update.message.reply_text(f"Событие «{event.get('summary', 'Без названия')}» удалено.")
             return True
         if pending_type == "confirm_delete_many":
@@ -941,6 +943,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             if "attendees" in pending["patch"]:
                 patch_kwargs["sendUpdates"] = "all"
             updated = service.events().patch(**patch_kwargs).execute()
+            sync_travel_for_event(user_id, updated, pending["timezone"])
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
             )
