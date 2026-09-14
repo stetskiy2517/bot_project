@@ -10,6 +10,7 @@ from core.db import get_category_colors, get_user_timezone
 from core.library_store import list_saved_reminders
 from modules.calendar import _detect_category
 from modules.calendar_user import _event_start, _list_events
+from modules.reminder_categories import reminder_category
 
 LIFE_WHEEL_PERIODS = {7, 30, 90}
 CATEGORY_ORDER = ("work", "health", "rest", "travel", "family", "personal", "other")
@@ -64,14 +65,6 @@ def event_category(event: dict) -> str:
     text = "\n".join(
         part for part in (str(event.get("summary") or ""), description) if part.strip()
     )
-    return _detect_category(text)[0] if text else "other"
-
-
-def reminder_category(reminder: dict) -> str:
-    stored = str(reminder.get("category") or "").strip().lower()
-    if stored in CATEGORY_ORDER:
-        return stored
-    text = str(reminder.get("text") or "").strip()
     return _detect_category(text)[0] if text else "other"
 
 
