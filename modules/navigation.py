@@ -15,6 +15,7 @@ from core.db import get_category_colors
 from core.navigation_store import get_navigation_preferences
 from integrations.navigation_2gis import configured as dgis_configured, estimate as dgis_estimate
 from integrations.navigation_google import configured as google_configured, estimate as google_estimate
+from integrations.navigation_ors import configured as ors_configured, estimate as ors_estimate
 from modules.calendar_availability import _event_end
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 
@@ -38,11 +39,16 @@ class RouteEstimate:
 
 
 def navigation_provider() -> str:
-    return NAVIGATION_PROVIDER or "google"
+    provider = (NAVIGATION_PROVIDER or "ors").strip().lower()
+    if provider in {"ors", "openrouteservice"}:
+        return "OpenRouteService"
+    return provider
 
 
 def navigation_configured() -> bool:
-    provider = navigation_provider()
+    provider = navigation_provider().casefold()
+    if provider == "openrouteservice":
+        return ors_configured()
     if provider == "google":
         return google_configured()
     if provider == "2gis":
@@ -76,8 +82,17 @@ def _event_destination(event: dict) -> str | None:
 
 
 def estimate_route(origin: str, destination: str, *, mode: str, departure_at: datetime) -> RouteEstimate:
-    provider = navigation_provider()
-    if provider == "google":
+    provider = navigation_provider().casefold()
+    if provider in {"ors", "openrouteservice"}:
+        if not ors_configured():
+            raise RuntimeError("openrouteservice navigation is not configured")
+        duration_minutes, distance_meters = ors_estimate(
+            origin,
+            destination,
+            mode=mode,
+            departure_at=departure_at,
+        )
+    elif provider == "google":
         if not google_configured():
             raise RuntimeError("Google navigation is not configured")
         duration_minutes, distance_meters = google_estimate(
