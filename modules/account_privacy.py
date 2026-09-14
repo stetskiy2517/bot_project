@@ -54,7 +54,7 @@ def create_erase_challenge(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     with db_lock:
         conn.execute("DELETE FROM privacy_challenges WHERE expires_at<=?", (time.time(),))
-        conn.execute("INSERT INTO privacy_challenges VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET digest=excluded.digest,expires_at=excluded.expires_at",
+        conn.execute("INSERT INTO privacy_challenges VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET digest=excluded.digest,expires_at=excluded.expires_at",
                      (user_id, hashlib.sha256(token.encode()).hexdigest(), time.time() + 300))
         conn.commit()
     return token
