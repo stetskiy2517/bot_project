@@ -84,3 +84,22 @@ def repeat_label(rule: str | None) -> str | None:
         6: "каждое воскресенье",
     }
     return weekday_labels[weekday]
+
+
+def next_repeat_after(value: datetime, rule: str, timezone_name: str | None, current: datetime) -> datetime:
+    candidate = next_repeat_at(value, rule, timezone_name)
+    if candidate > current:
+        return candidate
+    zone = _zone(timezone_name)
+    local = value.astimezone(zone)
+    now = current.astimezone(zone)
+    if rule == "weekly":
+        weeks = max(0, (now.date() - local.date()).days // 7)
+        seed = local + timedelta(weeks=weeks)
+        candidate = seed if seed > now else next_repeat_at(seed, rule, timezone_name)
+    else:
+        seed = now.replace(hour=local.hour, minute=local.minute, second=local.second, microsecond=0) - timedelta(days=1)
+        candidate = next_repeat_at(seed, rule, timezone_name)
+        if candidate <= current:
+            candidate = next_repeat_at(candidate, rule, timezone_name)
+    return candidate.astimezone(timezone.utc)

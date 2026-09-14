@@ -1,5 +1,5 @@
-const CACHE = "personal-secretary-v8";
-const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js"];
+const CACHE = "personal-secretary-v9-reliability";
+const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js", "/reliability.js", "/voice-gesture.js", "/assistant.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC)));
@@ -60,7 +60,8 @@ function notificationTargetUrl(notification, action) {
   const actionUrls = data.actionUrls || data.action_urls || {};
   const target = action && actionUrls[action] ? actionUrls[action] : data.url || "/";
   try {
-    return new URL(target, self.location.origin).href;
+    const url = new URL(target, self.location.origin);
+    return url.origin === self.location.origin ? url.href : self.location.origin + "/";
   } catch (_error) {
     return new URL("/", self.location.origin).href;
   }

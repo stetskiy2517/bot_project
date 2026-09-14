@@ -41,17 +41,14 @@
     if (!shouldSend(position)) return;
     const sentAt = Date.now();
     try {
-      const response = await fetch("/api/location", {
+      await window.PlannerRequests.request("/api/location", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
-        credentials: "same-origin",
         body: JSON.stringify({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
         }),
       });
-      if (!response.ok) return;
       lastSentAt = sentAt;
       lastLatitude = position.coords.latitude;
       lastLongitude = position.coords.longitude;

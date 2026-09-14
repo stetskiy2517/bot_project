@@ -10,23 +10,34 @@ on:
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
+    env:
+      WEB_PUSH_WORKER_ENABLED: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Validate deploy scripts
         run: bash -n deploy.sh scripts/deploy_update.sh
       - name: Validate web JavaScript
-        run: node --check web/library.js && node --check web/reminders.js && node --check web/voice_gesture.js && node --check web/sw.js
+        run: node --check web/library.js && node --check web/reminders.js && node --check web/voice_gesture.js && node --check web/sw.js && node --check web/location.js && node --check web/reliability.js && node --check web/assistant.js
       - name: Test voice gestures
         run: node tests/voice_gesture_test.js
       - name: Test iOS viewport pan
         run: node tests/viewport_pan_test.js
+      - name: Test location client
+        run: node tests/location_client_test.js
       - name: Compile Python sources
         run: python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
       - name: Run tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  browser-audit:
+    uses: ./.github/workflows/browser-audit.yml

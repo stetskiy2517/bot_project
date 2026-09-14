@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
-from core.reminder_recurrence import next_repeat_at, validate_repeat_rule
+from core.reminder_recurrence import next_repeat_at, next_repeat_after, validate_repeat_rule
 
 REMINDER_PENDING = "pending"
 REMINDER_DELIVERING = "delivering"
@@ -404,7 +404,11 @@ def _recover_expired_leases(current_iso: str) -> None:
     )
 
 
-def _select_due_rows(user_ids: list[int], current_iso: str, limit: int):
+def _select_due_rows(user_ids: list[int], current_iso: str, limit: int, *, push: bool = False):
+    delay_filter = (
+        " AND NOT EXISTS (SELECT 1 FROM reminder_push_policy p WHERE p.reminder_id=reminders.reminder_id "
+        "AND p.transport_not_before>?)"
+    ) if push else ""
     placeholders = ",".join("?" for _ in user_ids)
     return conn.execute(
         f"SELECT {SELECT_COLUMNS} FROM reminders "
@@ -412,7 +416,7 @@ def _select_due_rows(user_ids: list[int], current_iso: str, limit: int):
         "(status=? AND remind_at<=?) OR "
         "(repeat_rule IS NOT NULL AND next_remind_at IS NOT NULL "
         "AND status IN (?,?) AND next_remind_at<=?)"
-        ") ORDER BY CASE WHEN status=? THEN remind_at ELSE next_remind_at END, reminder_id LIMIT ?",
+        ")" + delay_filter + " ORDER BY CASE WHEN status=? THEN remind_at ELSE next_remind_at END, reminder_id LIMIT ?",
         [
             *user_ids,
             REMINDER_PENDING,
@@ -420,6 +424,7 @@ def _select_due_rows(user_ids: list[int], current_iso: str, limit: int):
             REMINDER_DELIVERED,
             REMINDER_COMPLETED,
             current_iso,
+            *([current_iso] if push else []),
             REMINDER_PENDING,
             int(limit),
         ],
@@ -441,13 +446,11 @@ def _due_occurrence(item: dict, current: datetime) -> datetime | None:
     return None
 
 
-def _advance_repeat(item: dict, occurrence: datetime) -> str | None:
+def _advance_repeat(item: dict, occurrence: datetime, current: datetime) -> str | None:
     if not item.get("repeat_rule"):
         return None
-    return next_repeat_at(
-        occurrence,
-        item["repeat_rule"],
-        item.get("repeat_timezone"),
+    return next_repeat_after(
+        occurrence, item["repeat_rule"], item.get("repeat_timezone"), current,
     ).isoformat()
 
 
@@ -473,7 +476,7 @@ def claim_due_reminders(
                 occurrence = _due_occurrence(item, current_dt)
                 if occurrence is None:
                     continue
-                next_value = _advance_repeat(item, occurrence)
+                next_value = _advance_repeat(item, occurrence, current_dt)
                 conn.execute(
                     "UPDATE reminders SET remind_at=?,status=?,delivered_at=?,completed_at=NULL,"
                     "lease_until=NULL,last_error=NULL,next_remind_at=? "
@@ -530,7 +533,7 @@ def claim_due_for_push(
         conn.execute("BEGIN IMMEDIATE")
         try:
             _recover_expired_leases(current)
-            rows = _select_due_rows(normalized_users, current, safe_limit)
+            rows = _select_due_rows(normalized_users, current, safe_limit, push=True)
             result = []
             for row in rows:
                 item = _from_row(row)
@@ -538,7 +541,7 @@ def claim_due_for_push(
                 if occurrence is None:
                     continue
                 is_new_occurrence = item["status"] != REMINDER_PENDING
-                next_value = _advance_repeat(item, occurrence)
+                next_value = _advance_repeat(item, occurrence, current_dt)
                 attempts = 1 if is_new_occurrence else item["delivery_attempts"] + 1
                 conn.execute(
                     "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"
@@ -620,3 +623,6 @@ def release_push_delivery(reminder_id: int, error: str | None = None) -> bool:
 
 
 init_reminder_store()
+
+from core.notification_policy import init_notification_policy
+init_notification_policy()

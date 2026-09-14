@@ -9,6 +9,7 @@ PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 NAVIGATION_KEY_FILE="${NAVIGATION_KEY_FILE:-}"
 PREVIOUS_SHA=""
+PREDEPLOY_BACKUP=""
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -116,12 +117,25 @@ requirements_hash() {
 
 OLD_REQUIREMENTS_HASH="$(requirements_hash)"
 
+if [ -x .venv/bin/python ] && [ -f scripts/backup_state.py ]; then
+  log "Creating verified pre-deployment backup"
+  PREDEPLOY_BACKUP="$(.venv/bin/python scripts/backup_state.py --print-path)"
+  if [ -f .env ]; then
+    install -m 600 .env "$PREDEPLOY_BACKUP/environment.env"
+  fi
+  log "Pre-deployment backup created"
+fi
+
 rollback() {
   local exit_code="$?"
   trap - ERR
 
   printf '\nERROR: deployment failed. Rolling back to %s\n' "$PREVIOUS_SHA" >&2
   git reset --hard "$PREVIOUS_SHA" || true
+
+  if [ -n "$PREDEPLOY_BACKUP" ] && [ -f "$PREDEPLOY_BACKUP/environment.env" ]; then
+    install -m 600 "$PREDEPLOY_BACKUP/environment.env" .env || true
+  fi
 
   if [ -x .venv/bin/python ] && [ -f requirements.txt ]; then
     .venv/bin/python -m pip install -r requirements.txt >/dev/null 2>&1 || true
