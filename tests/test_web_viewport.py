@@ -34,6 +34,21 @@ class WebViewportTests(unittest.TestCase):
         self.assertIn(".field select", html)
         self.assertIn("font-size: 16px", html)
 
+    def test_keyboard_moves_only_chat_bottom_and_composer(self):
+        response = self.client.get("/voice-gesture.js")
+        self.assertEqual(response.status_code, 200)
+        script = response.get_data(as_text=True)
+        response.close()
+
+        self.assertIn("--stable-app-height", script)
+        self.assertIn("--keyboard-inset", script)
+        self.assertIn(".chat-shell", script)
+        self.assertIn(".composer-wrap", script)
+        self.assertIn("window.visualViewport", script)
+        self.assertIn("keyboardOpen", script)
+        self.assertIn("stableHeight", script)
+        self.assertIn('document.activeElement?.id === "message"', script)
+
 
 if __name__ == "__main__":
     unittest.main()
