@@ -36,11 +36,15 @@ jobs:
           gzip -dc /tmp/p2p8.patch.gz > /tmp/p2p8.patch
           echo "9339583d9907db9e5b613b56a41459e7a40d4c1e88a3825c1290df244cbe0bde  /tmp/p2p8.patch" | sha256sum -c -
           git apply --check /tmp/p2p8.patch
-      - name: Apply approved changes
+      - name: Apply approved product changes
         shell: bash
         run: |
           set -euo pipefail
-          git apply /tmp/p2p8.patch
+          git apply \
+            --exclude='.github/workflows/browser-audit.yml' \
+            --exclude='.github/workflows/reliability.yml' \
+            --exclude='.github/workflows/tests.yml' \
+            /tmp/p2p8.patch
           cat > tests/location_client_test.js <<'EOF'
           const assert = require('node:assert/strict');
           const fs = require('node:fs');
@@ -111,13 +115,11 @@ jobs:
           EOF
           echo "6aea0c1ad770ecf4dfe88fcdf655d37b8d6d53d970bc9b63e4957bc93e1d2ee2  tests/location_client_test.js" | sha256sum -c -
           rm -rf .p2p8
-          rm -f .github/workflows/source-export-p2p8.yml
-          rm -f .github/workflows/apply-p2p8.yml
           git diff --check
           python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
           node tests/voice_gesture_test.js
           node tests/location_client_test.js
-      - name: Commit clean release branch
+      - name: Commit product changes
         shell: bash
         run: |
           set -euo pipefail
