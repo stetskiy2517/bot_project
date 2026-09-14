@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
@@ -13,6 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")
 BASE_URL = "https://api.assemblyai.com"
 TRANSCRIPTION_TIMEOUT_SECONDS = 180
@@ -84,8 +86,43 @@ def _wait_for_transcript(transcript_id: str) -> str:
     raise TimeoutError("Распознавание речи превысило допустимое время")
 
 
+def _delete_remote_transcript(transcript_id: str) -> None:
+    """Delete transcript data and its uploaded audio from AssemblyAI."""
+    response = requests.delete(
+        f"{BASE_URL}/v2/transcript/{transcript_id}",
+        headers={"authorization": ASSEMBLYAI_API_KEY},
+        timeout=30,
+    )
+    response.raise_for_status()
+
+
+def _store_web_transcript(text: str) -> None:
+    """Persist recognized text for an authenticated web request, never raw audio."""
+    if not text:
+        return
+    try:
+        from flask import has_request_context, session
+    except ImportError:
+        return
+    if not has_request_context():
+        return
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        return
+
+    from core.ai_memory_store import record_ai_memory_event
+
+    record_ai_memory_event(
+        user_id,
+        "voice_transcript",
+        0,
+        "recognized",
+        {"text": text, "source": "web_voice"},
+    )
+
+
 def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
-    """Transcribe a local audio path or an already opened binary stream."""
+    """Transcribe audio, persist web text, and remove provider-side raw artifacts."""
     if not ASSEMBLYAI_API_KEY:
         raise RuntimeError("ASSEMBLYAI_API_KEY not set")
 
@@ -96,4 +133,12 @@ def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
         audio_url = _upload_audio(source)
 
     transcript_id = _start_transcription(audio_url)
-    return _wait_for_transcript(transcript_id)
+    try:
+        text = _wait_for_transcript(transcript_id)
+        _store_web_transcript(text)
+        return text
+    finally:
+        try:
+            _delete_remote_transcript(transcript_id)
+        except requests.RequestException:
+            logger.exception("Failed to delete AssemblyAI transcript %s", transcript_id)
