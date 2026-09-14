@@ -1,0 +1,22 @@
+name: P2P8 source export
+
+on:
+  push:
+    branches: [release/p2-p8-current]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive source
+        run: |
+          git archive HEAD -o source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p2p8-current-source
+          path: source.tar
+          retention-days: 1
