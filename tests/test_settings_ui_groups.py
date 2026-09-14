@@ -1,0 +1,46 @@
+import unittest
+
+import web_app
+
+
+class SettingsUiGroupsTests(unittest.TestCase):
+    def setUp(self):
+        self.app = web_app.create_web_app()
+        self.client = self.app.test_client()
+
+    def test_calendar_and_dynamic_settings_are_compacted_into_groups(self):
+        response = self.client.get("/reliability.js")
+        self.assertEqual(response.status_code, 200)
+        script = response.get_data(as_text=True)
+        response.close()
+
+        self.assertIn('group.id = "calendarSettingsGroup"', script)
+        self.assertIn('decorateSummary(group, "Календарь"', script)
+        self.assertIn('group.id = "notificationsGroup"', script)
+        self.assertIn('decorateSummary(group, "Уведомления"', script)
+        self.assertIn('"Обзоры и тихие часы", "Расписание"', script)
+        self.assertIn('"Избранные команды", "Шаблоны"', script)
+        self.assertIn('"Отмена и данные", "Данные аккаунта"', script)
+        self.assertIn('details.classList.add("settings-group")', script)
+        self.assertIn("new MutationObserver", script)
+
+    def test_existing_setting_controls_keep_their_ids(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        response.close()
+
+        for control_id in (
+            "timezone",
+            "workStart",
+            "workEnd",
+            "buffer",
+            "navigationGroup",
+            "categoryColorsGroup",
+            "saveSettings",
+        ):
+            self.assertIn(f'id="{control_id}"', html)
+
+
+if __name__ == "__main__":
+    unittest.main()
