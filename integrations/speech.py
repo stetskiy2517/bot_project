@@ -24,11 +24,29 @@ EXPLICIT_DOTTED_TIME_RE = re.compile(
     r"\.(?P<minute>[0-5]\d)(?!\d|\.\d)",
     re.IGNORECASE,
 )
+VOICE_MEETING_CLIENT_ASR_RE = re.compile(
+    r"^(?P<prefix>\s*(?:(?:добавь|добавить|создай|создать|поставь|поставить|"
+    r"запланируй|запланировать|назначь|назначить|внеси)\s+)?)"
+    r"(?P<word>встречи)(?=\s+с\s+клиентом\b)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_meeting_client_asr(text: str) -> str:
+    """Fix a narrow Russian ASR ambiguity without changing normal plural queries."""
+
+    def replace(match: re.Match) -> str:
+        word = match.group("word")
+        replacement = "Встреча" if word[:1].isupper() else "встреча"
+        return f"{match.group('prefix')}{replacement}"
+
+    return VOICE_MEETING_CLIENT_ASR_RE.sub(replace, text, count=1)
 
 
 def normalize_time_format(text: str) -> str:
     # Bare dotted numbers may be dates, prices or version numbers.
-    return EXPLICIT_DOTTED_TIME_RE.sub(r"\g<prefix>\g<hour>:\g<minute>", text)
+    normalized = EXPLICIT_DOTTED_TIME_RE.sub(r"\g<prefix>\g<hour>:\g<minute>", text)
+    return _normalize_meeting_client_asr(normalized)
 
 
 def _upload_audio(audio: BinaryIO) -> str:
