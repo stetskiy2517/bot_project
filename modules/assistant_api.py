@@ -17,6 +17,7 @@ from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhand
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
 from modules.life_wheel import build_life_wheel_snapshot
+from modules.memory import start_memory_worker
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -185,3 +186,6 @@ def account_erase():
     erase_account(_user(), payload.get("challenge"), payload.get("confirmation"))
     session.clear()
     return {"ok": True, "local_data_erased": True, "google_calendar_unchanged": True}
+
+
+start_memory_worker()
