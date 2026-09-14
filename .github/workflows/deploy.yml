@@ -64,6 +64,28 @@ jobs:
             scripts/deploy_update.sh \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-deploy.sh"
 
+      - name: Upload optional navigation secret
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DGIS_API_KEY: ${{ secrets.DGIS_API_KEY }}
+        run: |
+          if [ -z "$DGIS_API_KEY" ]; then
+            echo "DGIS_API_KEY is not configured; navigation stays disabled"
+            exit 0
+          fi
+          SECRET_FILE="$(mktemp)"
+          trap 'rm -f "$SECRET_FILE"' EXIT
+          chmod 600 "$SECRET_FILE"
+          printf '%s' "$DGIS_API_KEY" > "$SECRET_FILE"
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SECRET_FILE" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-dgis-key"
+
       - name: Deploy tested commit
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -76,4 +98,4 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-deploy.sh '$TARGET_SHA'"
+            "DGIS_KEY_FILE=/tmp/personal-secretary-dgis-key PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-deploy.sh '$TARGET_SHA'"
