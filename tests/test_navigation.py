@@ -1,6 +1,6 @@
 from datetime import datetime
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from integrations.navigation_2gis import _route_result as _dgis_route_result
@@ -14,6 +14,7 @@ from integrations.navigation_ors import (
 from modules.navigation import (
     RouteEstimate,
     _event_destination,
+    _resolved_event_destination,
     build_travel_event,
     create_travel_for_event,
     estimate_route,
@@ -114,6 +115,28 @@ class NavigationTests(unittest.TestCase):
         event = {"summary": "Встреча с клиентом будет на ВДНХ"}
         self.assertEqual(_event_destination(event), "ВДНХ")
 
+    def test_saved_home_and_office_aliases_resolve_to_addresses(self):
+        prefs = {
+            "home_address": "Москва, проспект Мира, 1",
+            "office_address": "Москва, Гиляровского, 53",
+        }
+        self.assertEqual(
+            _resolved_event_destination({"summary": "Ужин дома"}, prefs),
+            "Москва, проспект Мира, 1",
+        )
+        self.assertEqual(
+            _resolved_event_destination({"summary": "Встреча на работе"}, prefs),
+            "Москва, Гиляровского, 53",
+        )
+        self.assertEqual(
+            _resolved_event_destination({"location": "Дом"}, prefs),
+            "Москва, проспект Мира, 1",
+        )
+        self.assertEqual(
+            _resolved_event_destination({"location": "Офис"}, prefs),
+            "Москва, Гиляровского, 53",
+        )
+
     @patch("modules.navigation.get_navigation_preferences")
     @patch("modules.navigation._event_end")
     @patch("modules.navigation._list_events")
@@ -129,6 +152,71 @@ class NavigationTests(unittest.TestCase):
         prefs.return_value = {"default_origin": "Дом"}
         origin = resolve_origin(1, self.source, "Europe/Moscow")
         self.assertEqual(origin, "Москва, Гиляровского, 53")
+
+    @patch("modules.navigation.get_category_colors", return_value={"travel": "7"})
+    @patch("modules.navigation._get_calendar_service")
+    @patch("modules.navigation.estimate_route")
+    @patch("modules.navigation._event_end")
+    @patch("modules.navigation._list_events")
+    @patch("modules.navigation.navigation_configured", return_value=True)
+    @patch("modules.navigation.get_navigation_preferences")
+    def test_dinner_at_home_then_meeting_at_work_creates_home_to_office_travel(
+        self,
+        prefs,
+        configured,
+        list_events,
+        event_end,
+        estimate,
+        get_service,
+        colors,
+    ):
+        home = "Москва, проспект Мира, 1"
+        office = "Москва, Гиляровского, 53"
+        prefs.return_value = {
+            "enabled": True,
+            "home_address": home,
+            "office_address": office,
+            "default_origin": home,
+            "mode": "driving",
+            "arrival_buffer_minutes": 15,
+        }
+        dinner = {
+            "id": "dinner-19",
+            "summary": "Ужин дома",
+            "start": {"dateTime": "2026-09-14T19:00:00+03:00", "timeZone": "Europe/Moscow"},
+            "end": {"dateTime": "2026-09-14T20:00:00+03:00", "timeZone": "Europe/Moscow"},
+        }
+        meeting = {
+            "id": "meeting-21",
+            "summary": "Встреча на работе",
+            "start": {"dateTime": "2026-09-14T21:00:00+03:00", "timeZone": "Europe/Moscow"},
+            "end": {"dateTime": "2026-09-14T22:00:00+03:00", "timeZone": "Europe/Moscow"},
+        }
+        list_events.return_value = [dinner]
+        event_end.return_value = datetime(2026, 9, 14, 20, 0, tzinfo=self.zone)
+        estimate.return_value = RouteEstimate(
+            origin=home,
+            destination=office,
+            mode="driving",
+            duration_minutes=35,
+            distance_meters=12000,
+        )
+        service = MagicMock()
+        service.events().insert().execute.return_value = {"id": "travel-home-office"}
+        get_service.return_value = service
+
+        result = create_travel_for_event(1, meeting, "Europe/Moscow")
+
+        self.assertEqual(result["id"], "travel-home-office")
+        estimate.assert_called_once_with(
+            home,
+            office,
+            mode="driving",
+            departure_at=datetime(2026, 9, 14, 21, 0, tzinfo=self.zone),
+        )
+        inserted = service.events().insert.call_args.kwargs["body"]
+        self.assertEqual(inserted["location"], office)
+        self.assertEqual(inserted["end"]["dateTime"], "2026-09-14T21:00:00+03:00")
 
     @patch("modules.navigation.navigation_configured", return_value=True)
     @patch("modules.navigation.get_navigation_preferences")
