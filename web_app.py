@@ -161,6 +161,7 @@ def _library_reminder_payload(reminder: dict) -> dict:
         "text": str(reminder.get("text") or ""),
         "remind_at": reminder.get("remind_at"),
         "status": reminder.get("status"),
+        "repeat_rule": reminder.get("repeat_rule"),
         "created_at": reminder.get("created_at"),
         "delivered_at": reminder.get("delivered_at"),
         "completed_at": reminder.get("completed_at"),
