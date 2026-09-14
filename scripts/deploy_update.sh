@@ -7,15 +7,15 @@ TARGET_SHA="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
-DGIS_KEY_FILE="${DGIS_KEY_FILE:-}"
+NAVIGATION_KEY_FILE="${NAVIGATION_KEY_FILE:-}"
 PREVIOUS_SHA=""
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 cleanup_temp_secrets() {
-  if [ -n "$DGIS_KEY_FILE" ]; then
-    rm -f -- "$DGIS_KEY_FILE" 2>/dev/null || true
+  if [ -n "$NAVIGATION_KEY_FILE" ]; then
+    rm -f -- "$NAVIGATION_KEY_FILE" 2>/dev/null || true
   fi
 }
 trap cleanup_temp_secrets EXIT
@@ -32,26 +32,25 @@ if [ -z "$TARGET_SHA" ]; then
 fi
 
 navigation_secret_present() {
-  [ -n "$DGIS_KEY_FILE" ] && [ -s "$DGIS_KEY_FILE" ]
+  [ -n "$NAVIGATION_KEY_FILE" ] && [ -s "$NAVIGATION_KEY_FILE" ]
 }
 
-sync_navigation_secret() {
-  log "Updating navigation secret"
-  python3 - "$PROJECT_DIR/.env" "$DGIS_KEY_FILE" <<'PY'
+sync_navigation_config() {
+  log "Updating navigation configuration"
+  python3 - "$PROJECT_DIR/.env" "$NAVIGATION_KEY_FILE" <<'PY'
 from pathlib import Path
 import os
 import sys
 
 env_path = Path(sys.argv[1])
-key_path = Path(sys.argv[2])
-key = key_path.read_text(encoding="utf-8").strip()
-if not key:
-    raise SystemExit("DGIS key file is empty")
+key_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+updates = {"NAVIGATION_PROVIDER": "google"}
+if key_path and key_path.is_file() and key_path.stat().st_size:
+    key = key_path.read_text(encoding="utf-8").strip()
+    if not key:
+        raise SystemExit("Google Maps key file is empty")
+    updates["GOOGLE_MAPS_API_KEY"] = key
 
-updates = {
-    "NAVIGATION_PROVIDER": "2gis",
-    "DGIS_API_KEY": key,
-}
 lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
 seen = set()
 out = []
@@ -91,7 +90,7 @@ git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
   if navigation_secret_present; then
-    sync_navigation_secret
+    sync_navigation_config
     log "Restarting $SERVICE_NAME after secret update"
     sudo -n systemctl restart "$SERVICE_NAME"
     wait_for_health 30 || fail "Application health-check failed after navigation secret update"
@@ -142,9 +141,7 @@ trap rollback ERR
 
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
-if navigation_secret_present; then
-  sync_navigation_secret
-fi
+sync_navigation_config
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
 if [ ! -x .venv/bin/python ]; then
