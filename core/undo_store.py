@@ -17,6 +17,28 @@ NOTE_COLUMNS = ("note_id", "user_id", "title", "normalized_title", "text", "norm
 TTL_SECONDS = 600
 
 
+def _coalesce_existing_actions() -> None:
+    groups = conn.execute(
+        "SELECT user_id,request_id,note_id,MIN(action_id),MAX(action_id) "
+        "FROM undo_actions WHERE consumed=0 GROUP BY user_id,request_id,note_id HAVING COUNT(*)>1"
+    ).fetchall()
+    for user_id, request_id, note_id, first_id, last_id in groups:
+        latest = conn.execute(
+            "SELECT after_json,expires_at FROM undo_actions WHERE action_id=?",
+            (last_id,),
+        ).fetchone()
+        if latest:
+            conn.execute(
+                "UPDATE undo_actions SET after_json=?,expires_at=? WHERE action_id=?",
+                (latest[0], latest[1], first_id),
+            )
+        conn.execute(
+            "DELETE FROM undo_actions WHERE user_id=? AND request_id=? AND note_id=? "
+            "AND consumed=0 AND action_id<>?",
+            (user_id, request_id, note_id, first_id),
+        )
+
+
 def init_undo_store():
     with db_lock:
         conn.execute("""CREATE TABLE IF NOT EXISTS undo_actions (
@@ -25,7 +47,12 @@ def init_undo_store():
             before_json TEXT, after_json TEXT NOT NULL,
             expires_at REAL NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
         )""")
+        _coalesce_existing_actions()
         conn.execute("CREATE INDEX IF NOT EXISTS idx_undo_user ON undo_actions(user_id,action_id DESC)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_undo_request_note "
+            "ON undo_actions(user_id,request_id,note_id,consumed)"
+        )
         conn.create_function("undo_request_id", 0, lambda: None if _suppressed.get() else current_request_id())
         conn.create_function(
             "undo_snapshot", len(NOTE_COLUMNS),
@@ -34,7 +61,6 @@ def init_undo_store():
         for operation in ("INSERT", "UPDATE"):
             old = "NULL" if operation == "INSERT" else "undo_snapshot(" + ",".join(f"OLD.{c}" for c in NOTE_COLUMNS) + ")"
             new = "undo_snapshot(" + ",".join(f"NEW.{c}" for c in NOTE_COLUMNS) + ")"
-            # Temporary triggers only affect this connection, which has the context function.
             conn.execute(f"""CREATE TEMP TRIGGER IF NOT EXISTS capture_note_{operation.lower()}
                 AFTER {operation} ON main.notes
                 WHEN undo_request_id() IS NOT NULL
@@ -43,7 +69,15 @@ def init_undo_store():
                   DELETE FROM undo_actions WHERE user_id=NEW.user_id AND action_id NOT IN
                     (SELECT action_id FROM undo_actions WHERE user_id=NEW.user_id ORDER BY action_id DESC LIMIT 49);
                   INSERT INTO undo_actions(user_id,request_id,note_id,before_json,after_json,expires_at)
-                  VALUES(NEW.user_id,undo_request_id(),NEW.note_id,{old},{new},CAST(strftime('%s','now') AS INTEGER)+{TTL_SECONDS});
+                  SELECT NEW.user_id,undo_request_id(),NEW.note_id,{old},{new},CAST(strftime('%s','now') AS INTEGER)+{TTL_SECONDS}
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM undo_actions
+                    WHERE user_id=NEW.user_id AND request_id=undo_request_id()
+                      AND note_id=NEW.note_id AND consumed=0
+                  );
+                  UPDATE undo_actions SET after_json={new},expires_at=CAST(strftime('%s','now') AS INTEGER)+{TTL_SECONDS}
+                  WHERE user_id=NEW.user_id AND request_id=undo_request_id()
+                    AND note_id=NEW.note_id AND consumed=0;
                 END""")
         conn.commit()
 
