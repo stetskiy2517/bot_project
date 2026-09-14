@@ -1,7 +1,6 @@
 """Navigation and managed travel blocks for calendar events.
 
-The module is deliberately optional: calendar creation must keep working when
-Yandex routing is not configured or temporarily unavailable.
+Navigation is optional: routing failures must never break normal calendar actions.
 """
 
 from __future__ import annotations
@@ -9,24 +8,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
-import math
 import re
-import time
-from typing import Any
 
-import requests
-
-from config import YANDEX_GEOCODER_API_KEY, YANDEX_ROUTING_API_KEY
+from config import NAVIGATION_PROVIDER
 from core.db import get_category_colors
 from core.navigation_store import get_navigation_preferences
+from integrations.navigation_2gis import configured as dgis_configured, estimate as dgis_estimate
 from modules.calendar_availability import _event_end
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 
 logger = logging.getLogger(__name__)
 
-GEOCODER_URL = "https://geocode-maps.yandex.ru/v1/"
-DISTANCE_MATRIX_URL = "https://api.routing.yandex.net/v2/distancematrix"
-REQUEST_TIMEOUT_SECONDS = 8
 TRAVEL_KIND = "travel"
 MANAGED_VALUE = "1"
 NATURAL_DESTINATION_RE = re.compile(
@@ -44,8 +36,14 @@ class RouteEstimate:
     distance_meters: int | None = None
 
 
+def navigation_provider() -> str:
+    return NAVIGATION_PROVIDER or "2gis"
+
+
 def navigation_configured() -> bool:
-    return bool(YANDEX_GEOCODER_API_KEY and YANDEX_ROUTING_API_KEY)
+    if navigation_provider() == "2gis":
+        return dgis_configured()
+    return False
 
 
 def _private(event: dict) -> dict:
@@ -73,70 +71,24 @@ def _event_destination(event: dict) -> str | None:
     return value[:500] if value else None
 
 
-def _geocode(address: str) -> tuple[float, float]:
-    if not YANDEX_GEOCODER_API_KEY:
-        raise RuntimeError("YANDEX_GEOCODER_API_KEY is not configured")
-    response = requests.get(
-        GEOCODER_URL,
-        params={
-            "apikey": YANDEX_GEOCODER_API_KEY,
-            "geocode": address,
-            "lang": "ru_RU",
-            "format": "json",
-            "results": 1,
-        },
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    data = response.json()
-    members = (((data.get("response") or {}).get("GeoObjectCollection") or {}).get("featureMember") or [])
-    if not members:
-        raise ValueError(f"Location not found: {address}")
-    pos = (((members[0].get("GeoObject") or {}).get("Point") or {}).get("pos") or "").split()
-    if len(pos) != 2:
-        raise ValueError(f"Invalid geocoder response for: {address}")
-    lon, lat = float(pos[0]), float(pos[1])
-    return lat, lon
-
-
-def _matrix_duration_seconds(data: dict) -> tuple[int, int | None]:
-    rows = data.get("rows") or []
-    elements = (rows[0].get("elements") or []) if rows else []
-    element = elements[0] if elements else {}
-    if element.get("status") not in {None, "OK"}:
-        raise ValueError(f"Route unavailable: {element.get('status')}")
-    duration = element.get("duration") or {}
-    raw_duration = duration.get("value") if isinstance(duration, dict) else duration
-    if raw_duration is None:
-        raise ValueError("Route duration is missing")
-    distance = element.get("distance") or {}
-    raw_distance = distance.get("value") if isinstance(distance, dict) else distance
-    return int(raw_duration), int(raw_distance) if raw_distance is not None else None
-
-
 def estimate_route(origin: str, destination: str, *, mode: str, departure_at: datetime) -> RouteEstimate:
-    if not navigation_configured():
-        raise RuntimeError("Yandex navigation is not configured")
-    origin_lat, origin_lon = _geocode(origin)
-    dest_lat, dest_lon = _geocode(destination)
-    departure_ts = max(int(departure_at.timestamp()), int(time.time()) + 1)
-    params: dict[str, Any] = {
-        "apikey": YANDEX_ROUTING_API_KEY,
-        "origins": f"{origin_lat},{origin_lon}",
-        "destinations": f"{dest_lat},{dest_lon}",
-        "mode": mode,
-    }
-    if mode in {"driving", "transit"}:
-        params["departure_time"] = departure_ts
-    response = requests.get(DISTANCE_MATRIX_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    seconds, distance = _matrix_duration_seconds(response.json())
+    provider = navigation_provider()
+    if provider != "2gis":
+        raise RuntimeError(f"Unsupported navigation provider: {provider}")
+    if not dgis_configured():
+        raise RuntimeError("2GIS navigation is not configured")
+    duration_minutes, distance_meters = dgis_estimate(
+        origin,
+        destination,
+        mode=mode,
+        departure_at=departure_at,
+    )
     return RouteEstimate(
         origin=origin,
         destination=destination,
         mode=mode,
-        duration_minutes=max(1, math.ceil(seconds / 60)),
-        distance_meters=distance,
+        duration_minutes=duration_minutes,
+        distance_meters=distance_meters,
     )
 
 
@@ -200,6 +152,7 @@ def build_travel_event(
         "smartPlannerType": TRAVEL_KIND,
         "smartPlannerManaged": MANAGED_VALUE,
         "smartPlannerSourceEventId": source_id,
+        "smartPlannerRouteProvider": navigation_provider(),
         "smartPlannerRouteMode": estimate.mode,
         "smartPlannerRouteMinutes": str(estimate.duration_minutes),
         "smartPlannerArrivalBufferMinutes": str(max(0, int(arrival_buffer_minutes))),
@@ -285,10 +238,6 @@ def create_travel_for_event(user_id: int, source_event: dict, timezone: str) -> 
 
 
 def sync_travel_for_event(user_id: int, source_event: dict, timezone: str) -> dict | None:
-    """Rebuild a linked travel block after a meeting changes.
-
-    Navigation errors are intentionally isolated from the source calendar event.
-    """
     source_id = _source_event_id(source_event)
     if not source_id:
         return None
