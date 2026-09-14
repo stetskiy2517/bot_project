@@ -1,0 +1,303 @@
+name: temporary-navigation-hardening
+
+on:
+  push:
+    branches:
+      - codex/navigation-user-behavior-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/navigation-user-behavior-hardening
+          fetch-depth: 0
+
+      - name: Apply natural command hardening
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+
+          router_path = Path('modules/router.py')
+          router = router_path.read_text(encoding='utf-8')
+
+          event_start = router.index('EVENT_WORDS = (')
+          action_start = router.index('ACTION_WORDS = (', event_start)
+          event_block = '''EVENT_WORDS = (
+              "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
+              "трениров", "зал", "кино", "ресторан", "рейс", "полет", "полёт", "поезд", "такси", "совещ",
+              "планерк", "клиент", "переговор", "день рождения", "обед", "ужин", "завтрак",
+              "отпуск", "командиров", "прогул", "прагул", "погуля", "прогуля", "пробеж", "кафе", "театр", "концерт",
+              "выстав", "музей", "бассейн", "футбол", "матч", "кофе", "массаж", "парикмах",
+              "барбер", "маникюр", "стриж", "занят", "урок", "лекци", "экзамен", "прием", "приём", "йог", "пилатес", "тренеров",
+          )
+          BARE_CREATE_EVENT_WORDS = (
+              "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
+              "трениров", "кино", "совещ", "планерк", "переговор", "день рождения", "обед", "ужин",
+              "завтрак", "отпуск", "командиров", "прогул", "прагул", "погуля", "прогуля", "пробеж", "поездк", "театр", "концерт",
+              "выстав", "музей", "бассейн", "футбол", "матч", "массаж", "парикмах", "барбер",
+              "маникюр", "стриж", "занят", "урок", "лекци", "экзамен", "прием", "приём", "йог", "пилатес", "тренеров",
+          )
+          '''
+          router = router[:event_start] + event_block + router[action_start:]
+
+          info_marker = 'INFO_CREATE_QUESTION_RE = re.compile('
+          if 'BARE_EVENT_STATEMENT_RE = re.compile(' not in router:
+              idx = router.index(info_marker)
+              router = router[:idx] + '''BARE_EVENT_STATEMENT_RE = re.compile(
+              r"\\b(?:люблю|нравит\\w*|полезн\\w*|обычно|часто|редко|был\\w*|была|были|прошл\\w*|"
+              r"прошел|прошёл|прошла|закончил\\w*|состоял\\w*)\\b",
+              re.IGNORECASE,
+          )
+          ''' + router[idx:]
+
+          current_marker = 'CURRENT_STATE_RE = re.compile('
+          if 'LEADING_BARE_HOUR_RE = re.compile(' not in router:
+              idx = router.index(current_marker)
+              router = router[:idx] + '''LEADING_BARE_HOUR_RE = re.compile(
+              r"^\\s*(?P<hour>[01]?\\d|2[0-3])\\s+(?P<body>\\D.+)$",
+              re.IGNORECASE,
+          )
+          ''' + router[idx:]
+
+          creation_start = router.index('def _creation_text(text: str) -> str:')
+          action_fn_start = router.index('def _action_text(text: str) -> str:', creation_start)
+          normalise_end_marker = '    return normal\n\n\n'
+          normalise_pos = router.rfind(normalise_end_marker, 0, creation_start)
+          if normalise_pos < 0:
+              raise RuntimeError('router normalise marker not found')
+          helper_pos = normalise_pos + len(normalise_end_marker)
+          if 'def _contains_event_marker(' not in router:
+              helpers = '''def _contains_event_marker(text: str) -> bool:
+              return any(word in text for word in EVENT_WORDS)
+          
+          
+          def _looks_like_bare_event(text: str) -> bool:
+              normal = _normalise(text)
+              if BARE_EVENT_STATEMENT_RE.search(normal):
+                  return False
+              tokens = re.findall(r"[a-zа-я0-9]+", normal)
+              if len(tokens) > 10:
+                  return False
+              if any(normal.startswith(word) for word in BARE_CREATE_EVENT_WORDS):
+                  return True
+              if re.match(r"^(?:после|перед)\\b", normal) and any(word in normal for word in BARE_CREATE_EVENT_WORDS):
+                  return True
+              return False
+          
+          
+          '''
+              router = router[:helper_pos] + helpers + router[helper_pos:]
+              creation_start = router.index('def _creation_text(text: str) -> str:')
+              action_fn_start = router.index('def _action_text(text: str) -> str:', creation_start)
+
+          creation_fn = '''def _creation_text(text: str) -> str:
+              """Исправить безопасные разговорные/ASR-варианты только для создания события."""
+              result = text
+              if REMIND_ME_AS_COMMAND_RE.search(result):
+                  result = REMIND_ME_AS_COMMAND_RE.sub("напомни", result, count=1)
+          
+              lower = _normalise(result)
+              command_like = (
+                  bool(DATE_HINT_RE.search(lower))
+                  or any(word in lower for word in CREATE_WORDS)
+                  or _contains_event_marker(lower)
+                  or _looks_like_bare_event(lower)
+              )
+              if command_like and _extract_time(lower) is None:
+                  match = TRAILING_BARE_HOUR_RE.search(result)
+                  if match:
+                      hour = match.group("hour")
+                      punct = match.group("punct") or ""
+                      result = f"{result[:match.start('hour')]}в {hour}{punct}"
+                      lower = _normalise(result)
+          
+              if command_like and _extract_time(lower) is None:
+                  leading = LEADING_BARE_HOUR_RE.match(result)
+                  if leading:
+                      result = f"в {leading.group('hour')} {leading.group('body').strip()}"
+              return result
+          
+          
+          '''
+          router = router[:creation_start] + creation_fn + router[action_fn_start:]
+
+          old = '''    if NON_EVENT_STATEMENT_RE.search(lower):
+              return IntentResult(INTENT_UNKNOWN, 0.0)
+          
+              has_event = any(word in lower for word in EVENT_WORDS)
+          '''
+          new = '''    if NON_EVENT_STATEMENT_RE.search(lower):
+              return IntentResult(INTENT_UNKNOWN, 0.0)
+              if BARE_EVENT_STATEMENT_RE.search(lower):
+                  return IntentResult(INTENT_UNKNOWN, 0.0)
+          
+              has_event = _contains_event_marker(lower)
+          '''
+          if old not in router:
+              raise RuntimeError('detect_intent marker not found')
+          router = router.replace(old, new, 1)
+
+          old = '''    if has_action and (has_date or has_time) and not is_question and not is_current_state:
+              return IntentResult(INTENT_CREATE, 0.84)
+              return IntentResult(INTENT_UNKNOWN, 0.0)
+          '''
+          new = '''    if has_action and (has_date or has_time) and not is_question and not is_current_state:
+              return IntentResult(INTENT_CREATE, 0.84)
+              if _looks_like_bare_event(lower) and not is_question and not is_current_state:
+                  return IntentResult(INTENT_CREATE, 0.76)
+              return IntentResult(INTENT_UNKNOWN, 0.0)
+          '''
+          if old not in router:
+              raise RuntimeError('bare create insertion marker not found')
+          router = router.replace(old, new, 1)
+
+          needs_start = router.index('def _needs_time(text: str) -> bool:')
+          pending_start = router.index('def _pending(', needs_start)
+          needs_fn = '''def _needs_time(text: str) -> bool:
+              if is_all_day(text):
+                  return False
+              lower = _normalise(text)
+              if _extract_time(lower) is not None or _relative_offset(lower) is not None:
+                  return False
+              return bool(
+                  DATE_HINT_RE.search(lower)
+                  or any(word in lower for word in CREATE_WORDS)
+                  or _looks_like_bare_event(lower)
+              )
+          
+          
+          '''
+          router = router[:needs_start] + needs_fn + router[pending_start:]
+
+          old = '    combined = f"{pending[\'text\']} {reply}"\n'
+          new = '    combined = _creation_text(f"{pending[\'text\']} {reply}")\n'
+          if old not in router:
+              raise RuntimeError('pending combine marker not found')
+          router = router.replace(old, new, 1)
+          router = router.replace(
+              '        await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или в 7 вечера.")',
+              '        await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или «завтра в 19».")',
+              1,
+          )
+
+          old = '    return any(marker in lower for marker in calendar_markers)\n\n\ndef _blocks_active_note_append'
+          new = '    return any(marker in lower for marker in calendar_markers) or _looks_like_bare_event(lower)\n\n\ndef _blocks_active_note_append'
+          if old not in router:
+              raise RuntimeError('calendar reference marker not found')
+          router = router.replace(old, new, 1)
+
+          old = '''        if _needs_time(create_text):
+              context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
+              await update.message.reply_text("Во сколько поставить событие?")
+              return True
+          '''
+          new = '''        if _needs_time(create_text):
+              context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
+              if DATE_HINT_RE.search(_normalise(create_text)):
+                  prompt = "Во сколько поставить событие?"
+              else:
+                  prompt = "Когда поставить событие? Напиши, например: «22:00» или «завтра в 19»."
+              await update.message.reply_text(prompt)
+              return True
+          '''
+          if old not in router:
+              raise RuntimeError('create prompt marker not found')
+          router = router.replace(old, new, 1)
+          router_path.write_text(router, encoding='utf-8')
+
+          nav_path = Path('modules/navigation.py')
+          nav = nav_path.read_text(encoding='utf-8')
+          temporal_marker = 'TEMPORAL_DESTINATION_RE = re.compile('
+          idx = nav.index(temporal_marker)
+          if 'BARE_ACTIVITY_DESTINATION_RE = re.compile(' not in nav:
+              additions = '''WALK_THROUGH_DESTINATION_RE = re.compile(
+              r"^\\s*(?:прогул\\w*|прагул\\w*|погуля\\w*|прогуля\\w*|пробеж\\w*)\\s+по\\s+(?P<location>.+?)\\s*$",
+              re.IGNORECASE,
+          )
+          BARE_ACTIVITY_DESTINATION_RE = re.compile(
+              r"^\\s*(?:"
+              r"прогул\\w*|прагул\\w*|погуля\\w*|прогуля\\w*|пробеж\\w*|"
+              r"трениров\\w*|тренеров\\w*|поездк\\w*|поех\\w*"
+              r")\\s+(?P<location>.+?)\\s*$",
+              re.IGNORECASE,
+          )
+          '''
+              nav = nav[:idx] + additions + nav[idx:]
+
+          home_marker = 'HOME_PLACE_RE = re.compile('
+          idx = nav.index(home_marker)
+          if 'NON_LOCATION_TAIL_RE = re.compile(' not in nav:
+              nav = nav[:idx] + '''NON_LOCATION_TAIL_RE = re.compile(
+              r"^(?:с|со|у|для|к|от|до|через|после|перед|вместе\\s+с)\\b",
+              re.IGNORECASE,
+          )
+          ''' + nav[idx:]
+
+          clean_start = nav.index('def _clean_destination_candidate(')
+          event_dest_start = nav.index('def _event_destination(', clean_start)
+          destination_functions = '''def _clean_destination_candidate(value: str, *, bare_activity: bool = False) -> str | None:
+              candidate = re.sub(r"\\s+", " ", value).strip(" ,.;")
+              candidate = re.split(
+                  r"\\s+(?:после|перед)\\s+",
+                  candidate,
+                  maxsplit=1,
+                  flags=re.IGNORECASE,
+              )[0].strip(" ,.;")
+              if not candidate:
+                  return None
+              normalized = _normalise_place_text(candidate)
+              if TEMPORAL_DESTINATION_RE.fullmatch(normalized):
+                  return None
+              if bare_activity and NON_LOCATION_TAIL_RE.match(normalized):
+                  return None
+              return candidate[:500]
+          
+          
+          def _summary_destination(summary: str) -> str | None:
+              match = NATURAL_DESTINATION_RE.search(summary)
+              if match:
+                  return _clean_destination_candidate(match.group("location"))
+          
+              match = PREPOSITIONAL_DESTINATION_RE.search(summary)
+              if match:
+                  return _clean_destination_candidate(match.group("location"))
+          
+              match = WALK_THROUGH_DESTINATION_RE.match(summary)
+              if match:
+                  return _clean_destination_candidate(match.group("location"), bare_activity=True)
+          
+              match = BARE_ACTIVITY_DESTINATION_RE.match(summary)
+              if not match:
+                  return None
+              return _clean_destination_candidate(match.group("location"), bare_activity=True)
+          
+          
+          '''
+          nav = nav[:clean_start] + destination_functions + nav[event_dest_start:]
+          nav_path.write_text(nav, encoding='utf-8')
+
+          test_b64 = 'ZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZXRpbWUKaW1wb3J0IHVuaXR0ZXN0CmZyb20gdW5pdHRlc3QubW9jayBpbXBvcnQgQXN5bmNNb2NrLCBwYXRjaAoKZnJvbSBtb2R1bGVzLmNhbGVuZGFyIGltcG9ydCBfZXh0cmFjdF90aXRsZSwgX3BhcnNlX2V2ZW50X3RpbWluZwpmcm9tIG1vZHVsZXMubmF2aWdhdGlvbiBpbXBvcnQgX3Jlc29sdmVkX2V2ZW50X2Rlc3RpbmF0aW9uLCBfc3VtbWFyeV9kZXN0aW5hdGlvbgpmcm9tIG1vZHVsZXMucm91dGVyIGltcG9ydCAoCiAgICBJTlRFTlRfQ1JFQVRFLAogICAgSU5URU5UX1VOS05PV04sCiAgICBfY3JlYXRpb25fdGV4dCwKICAgIF9uZWVkc190aW1lLAogICAgX3Jlc3VtZV9wZW5kaW5nLAogICAgZGV0ZWN0X2ludGVudCwKKQoKCmNsYXNzIE5hdHVyYWxDYWxlbmRhckNvbW1hbmRUZXN0cyh1bml0dGVzdC5UZXN0Q2FzZSk6CiAgICBkZWYgc2V0VXAoc2VsZik6CiAgICAgICAgc2VsZi5ub3cgPSBkYXRldGltZSgyMDI2LCA5LCAxNCwgMTIsIDApCgogICAgZGVmIHRlc3RfY29tbW9uX2FjdGl2aXR5X3BocmFzZXNfd2l0aF90aW1lX2FyZV9jcmVhdGVfY29tbWFuZHMoc2VsZik6CiAgICAgICAgY2FzZXMgPSBbCiAgICAgICAgICAgICLQv9GA0L7Qs9GD0LvQutCwINCyINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQgMjI6MDAiLAogICAgICAgICAgICAi0L/RgNC+0LPRg9C70LrQsCDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IDIyOjAwIiwKICAgICAgICAgICAgItC/0YDQvtCz0YPQu9C60LAg0L3QsCDQktCU0J3QpSDRgdC10LPQvtC00L3RjyDQsiAyMiIsCiAgICAgICAgICAgICLQv9C+0LPRg9C70Y/RgtGMINC/0L4g0JLQlNCd0KUg0LfQsNCy0YLRgNCwINCyIDE5IiwKICAgICAgICAgICAgItGC0YDQtdC90LjRgNC+0LLQutCwINCb0YPQttC90LjQutC4IDIwOjMwIiwKICAgICAgICAgICAgItGC0LXQsNGC0YAg0LfQsNCy0YLRgNCwINCyIDE5OjAwIiwKICAgICAgICAgICAgItC80LDRgdGB0LDQtiDQsiAxODozMCIsCiAgICAgICAgICAgICLQsdCw0YHRgdC10LnQvSDQt9Cw0LLRgtGA0LAg0LIgNyIsCiAgICAgICAgICAgICLRhNGD0YLQsdC+0Lsg0LIg0YHRg9Cx0LHQvtGC0YMg0LIgMTYiLAogICAgICAgICAgICAi0YPQttC40L0g0LTQvtC80LAgMTk6MDAiLAogICAgICAgICAgICAi0LLRgdGC0YDQtdGH0LAg0L3QsCDRgNCw0LHQvtGC0LUgMjE6MDAiLAogICAgICAgIF0KICAgICAgICBmb3IgdGV4dCBpbiBjYXNlczoKICAgICAgICAgICAgd2l0aCBzZWxmLnN1YlRlc3QodGV4dD10ZXh0KToKICAgICAgICAgICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwoZGV0ZWN0X2ludGVudCh0ZXh0KS5uYW1lLCBJTlRFTlRfQ1JFQVRFKQoKICAgIGRlZiB0ZXN0X3RyYWlsaW5nX2JhcmVfaG91cl9pc19yZXBhaXJlZF93aXRob3V0X2V4cGxpY2l0X2RhdGUoc2VsZik6CiAgICAgICAgY2FzZXMgPSB7CiAgICAgICAgICAgICLQv9GA0L7Qs9GD0LvQutCwINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQgMjIiOiAi0L/RgNC+0LPRg9C70LrQsCDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0INCyIDIyIiwKICAgICAgICAgICAgItGC0YDQtdC90LjRgNC+0LLQutCwINCb0YPQttC90LjQutC4IDIwIjogItGC0YDQtdC90LjRgNC+0LLQutCwINCb0YPQttC90LjQutC4INCyIDIwIiwKICAgICAgICAgICAgItGD0LbQuNC9INC00L7QvNCwIDE5IjogItGD0LbQuNC9INC00L7QvNCwINCyIDE5IiwKICAgICAgICB9CiAgICAgICAgZm9yIHRleHQsIGV4cGVjdGVkIGluIGNhc2VzLml0ZW1zKCk6CiAgICAgICAgICAgIHdpdGggc2VsZi5zdWJUZXN0KHRleHQ9dGV4dCk6CiAgICAgICAgICAgICAgICByZXBhaXJlZCA9IF9jcmVhdGlvbl90ZXh0KHRleHQpCiAgICAgICAgICAgICAgICBzZWxmLmFzc2VydEVxdWFsKHJlcGFpcmVkLCBleHBlY3RlZCkKICAgICAgICAgICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwoZGV0ZWN0X2ludGVudCh0ZXh0KS5uYW1lLCBJTlRFTlRfQ1JFQVRFKQoKICAgIGRlZiB0ZXN0X2xlYWRpbmdfYmFyZV9ob3VyX2lzX3JlcGFpcmVkX2Zvcl9ldmVudF9saWtlX3BocmFzZShzZWxmKToKICAgICAgICByZXBhaXJlZCA9IF9jcmVhdGlvbl90ZXh0KCIyMiDQv9GA0L7Qs9GD0LvQutCwINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQiKQogICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwocmVwYWlyZWQsICLQsiAyMiDQv9GA0L7Qs9GD0LvQutCwINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQiKQogICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwoZGV0ZWN0X2ludGVudCgiMjIg0L/RgNC+0LPRg9C70LrQsCDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IikubmFtZSwgSU5URU5UX0NSRUFURSkKCiAgICBkZWYgdGVzdF9iYXJlX2FjdGl2aXR5X3dpdGhvdXRfdGltZV9wcm9tcHRzX2luc3RlYWRfb2ZfZmFpbGluZyhzZWxmKToKICAgICAgICBjYXNlcyA9IFsKICAgICAgICAgICAgItC/0YDQvtCz0YPQu9C60LAg0LHQvtGC0LDQvdC40YfQtdGB0LrQuNC5INGB0LDQtCIsCiAgICAgICAgICAgICLQv9GA0L7Qs9GD0LvQutCwINC90LAg0JLQlNCd0KUiLAogICAgICAgICAgICAi0L/QvtCz0YPQu9GP0YLRjCDQv9C+INCS0JTQndClIiwKICAgICAgICAgICAgItCy0YHRgtGA0LXRh9CwINGBINCY0LLQsNC90L7QvCIsCiAgICAgICAgICAgICLRgtGA0LXQvdC40YDQvtCy0LrQsCDQm9GD0LbQvdC40LrQuCIsCiAgICAgICAgICAgICLRgtC10LDRgtGAINCR0L7Qu9GM0YjQvtC5IiwKICAgICAgICAgICAgItC80LDRgdGB0LDQtiIsCiAgICAgICAgXQogICAgICAgIGZvciB0ZXh0IGluIGNhc2VzOgogICAgICAgICAgICB3aXRoIHNlbGYuc3ViVGVzdCh0ZXh0PXRleHQpOgogICAgICAgICAgICAgICAgc2VsZi5hc3NlcnRFcXVhbChkZXRlY3RfaW50ZW50KHRleHQpLm5hbWUsIElOVEVOVF9DUkVBVEUpCiAgICAgICAgICAgICAgICBzZWxmLmFzc2VydFRydWUoX25lZWRzX3RpbWUoX2NyZWF0aW9uX3RleHQodGV4dCkpKQoKICAgIGRlZiB0ZXN0X2RhdGVfd2l0aG91dF90aW1lX3N0aWxsX3Byb21wdHMoc2VsZik6CiAgICAgICAgZm9yIHRleHQgaW4gWyLQv9GA0L7Qs9GD0LvQutCwINC90LAg0JLQlNCd0KUg0LfQsNCy0YLRgNCwIiwgItGC0YDQtdC90LjRgNC+0LLQutCwINCyINC/0Y/RgtC90LjRhtGDIiwgItGC0LXQsNGC0YAg0LfQsNCy0YLRgNCwIl06CiAgICAgICAgICAgIHdpdGggc2VsZi5zdWJUZXN0KHRleHQ9dGV4dCk6CiAgICAgICAgICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGRldGVjdF9pbnRlbnQodGV4dCkubmFtZSwgSU5URU5UX0NSRUFURSkKICAgICAgICAgICAgICAgIHNlbGYuYXNzZXJ0VHJ1ZShfbmVlZHNfdGltZSh0ZXh0KSkKCiAgICBkZWYgdGVzdF9hY3Rpdml0eV9zdGF0ZW1lbnRzX2FuZF9xdWVzdGlvbnNfYXJlX25vdF9jcmVhdGVkKHNlbGYpOgogICAgICAgIGNhc2VzID0gWwogICAgICAgICAgICAi0L/RgNC+0LPRg9C70LrQuCDQv9C+0LvQtdC30L3RiyDQtNC70Y8g0LfQtNC+0YDQvtCy0YzRjyIsCiAgICAgICAgICAgICLRjyDQsdGL0Lsg0L3QsCDQv9GA0L7Qs9GD0LvQutC1INCy0YfQtdGA0LAiLAogICAgICAgICAgICAi0YLRgNC10L3QuNGA0L7QstC60LAg0YHQtdCz0L7QtNC90Y8g0LHRi9C70LAg0YLRj9C20LXQu9C+0LkiLAogICAgICAgICAgICAi0LrQsNC6INC/0YDQvtC50YLQuCDQsiDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IiwKICAgICAgICAgICAgItCz0LTQtSDQv9GA0L7Qs9GD0LvQutCwINC30LDQstGC0YDQsD8iLAogICAgICAgICAgICAi0L/QvtCz0L7QtNCwINCyINCx0L7RgtCw0L3QuNGH0LXRgdC60L7QvCDRgdCw0LTRgyDQt9Cw0LLRgtGA0LAg0LIgMjI6MDAiLAogICAgICAgICAgICAi0L3QvtCy0L7RgdGC0Lgg0JLQlNCd0KUg0LfQsNCy0YLRgNCwINCyIDIyOjAwIiwKICAgICAgICBdCiAgICAgICAgZm9yIHRleHQgaW4gY2FzZXM6CiAgICAgICAgICAgIHdpdGggc2VsZi5zdWJUZXN0KHRleHQ9dGV4dCk6CiAgICAgICAgICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGRldGVjdF9pbnRlbnQodGV4dCkubmFtZSwgSU5URU5UX1VOS05PV04pCgogICAgZGVmIHRlc3RfcGFyc2VyX2tlZXBzX3BsYWNlX2luX3RpdGxlX2FuZF91c2VzX3RpbWUoc2VsZik6CiAgICAgICAgdGltaW5nID0gX3BhcnNlX2V2ZW50X3RpbWluZygi0L/RgNC+0LPRg9C70LrQsCDQsiDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IDIyOjAwIiwgc2VsZi5ub3cpCiAgICAgICAgc2VsZi5hc3NlcnRJc05vdE5vbmUodGltaW5nKQogICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwodGltaW5nWzBdLCBkYXRldGltZSgyMDI2LCA5LCAxNCwgMjIsIDApKQogICAgICAgIHNlbGYuYXNzZXJ0RXF1YWwoX2V4dHJhY3RfdGl0bGUoItC/0YDQvtCz0YPQu9C60LAg0LIg0LHQvtGC0LDQvdC40YfQtdGB0LrQuNC5INGB0LDQtCAyMjowMCIpLCAi0J/RgNC+0LPRg9C70LrQsCDQsiDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IikKCgpjbGFzcyBOYXR1cmFsTmF2aWdhdGlvbkRlc3RpbmF0aW9uVGVzdHModW5pdHRlc3QuVGVzdENhc2UpOgogICAgZGVmIHRlc3RfcHJlcG9zaXRpb25hbF9hbmRfYmFyZV93YWxrX2Rlc3RpbmF0aW9ucyhzZWxmKToKICAgICAgICBjYXNlcyA9IHsKICAgICAgICAgICAgItCf0YDQvtCz0YPQu9C60LAg0LIg0LHQvtGC0LDQvdC40YfQtdGB0LrQuNC5INGB0LDQtCI6ICLQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IiwKICAgICAgICAgICAgItCf0YDQvtCz0YPQu9C60LAg0L3QsCDQktCU0J3QpSI6ICLQktCU0J3QpSIsCiAgICAgICAgICAgICLQn9GA0L7Qs9GD0LvQutCwINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQiOiAi0LHQvtGC0LDQvdC40YfQtdGB0LrQuNC5INGB0LDQtCIsCiAgICAgICAgICAgICLQn9C+0LPRg9C70Y/RgtGMINCx0L7RgtCw0L3QuNGH0LXRgdC60LjQuSDRgdCw0LQiOiAi0LHQvtGC0LDQvdC40YfQtdGB0LrQuNC5INGB0LDQtCIsCiAgICAgICAgICAgICLQn9GA0L7Qs9GD0LvRj9GC0YzRgdGPINC/0L4g0JLQlNCd0KUiOiAi0JLQlNCd0KUiLAogICAgICAgICAgICAi0KLRgNC10L3QuNGA0L7QstC60LAg0JvRg9C20L3QuNC60LgiOiAi0JvRg9C20L3QuNC60LgiLAogICAgICAgICAgICAi0J/QvtC10LfQtNC60LAg0KjQtdGA0LXQvNC10YLRjNC10LLQviI6ICLQqNC10YDQtdC80LXRgtGM0LXQstC+IiwKICAgICAgICB9CiAgICAgICAgZm9yIHN1bW1hcnksIGV4cGVjdGVkIGluIGNhc2VzLml0ZW1zKCk6CiAgICAgICAgICAgIHdpdGggc2VsZi5zdWJUZXN0KHN1bW1hcnk9c3VtbWFyeSk6CiAgICAgICAgICAgICAgICBzZWxmLmFzc2VydEVxdWFsKF9zdW1tYXJ5X2Rlc3RpbmF0aW9uKHN1bW1hcnkpLCBleHBlY3RlZCkKCiAgICBkZWYgdGVzdF9ub25fbG9jYXRpb25fd2Fsa190YWlsc19hcmVfcmVqZWN0ZWQoc2VsZik6CiAgICAgICAgZm9yIHN1bW1hcnkgaW4gWwogICAgICAgICAgICAi0J/RgNC+0LPRg9C70LrQsCDRgSDQtNC10YLRjNC80LgiLAogICAgICAgICAgICAi0J/RgNC+0LPRg9C70LrQsCDQv9C+0YHQu9C1INGA0LDQsdC+0YLRiyIsCiAgICAgICAgICAgICLQn9GA0L7Qs9GD0LvQutCwINC/0LXRgNC10LQg0YHQvdC+0LwiLAogICAgICAgICAgICAi0KLRgNC10L3QuNGA0L7QstC60LAg0YEg0YLRgNC10L3QtdGA0L7QvCIsCiAgICAgICAgXToKICAgICAgICAgICAgd2l0aCBzZWxmLnN1YlRlc3Qoc3VtbWFyeT1zdW1tYXJ5KToKICAgICAgICAgICAgICAgIHNlbGYuYXNzZXJ0SXNOb25lKF9zdW1tYXJ5X2Rlc3RpbmF0aW9uKHN1bW1hcnkpKQoKICAgIGRlZiB0ZXN0X3RlbXBvcmFsX3BocmFzZXNfYXJlX25vdF9kZXN0aW5hdGlvbnMoc2VsZik6CiAgICAgICAgZm9yIHN1bW1hcnkgaW4gWyLQn9GA0L7Qs9GD0LvQutCwINC90LAg0LfQsNCy0YLRgNCwIiwgItCf0YDQvtCz0YPQu9C60LAg0LIg0L/Rj9GC0L3QuNGG0YMiLCAi0J/RgNC+0LPRg9C70LrQsCDQsiAyMTowMCJdOgogICAgICAgICAgICB3aXRoIHNlbGYuc3ViVGVzdChzdW1tYXJ5PXN1bW1hcnkpOgogICAgICAgICAgICAgICAgc2VsZi5hc3NlcnRJc05vbmUoX3N1bW1hcnlfZGVzdGluYXRpb24oc3VtbWFyeSkpCgogICAgZGVmIHRlc3RfaG9tZV9hbmRfb2ZmaWNlX2FsaWFzZXNfcmVtYWluX3N1cHBvcnRlZChzZWxmKToKICAgICAgICBwcmVmcyA9IHsKICAgICAgICAgICAgImhvbWVfYWRkcmVzcyI6ICLQnNC+0YHQutCy0LAsINC/0YDQvtGB0L/QtdC60YIg0JzQuNGA0LAsIDEiLAogICAgICAgICAgICAib2ZmaWNlX2FkZHJlc3MiOiAi0JzQvtGB0LrQstCwLCDQk9C40LvRj9GA0L7QstGB0LrQvtCz0L4sIDUzIiwKICAgICAgICB9CiAgICAgICAgc2VsZi5hc3NlcnRFcXVhbCgKICAgICAgICAgICAgX3Jlc29sdmVkX2V2ZW50X2Rlc3RpbmF0aW9uKHsic3VtbWFyeSI6ICLQo9C20LjQvSDQtNC+0LzQsCJ9LCBwcmVmcyksCiAgICAgICAgICAgICLQnNC+0YHQutCy0LAsINC/0YDQvtGB0L/QtdC60YIg0JzQuNGA0LAsIDEiLAogICAgICAgICkKICAgICAgICBzZWxmLmFzc2VydEVxdWFsKAogICAgICAgICAgICBfcmVzb2x2ZWRfZXZlbnRfZGVzdGluYXRpb24oeyJzdW1tYXJ5IjogItCS0YHRgtGA0LXRh9CwINC90LAg0YDQsNCx0L7RgtC1In0sIHByZWZzKSwKICAgICAgICAgICAgItCc0L7RgdC60LLQsCwg0JPQuNC70Y/RgNC+0LLRgdC60L7Qs9C+LCA1MyIsCiAgICAgICAgKQoKCmNsYXNzIFBlbmRpbmdOYXR1cmFsRXZlbnRUaW1lVGVzdHModW5pdHRlc3QuSXNvbGF0ZWRBc3luY2lvVGVzdENhc2UpOgogICAgY2xhc3MgQ29udGV4dDoKICAgICAgICBkZWYgX19pbml0X18oc2VsZik6CiAgICAgICAgICAgIHNlbGYudXNlcl9kYXRhID0gewogICAgICAgICAgICAgICAgInNtYXJ0X3BsYW5uZXJfcGVuZGluZyI6IHsKICAgICAgICAgICAgICAgICAgICAidHlwZSI6ICJjcmVhdGVfdGltZSIsCiAgICAgICAgICAgICAgICAgICAgInRleHQiOiAi0L/RgNC+0LPRg9C70LrQsCDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0IiwKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQoKICAgIGNsYXNzIE1lc3NhZ2U6CiAgICAgICAgZGVmIF9faW5pdF9fKHNlbGYpOgogICAgICAgICAgICBzZWxmLnJlcGxpZXMgPSBbXQoKICAgICAgICBhc3luYyBkZWYgcmVwbHlfdGV4dChzZWxmLCB0ZXh0KToKICAgICAgICAgICAgc2VsZi5yZXBsaWVzLmFwcGVuZCh0ZXh0KQoKICAgIGNsYXNzIFVzZXI6CiAgICAgICAgaWQgPSAxCgogICAgY2xhc3MgVXBkYXRlOgogICAgICAgIGRlZiBfX2luaXRfXyhzZWxmKToKICAgICAgICAgICAgc2VsZi5tZXNzYWdlID0gUGVuZGluZ05hdHVyYWxFdmVudFRpbWVUZXN0cy5NZXNzYWdlKCkKICAgICAgICAgICAgc2VsZi5lZmZlY3RpdmVfdXNlciA9IFBlbmRpbmdOYXR1cmFsRXZlbnRUaW1lVGVzdHMuVXNlcigpCgogICAgYXN5bmMgZGVmIHRlc3RfcGVuZGluZ19ldmVudF9hY2NlcHRzX3RvbW9ycm93X3BsdXNfYmFyZV9ob3VyKHNlbGYpOgogICAgICAgIGNvbnRleHQgPSBzZWxmLkNvbnRleHQoKQogICAgICAgIHVwZGF0ZSA9IHNlbGYuVXBkYXRlKCkKICAgICAgICB3aXRoIHBhdGNoKCJtb2R1bGVzLnJvdXRlci5jcmVhdGVfZnJvbV90ZXh0IiwgbmV3PUFzeW5jTW9jayhyZXR1cm5fdmFsdWU9VHJ1ZSkpIGFzIGNyZWF0ZToKICAgICAgICAgICAgaGFuZGxlZCA9IGF3YWl0IF9yZXN1bWVfcGVuZGluZyh1cGRhdGUsIGNvbnRleHQsICLQt9Cw0LLRgtGA0LAgMjIiKQogICAgICAgIHNlbGYuYXNzZXJ0VHJ1ZShoYW5kbGVkKQogICAgICAgIGNyZWF0ZS5hc3NlcnRfYXdhaXRlZF9vbmNlKCkKICAgICAgICBjb21iaW5lZCA9IGNyZWF0ZS5hd2FpdF9hcmdzLmFyZ3NbMl0KICAgICAgICBzZWxmLmFzc2VydEVxdWFsKGNvbWJpbmVkLCAi0L/RgNC+0LPRg9C70LrQsCDQsdC+0YLQsNC90LjRh9C10YHQutC40Lkg0YHQsNC0INC30LDQstGC0YDQsCDQsiAyMiIpCiAgICAgICAgc2VsZi5hc3NlcnROb3RJbigic21hcnRfcGxhbm5lcl9wZW5kaW5nIiwgY29udGV4dC51c2VyX2RhdGEpCgoKaWYgX19uYW1lX18gPT0gIl9fbWFpbl9fIjoKICAgIHVuaXR0ZXN0Lm1haW4oKQo='
+          Path('tests/test_navigation_user_behavior.py').write_bytes(base64.b64decode(test_b64))
+          PY
+
+      - name: Validate generated files
+        run: |
+          python -m py_compile modules/router.py modules/navigation.py tests/test_navigation_user_behavior.py
+          git diff --check
+
+      - name: Commit hardened implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add modules/router.py modules/navigation.py tests/test_navigation_user_behavior.py
+          git rm .github/workflows/tmp-navigation-hardening.yml
+          git commit -m "Harden natural calendar and navigation commands"
+          git push origin HEAD:codex/navigation-user-behavior-hardening
