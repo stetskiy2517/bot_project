@@ -7,17 +7,28 @@
         :root {
           --stable-app-height: 100dvh;
           --keyboard-inset: 0px;
+          --visual-offset-top: 0px;
         }
         .app,
         .panel,
         .login {
           height: var(--stable-app-height, 100dvh) !important;
         }
+        .topbar {
+          top: var(--visual-offset-top, 0px) !important;
+        }
+        .workspace {
+          top: var(--visual-offset-top, 0px) !important;
+          bottom: calc(-1 * var(--visual-offset-top, 0px)) !important;
+        }
         .sheet {
           max-height: min(88dvh, calc(var(--stable-app-height, 100dvh) - 24px)) !important;
         }
         .chat-shell {
-          bottom: calc(env(safe-area-inset-bottom) + 82px + var(--keyboard-inset, 0px)) !important;
+          bottom: calc(
+            env(safe-area-inset-bottom) + 82px +
+            var(--keyboard-inset, 0px) + var(--visual-offset-top, 0px)
+          ) !important;
         }
         .composer-wrap {
           bottom: var(--keyboard-inset, 0px) !important;
@@ -38,8 +49,9 @@
     function syncStableViewport() {
       const viewport = window.visualViewport;
       const layoutHeight = Math.max(window.innerHeight || 0, root.clientHeight || 0);
+      const viewportOffsetTop = viewport ? Math.max(0, viewport.offsetTop || 0) : 0;
       const visualBottom = viewport
-        ? Math.max(0, viewport.height + viewport.offsetTop)
+        ? Math.max(0, viewport.height + viewportOffsetTop)
         : layoutHeight;
       const focused = keyboardFieldFocused();
       const hiddenBottom = Math.max(0, stableHeight - visualBottom);
@@ -53,9 +65,11 @@
         ? Math.max(0, stableHeight - visualBottom)
         : 0;
       const effectiveInset = keyboardInset > 100 ? keyboardInset : 0;
+      const effectiveOffsetTop = effectiveInset ? viewportOffsetTop : 0;
 
       root.style.setProperty("--stable-app-height", Math.round(stableHeight) + "px");
       root.style.setProperty("--keyboard-inset", Math.round(effectiveInset) + "px");
+      root.style.setProperty("--visual-offset-top", Math.round(effectiveOffsetTop) + "px");
 
       if (effectiveInset && document.activeElement?.id === "message") {
         requestAnimationFrame(() => {
