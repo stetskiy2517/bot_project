@@ -115,6 +115,18 @@ class NavigationTests(unittest.TestCase):
         event = {"summary": "Встреча с клиентом будет на ВДНХ"}
         self.assertEqual(_event_destination(event), "ВДНХ")
 
+    def test_short_prepositional_destination_is_recognized(self):
+        self.assertEqual(_event_destination({"summary": "Прогулка на ВДНХ"}), "ВДНХ")
+        self.assertEqual(
+            _event_destination({"summary": "Прогулка на ВДНХ после рабочей встречи"}),
+            "ВДНХ",
+        )
+
+    def test_temporal_phrases_are_not_treated_as_destinations(self):
+        self.assertIsNone(_event_destination({"summary": "Встреча на завтра"}))
+        self.assertIsNone(_event_destination({"summary": "Созвон в пятницу"}))
+        self.assertIsNone(_event_destination({"summary": "Ужин в 21:00"}))
+
     def test_saved_home_and_office_aliases_resolve_to_addresses(self):
         prefs = {
             "home_address": "Москва, проспект Мира, 1",
@@ -217,6 +229,71 @@ class NavigationTests(unittest.TestCase):
         inserted = service.events().insert.call_args.kwargs["body"]
         self.assertEqual(inserted["location"], office)
         self.assertEqual(inserted["end"]["dateTime"], "2026-09-14T21:00:00+03:00")
+
+    @patch("modules.navigation.get_category_colors", return_value={"travel": "7"})
+    @patch("modules.navigation._get_calendar_service")
+    @patch("modules.navigation.estimate_route")
+    @patch("modules.navigation._event_end")
+    @patch("modules.navigation._list_events")
+    @patch("modules.navigation.navigation_configured", return_value=True)
+    @patch("modules.navigation.get_navigation_preferences")
+    def test_work_meeting_then_vdnh_walk_creates_office_to_vdnh_travel(
+        self,
+        prefs,
+        configured,
+        list_events,
+        event_end,
+        estimate,
+        get_service,
+        colors,
+    ):
+        home = "Москва, проспект Мира, 1"
+        office = "Москва, Гиляровского, 53"
+        prefs.return_value = {
+            "enabled": True,
+            "home_address": home,
+            "office_address": office,
+            "default_origin": home,
+            "mode": "driving",
+            "arrival_buffer_minutes": 15,
+        }
+        meeting = {
+            "id": "meeting-21",
+            "summary": "Встреча на работе",
+            "start": {"dateTime": "2026-09-14T21:00:00+03:00", "timeZone": "Europe/Moscow"},
+            "end": {"dateTime": "2026-09-14T22:00:00+03:00", "timeZone": "Europe/Moscow"},
+        }
+        walk = {
+            "id": "walk-vdnh",
+            "summary": "Прогулка на ВДНХ",
+            "start": {"dateTime": "2026-09-14T23:00:00+03:00", "timeZone": "Europe/Moscow"},
+            "end": {"dateTime": "2026-09-15T00:00:00+03:00", "timeZone": "Europe/Moscow"},
+        }
+        list_events.return_value = [meeting]
+        event_end.return_value = datetime(2026, 9, 14, 22, 0, tzinfo=self.zone)
+        estimate.return_value = RouteEstimate(
+            origin=office,
+            destination="ВДНХ",
+            mode="driving",
+            duration_minutes=20,
+            distance_meters=7600,
+        )
+        service = MagicMock()
+        service.events().insert().execute.return_value = {"id": "travel-office-vdnh"}
+        get_service.return_value = service
+
+        result = create_travel_for_event(1, walk, "Europe/Moscow")
+
+        self.assertEqual(result["id"], "travel-office-vdnh")
+        estimate.assert_called_once_with(
+            office,
+            "ВДНХ",
+            mode="driving",
+            departure_at=datetime(2026, 9, 14, 23, 0, tzinfo=self.zone),
+        )
+        inserted = service.events().insert.call_args.kwargs["body"]
+        self.assertEqual(inserted["location"], "ВДНХ")
+        self.assertEqual(inserted["end"]["dateTime"], "2026-09-14T23:00:00+03:00")
 
     @patch("modules.navigation.navigation_configured", return_value=True)
     @patch("modules.navigation.get_navigation_preferences")
