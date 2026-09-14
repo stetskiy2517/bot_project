@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width,initial-scale=1,viewport-fit=cover"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#f7f7f5" />
     <title>Personal Secretary</title>
@@ -21,6 +21,7 @@
         --text: #111;
         --muted: #8a8a8a;
         --line: #e6e6e3;
+        --app-height: 100dvh;
       }
       * {
         box-sizing: border-box;
@@ -29,10 +30,17 @@
       html,
       body {
         margin: 0;
+        width: 100%;
+        height: 100%;
         min-height: 100%;
         background: var(--bg);
         color: var(--text);
         overflow: hidden;
+        overscroll-behavior: none;
+      }
+      body {
+        position: fixed;
+        inset: 0;
       }
       button,
       input,
@@ -45,8 +53,10 @@
       }
       .app {
         position: relative;
-        width: 100%;
-        height: 100dvh;
+        width: 100vw;
+        max-width: 100vw;
+        height: var(--app-height, 100dvh);
+        min-height: 0;
         overflow: hidden;
         background: var(--bg);
       }
@@ -364,6 +374,7 @@
       .login {
         position: fixed;
         inset: 0;
+        height: var(--app-height, 100dvh);
         z-index: 50;
         background: rgba(247, 247, 245, 0.84);
         backdrop-filter: blur(22px);
@@ -378,7 +389,7 @@
       }
       .sheet {
         width: min(560px, 100%);
-        max-height: 88dvh;
+        max-height: min(88dvh, calc(var(--app-height, 100dvh) - 24px));
         overflow: auto;
         background: #fff;
         border: 1px solid var(--line);
@@ -656,6 +667,13 @@
         color: #fff;
         font-weight: 600;
         cursor: pointer;
+      }
+      @media (max-width: 759px) {
+        .composer input,
+        .field input,
+        .field select {
+          font-size: 16px;
+        }
       }
       @media (min-width: 760px) {
         .app {
@@ -955,6 +973,30 @@
         other: null,
       };
       let categoryColors = { ...defaultCategoryColors };
+
+      function syncViewportHeight() {
+        const viewport = window.visualViewport;
+        const height = viewport ? viewport.height : window.innerHeight;
+        if (!height) return;
+        document.documentElement.style.setProperty(
+          "--app-height",
+          Math.round(height) + "px",
+        );
+      }
+
+      syncViewportHeight();
+      window.addEventListener("resize", syncViewportHeight, { passive: true });
+      window.addEventListener("orientationchange", () => {
+        requestAnimationFrame(syncViewportHeight);
+      });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", syncViewportHeight, {
+          passive: true,
+        });
+        window.visualViewport.addEventListener("scroll", syncViewportHeight, {
+          passive: true,
+        });
+      }
 
       function msg(text, who = "assistant") {
         const item = document.createElement("div");
