@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 import io
 import unittest
 from unittest.mock import patch
@@ -8,14 +9,14 @@ from core.db import get_or_create_google_user
 
 class WebAppTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
 
     def _google_session(self, client, sub, email, name):
         uid = get_or_create_google_user(sub, email, name)
         with client.session_transaction() as session:
-            session["user_id"] = uid
+            set_test_session(session, uid)
         return uid
 
     def test_health_does_not_require_telegram(self):
@@ -30,10 +31,10 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/voice").status_code, 401)
 
     def test_google_login_is_public(self):
-        with patch("web_app.build_web_signin_url", return_value="https://accounts.google.test/auth") as build:
+        with patch("web_app.build_web_signin_url", return_value="https://accounts.google.test/auth?state=test-state") as build:
             response = self.client.get("/api/google/login")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["url"], "https://accounts.google.test/auth")
+        self.assertEqual(response.get_json()["url"], "https://accounts.google.test/auth?state=test-state")
         build.assert_called_once_with()
 
     def test_two_google_accounts_have_independent_sessions(self):

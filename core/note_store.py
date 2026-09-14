@@ -7,6 +7,7 @@ import re
 
 from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
+from core.undo_store import entity_snapshot, record_undo
 
 MAX_NOTE_LENGTH = 5000
 MAX_NOTE_TITLE_LENGTH = 120
@@ -321,6 +322,7 @@ def delete_note(user_id: int, note_id: int) -> bool:
             if not row:
                 return False
             note = _from_row(row)
+            before = entity_snapshot("note", user_id, note_id)
             snapshot = {**note, "deleted_at": deleted_at}
             cur = conn.execute(
                 "UPDATE notes SET deleted_at=?,updated_at=? "
@@ -338,6 +340,7 @@ def delete_note(user_id: int, note_id: int) -> bool:
                 snapshot,
                 commit=False,
             )
+            record_undo("note", user_id, note_id, before, "Удаление заметки")
             conn.commit()
         except Exception:
             conn.rollback()

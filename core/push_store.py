@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from core.db import conn, db_lock
+from integrations.push_security import validate_push_endpoint, validate_push_keys
 
 
 def init_push_store() -> None:
@@ -56,10 +57,8 @@ def save_push_subscription(
     endpoint = str(endpoint or "").strip()
     p256dh = str(p256dh or "").strip()
     auth = str(auth or "").strip()
-    if not endpoint.startswith("https://"):
-        raise ValueError("Push endpoint must use HTTPS")
-    if not p256dh or not auth:
-        raise ValueError("Push subscription keys are required")
+    validate_push_endpoint(endpoint)
+    validate_push_keys(p256dh, auth)
     if len(endpoint) > 4096 or len(p256dh) > 1024 or len(auth) > 1024:
         raise ValueError("Push subscription is too large")
 

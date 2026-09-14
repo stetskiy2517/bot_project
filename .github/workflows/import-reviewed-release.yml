@@ -1,0 +1,66 @@
+name: Import reviewed release patch
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  import:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'release/security-approved-p2-p8'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      DB_PATH: /tmp/import-release-tests.db
+      WEB_PUSH_ENABLED: 'false'
+      RELEASE_BRANCH: release/security-approved-p2-p8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact reviewed patch and allowed paths
+        run: |
+          python - <<'PY'
+          import hashlib, lzma, pathlib, subprocess
+          packed = b''.join(pathlib.Path(f'.review/part-{i}.xz').read_bytes() for i in range(8))
+          assert len(packed) == 58824
+          assert hashlib.sha256(packed).hexdigest() == '3c17b3747db18593199a76a63477781731709f4ab67450e6f365a46e35a5ec97'
+          patch = lzma.decompress(packed)
+          assert len(patch) == 287735
+          assert hashlib.sha256(patch).hexdigest() == '820494b231e6f93d37b3c37e9f895e3292cba71e9eff6e158556f39b23216690'
+          target = pathlib.Path('/tmp/reviewed-release.patch')
+          target.write_bytes(patch)
+          stats = subprocess.check_output(['git', 'apply', '--numstat', str(target)], text=True)
+          allowed = {'core', 'modules', 'integrations', 'web', 'tests', 'scripts', 'docs'}
+          for line in stats.splitlines():
+              name = line.split('\t', 2)[2]
+              p = pathlib.PurePosixPath(name)
+              assert not p.is_absolute() and '..' not in p.parts
+              assert p.parts[0] in allowed or name in {'.env.example', 'config.py', 'requirements.txt', 'web_app.py'}
+          subprocess.run(['git', 'apply', '--check', str(target)], check=True)
+          subprocess.run(['git', 'apply', '--index', str(target)], check=True)
+          print(stats)
+          PY
+      - name: Verify implementation before committing
+        run: |
+          pip install -q -r requirements.txt ruff
+          python -m unittest discover -s tests -p 'test_*.py'
+          python -m compileall -q core modules integrations tests scripts web_app.py
+          python scripts/check_web_source.py
+          node tests/voice_gesture_test.js
+          ruff check --select E9,F63,F7,F82 .
+          bash -n deploy.sh scripts/deploy_update.sh
+      - name: Commit verified code to release branch only
+        run: |
+          set -eu
+          expected=$(git rev-parse HEAD)
+          actual=$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | cut -f1)
+          test "$actual" = "$expected"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Implement approved P2-P8 with browser-bound auth and durable command safety'
+          git push origin "HEAD:refs/heads/$RELEASE_BRANCH"

@@ -894,6 +894,7 @@
       </div>
     </div>
 
+    <script src="/request-client.js"></script>
     <script>
       const app = document.getElementById("app"),
         login = document.getElementById("login"),
@@ -918,6 +919,7 @@
         voicePressActive = false,
         voicePointerId = null,
         voiceRecordingStartedAt = 0,
+        voiceRequestVersion = 0,
         voiceSourceButton = null,
         chatIdleTimer = null;
 
@@ -965,6 +967,11 @@
         return item;
       }
 
+      function presentResult(result) {
+        (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+        window.dispatchEvent(new CustomEvent("secretary:result", { detail: result }));
+      }
+
       function clearChatIdleTimer() {
         if (chatIdleTimer) {
           clearTimeout(chatIdleTimer);
@@ -979,6 +986,8 @@
           !sendingChat &&
           !voicePressActive &&
           !messageInput.value.trim() &&
+          !document.getElementById("assistantDialog")?.open &&
+          !SecretaryRequests.readDraft() &&
           !settingsPanel.classList.contains("open") &&
           !login.classList.contains("open")
         );
@@ -1016,15 +1025,25 @@
         const headers = { ...(options.headers || {}) };
         if (!(options.body instanceof FormData) && !headers["Content-Type"])
           headers["Content-Type"] = "application/json";
-        const response = await fetch(path, { ...options, headers });
+        let response;
+        try {
+          response = await SecretaryRequests.request(path, { ...options, headers });
+        } catch (error) {
+          if (error.message === "unauthorized") login.classList.add("open");
+          throw error;
+        }
         if (response.status === 401) {
           login.classList.add("open");
           clearChatIdleTimer();
           throw Error("unauthorized");
         }
         const data = await response.json().catch(() => ({}));
-        if (!response.ok)
-          throw Error(data.message || data.error || "request_failed");
+        if (!response.ok) {
+          const error = Error(data.message || data.error || "request_failed");
+          error.code = data.error;
+          error.status = response.status;
+          throw error;
+        }
         return data;
       }
 
@@ -1216,12 +1235,15 @@
         form.append("audio", blob, "voice." + voiceExtension(blob.type || ""));
         form.append("duration_ms", String(Math.round(durationMs)));
         try {
-          const result = await api("/api/voice", { method: "POST", body: form });
+          const draft = await SecretaryRequests.recordVoice(blob, durationMs);
+          const result = await api("/api/voice", { method: "POST", body: form, requestKey: draft.key });
+          SecretaryRequests.discardDraft(draft.key);
           msg(result.transcript || "Голосовое сообщение", "user");
-          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+          presentResult(result);
         } catch (error) {
           if (error.message !== "unauthorized")
-            msg("Не удалось обработать голос", "assistant");
+            msg(error.message || "Не удалось подтвердить обработку голоса.", "assistant");
+          window.dispatchEvent(new Event("secretary:retry-needed"));
         } finally {
           sendingVoice = false;
           setVoiceButtonsDisabled(false);
@@ -1232,7 +1254,8 @@
       }
 
       async function startVoice() {
-        if (sendingVoice || !voicePressActive || !voiceSourceButton) return;
+        if (sendingVoice || recorder || !voicePressActive || !voiceSourceButton) return;
+        const requestVersion = ++voiceRequestVersion;
         clearChatIdleTimer();
         if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
           voicePressActive = false;
@@ -1243,12 +1266,13 @@
           return;
         }
         try {
-          recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (!voicePressActive || !voiceSourceButton) {
-            stopTracks();
-            resetVoiceButton();
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (requestVersion !== voiceRequestVersion || !voicePressActive || !voiceSourceButton) {
+            stream.getTracks().forEach((track) => track.stop());
+            if (requestVersion === voiceRequestVersion) resetVoiceButton();
             return;
           }
+          recordingStream = stream;
           voiceChunks = [];
           const preferred = [
             "audio/webm;codecs=opus",
@@ -1308,6 +1332,7 @@
             chatVoiceBtn.title = "Отпусти, чтобы отправить";
           voiceCaption.textContent = "Идёт запись… Отпусти, чтобы отправить";
         } catch (error) {
+          if (requestVersion !== voiceRequestVersion) return;
           const sourceButton = voiceSourceButton;
           voicePressActive = false;
           voicePointerId = null;
@@ -1326,7 +1351,7 @@
 
       function beginVoicePress(event) {
         const button = event.currentTarget;
-        if (sendingVoice || voicePressActive || button.disabled) return;
+        if (sendingVoice || sendingChat || voicePressActive || recorder || button.disabled || SecretaryRequests.readDraft()) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
         event.preventDefault();
         voicePressActive = true;
@@ -1372,7 +1397,7 @@
         button.addEventListener("keydown", (event) => {
           if ((event.key === " " || event.key === "Enter") && !event.repeat) {
             event.preventDefault();
-            if (sendingVoice || voicePressActive || button.disabled) return;
+            if (sendingVoice || sendingChat || voicePressActive || recorder || button.disabled || SecretaryRequests.readDraft()) return;
             voicePressActive = true;
             voicePointerId = null;
             voiceRecordingStartedAt = 0;
@@ -1427,21 +1452,31 @@
       document.getElementById("composer").onsubmit = async (event) => {
         event.preventDefault();
         const text = messageInput.value.trim();
-        if (!text || sendingChat) return;
+        if (!text || sendingChat || sendingVoice || voicePressActive) return;
+        if (SecretaryRequests.readDraft()) {
+          window.dispatchEvent(new Event("secretary:retry-needed"));
+          msg("Сначала повтори или удали неподтверждённый черновик.", "assistant");
+          return;
+        }
         showChat();
         sendingChat = true;
         clearChatIdleTimer();
         msg(text, "user");
         messageInput.value = "";
         try {
+          const draft = await SecretaryRequests.recordText(text);
           const result = await api("/api/chat", {
             method: "POST",
             body: JSON.stringify({ message: text }),
+            requestKey: draft.key,
           });
-          (result.replies || []).forEach((reply) => msg(reply, "assistant"));
+          SecretaryRequests.discardDraft(draft.key);
+          presentResult(result);
         } catch (error) {
+          if (!SecretaryRequests.readDraft()) messageInput.value = text;
           if (error.message !== "unauthorized")
             msg("Ошибка: " + error.message, "assistant");
+          window.dispatchEvent(new Event("secretary:retry-needed"));
         } finally {
           sendingChat = false;
           armChatIdleTimer();
@@ -1497,6 +1532,7 @@
 
       document.getElementById("logout").onclick = async () => {
         try {
+          await SecretaryRequests.signOutDevice();
           await api("/api/logout", { method: "POST" });
         } catch (_error) {}
         location.reload();

@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 import unittest
 
 import web_app
@@ -5,7 +6,7 @@ import web_app
 
 class VoiceGestureAssetTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
 
     def test_voice_gesture_script_is_loaded(self):

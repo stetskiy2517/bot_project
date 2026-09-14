@@ -1,0 +1,52 @@
+name: Approved release checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.head_ref == 'release/security-approved-p2-p8'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Prepare isolated review material
+        run: |
+          mkdir -p release-evidence
+          git rev-parse HEAD > release-evidence/revision.txt
+          git archive HEAD -o release-evidence/source.tar
+          git archive ecd72685d3695a623177aa41bafb78b6ad4607a8 -o release-evidence/audit-source.tar
+          git diff 318aeae179bdaeecf69198e6d28a9992c3da511c ecd72685d3695a623177aa41bafb78b6ad4607a8 > release-evidence/audit.patch
+          git diff 1aedf8d653234b0617055201f0fa9e91cf03c358 dabb4080ce419efbb88377f5cb775a4281f8bbe6 > release-evidence/reminder-context.patch
+      - name: Install runtime and test dependencies
+        run: pip install -q -r requirements.txt coverage ruff
+      - name: Regression suite
+        env:
+          DB_PATH: /tmp/approved-release-tests.db
+          WEB_PUSH_ENABLED: 'false'
+        run: |
+          set -o pipefail
+          coverage run --source=core,handlers,integrations,modules,web_app -m unittest discover -s tests -p 'test_*.py' 2>&1 | tee release-evidence/tests.log
+          coverage report > release-evidence/coverage.txt
+          python -m compileall -q core handlers integrations modules web_app.py tests
+          find web -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          node tests/voice_gesture_test.js
+          ruff check --select E9,F63,F7,F82 .
+          bash -n deploy.sh scripts/deploy_update.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: approved-release-evidence
+          path: release-evidence/
+          retention-days: 7

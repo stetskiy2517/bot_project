@@ -1,14 +1,18 @@
+from tests.web_client import create_test_app, set_test_session
 import unittest
 from unittest.mock import MagicMock,patch
 import web_app
 from core.db import get_or_create_google_user
 class WebCalendarE2ETests(unittest.TestCase):
     def setUp(self):
-        self.app=web_app.create_web_app();self.client=self.app.test_client();web_app._user_state.clear();self.user_id=get_or_create_google_user('e2e-google-sub','e2e@example.test','E2E User')
-        with self.client.session_transaction() as s:s['user_id']=self.user_id
+        self.app=create_test_app();self.client=self.app.test_client();web_app._user_state.clear();self.user_id=get_or_create_google_user('e2e-google-sub','e2e@example.test','E2E User')
+        with self.client.session_transaction() as s:set_test_session(s, self.user_id)
     def _set_timezone(self):self.assertEqual(self.client.post('/api/settings',json={'timezone':'Europe/Moscow'}).status_code,200)
     def _service(self):
-        service=MagicMock();service.events.return_value.insert.return_value.execute.return_value={'id':'event-1'};return service
+        service = MagicMock()
+        service.events.return_value.insert.side_effect = lambda **kwargs: MagicMock(
+            execute=MagicMock(return_value=kwargs["body"]))
+        return service
     def test_web_api_creates_calendar_event_through_google_insert(self):
         self._set_timezone();service=self._service()
         with patch('modules.calendar_actions._find_conflicts',return_value=[]),patch('modules.calendar.get_google_token',return_value={'token':'test'}),patch('modules.calendar.Credentials.from_authorized_user_info',return_value=MagicMock()),patch('modules.calendar.build',return_value=service):r=self.client.post('/api/chat',json={'message':'поставь врача 20.09.2030 в 19:00 на час'})
@@ -19,8 +23,8 @@ class WebCalendarE2ETests(unittest.TestCase):
         self.assertEqual(second.status_code,200);self.assertTrue(any(x.startswith('Готово ·') for x in second.get_json()['replies']));service.events.return_value.insert.assert_called_once()
     def test_two_users_calendar_calls_keep_distinct_user_ids(self):
         a=self.app.test_client();b=self.app.test_client();aid=get_or_create_google_user('calendar-a','calendar-a@example.test','A');bid=get_or_create_google_user('calendar-b','calendar-b@example.test','B')
-        with a.session_transaction() as s:s['user_id']=aid
-        with b.session_transaction() as s:s['user_id']=bid
+        with a.session_transaction() as s:set_test_session(s, aid)
+        with b.session_transaction() as s:set_test_session(s, bid)
         seen=[]
         async def fake_route(update,context,text=None):seen.append(update.effective_user.id);await update.message.reply_text('ok');return True
         with patch('web_app.route_text',side_effect=fake_route):a.post('/api/chat',json={'message':'event A'});b.post('/api/chat',json={'message':'event B'})

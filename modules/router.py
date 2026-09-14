@@ -223,6 +223,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_DELETE, 0.98)
     if any(word in lower for word in UPDATE_WORDS):
         return IntentResult(INTENT_UPDATE, 0.98)
+    if re.search(r"^когда\b.*\bесть\s+\d+\s*(?:минут\w*|час\w*)\b", lower):
+        return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in FREE_WORDS):
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
@@ -316,7 +318,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
         return await resume_pending_task(update, context, reply_text, pending)
     if pending_type != "create_time":
         return await resume_pending_action(update, context, reply_text, pending)
-    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет"}:
+    if _normalise(reply_text) in {"отмена", "отменить", "не надо", "нет", "стоп"}:
         _clear_pending(context)
         await update.message.reply_text("Хорошо, не создаю событие.")
         return True
@@ -368,6 +370,10 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     text = (text if text is not None else update.message.text or "").strip()
     if not text:
         return False
+    from modules.assistant_commands import handle_assistant_command
+
+    if await handle_assistant_command(update, context, text):
+        return True
     if await _resume_pending(update, context, text):
         return True
 

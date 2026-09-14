@@ -423,7 +423,7 @@
     const headers = { ...(options.headers || {}) };
     if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"])
       headers["Content-Type"] = "application/json";
-    const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
+    const response = await SecretaryRequests.request(path, { ...options, headers });
     if (response.status === 401) {
       login?.classList.add("open");
       throw new Error("unauthorized");
@@ -1009,5 +1009,8 @@
     if (event.key === "ArrowRight" && !app.classList.contains("library-active")) openLibrary();
     if (event.key === "ArrowLeft" && app.classList.contains("library-active")) closeLibrary();
     else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) navigateBackFromChat();
+  });
+  window.addEventListener("secretary:library-refresh", () => {
+    loadLibrary().catch(() => showToast("Не удалось обновить сохранённое."));
   });
 })();

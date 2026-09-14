@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session, push_keys
 import tempfile
 import time
 import unittest
@@ -22,15 +23,15 @@ from modules import reminder_dispatcher
 
 class WebPushApiTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         suffix = str(time.time_ns())
         self.user_id = get_or_create_google_user(
             f"push-{suffix}", f"push-{suffix}@example.test", "Push Test"
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = self.user_id
-        self.endpoint = f"https://push.example.test/{suffix}"
+            set_test_session(session, self.user_id)
+        self.endpoint = f"https://fcm.googleapis.com/fcm/send/{suffix}"
 
     def tearDown(self):
         delete_push_subscription(self.user_id, self.endpoint)
@@ -38,7 +39,7 @@ class WebPushApiTests(unittest.TestCase):
     def _subscribe(self):
         payload = {
             "endpoint": self.endpoint,
-            "keys": {"p256dh": "p256dh-test", "auth": "auth-test"},
+            "keys": push_keys(),
         }
         response = self.client.post("/api/push/subscriptions", json=payload)
         self.assertEqual(response.status_code, 200)
@@ -136,7 +137,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v8', worker)
+        self.assertIn('personal-secretary-v9', worker)
         self.assertIn('"/library.js"', worker)
         self.assertIn("payload.web_push === 8030", worker)
         self.assertIn("payload.notification", worker)

@@ -784,24 +784,41 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Хорошо, отменил действие.")
         return True
 
+    if pending_type == "free_slot_confirm":
+        if normal not in YES_WORDS:
+            await update.message.reply_text("Создать событие в выбранном окне? Ответь «да» или «нет».")
+            return True
+        context.user_data.pop("smart_planner_pending", None)
+        slot = pending["slot"]
+        try:
+            event = create_event_in_slot(
+                update.effective_user.id, pending["timezone"], pending["title"], slot[0], slot[1],
+            )
+            await update.message.reply_text(
+                f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
+            )
+        except ValueError as exc:
+            await update.message.reply_text(str(exc))
+        except Exception:
+            logger.exception("Free slot booking failed for user %s", update.effective_user.id)
+            await update.message.reply_text("Не удалось подтвердить создание события. Проверь календарь перед новым запросом.")
+        return True
+
     if pending_type == "free_slot_title":
         title = text.strip(" ,.-")
-        if not title:
-            await update.message.reply_text("Напиши, что поставить в это время.")
+        if not title or len(title) > 200:
+            await update.message.reply_text("Название события: от 1 до 200 символов.")
             return True
         slot = pending.get("slot")
         if not slot:
             context.user_data.pop("smart_planner_pending", None)
             return False
-        context.user_data.pop("smart_planner_pending", None)
-        try:
-            event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
-            await update.message.reply_text(
-                f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
-            )
-        except Exception:
-            logger.exception("Free slot booking failed for user %s", update.effective_user.id)
-            await update.message.reply_text("Не удалось создать событие в выбранном окне.")
+        _store_pending(context, {
+            "type": "free_slot_confirm", "slot": slot, "timezone": pending["timezone"], "title": title,
+        })
+        await update.message.reply_text(
+            f"Создать «{title}» {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}? Да или нет."
+        )
         return True
 
     if pending_type == "free_slot_choice":
@@ -816,15 +833,13 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         slot = slots[index]
         title = _free_choice_title(text)
         if title:
-            context.user_data.pop("smart_planner_pending", None)
-            try:
-                event = create_event_in_slot(update.effective_user.id, pending["timezone"], title, slot[0], slot[1])
-                await update.message.reply_text(
-                    f"Поставил «{event['summary']}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
-                )
-            except Exception:
-                logger.exception("Free slot booking failed for user %s", update.effective_user.id)
-                await update.message.reply_text("Не удалось создать событие в выбранном окне.")
+            _store_pending(context, {
+                "type": "free_slot_confirm", "slot": slot,
+                "timezone": pending["timezone"], "title": title[:200],
+            })
+            await update.message.reply_text(
+                f"Создать «{title[:200]}» {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}? Да или нет."
+            )
             return True
         _store_pending(context, {"type": "free_slot_title", "slot": slot, "timezone": pending["timezone"]})
         await update.message.reply_text(
