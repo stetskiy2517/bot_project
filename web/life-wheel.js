@@ -81,7 +81,7 @@
           <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg>
         </button>
       </div>
-      <p class="life-wheel-intro">Показывает, каким сферам ты фактически уделял время. Это не оценка качества жизни.</p>
+      <p class="life-wheel-intro">Показывает, каким сферам ты фактически уделял время и внимание. Это не оценка качества жизни.</p>
       <div class="life-wheel-periods" role="group" aria-label="Период диаграммы">
         <button class="life-wheel-period" type="button" data-days="7">7 дней</button>
         <button class="life-wheel-period active" type="button" data-days="30">30 дней</button>
@@ -137,26 +137,26 @@
 
   function categoryRow(item) {
     const color = googleColorHex[String(item.color_id || "")] || "#a8a8a4";
-    const activity = item.all_day_days
-      ? `${item.events} событий · ${item.active_days} активных дней · ${item.all_day_days} дней целиком`
-      : `${item.events} событий · ${item.active_days} активных дней · ${item.hours} ч`;
+    const parts = [`События: ${item.events || 0}`, `Напоминания: ${item.reminders || 0}`, `Активные дни: ${item.active_days || 0}`];
+    if (Number(item.hours) > 0) parts.push(`${item.hours} ч в календаре`);
+    if (Number(item.all_day_days) > 0) parts.push(`${item.all_day_days} дней целиком`);
     return `<div class="life-wheel-row">
       <div class="life-wheel-row-main"><span class="life-wheel-dot" style="background:${color}"></span><div>
-        <div class="life-wheel-row-name">${item.label}</div><div class="life-wheel-row-meta">${activity}</div>
+        <div class="life-wheel-row-name">${item.label}</div><div class="life-wheel-row-meta">${parts.join(" · ")}</div>
       </div></div><div class="life-wheel-row-score">${Number(item.score).toFixed(1)}</div>
     </div>`;
   }
 
   function render(data) {
     const categories = Array.isArray(data.categories) ? data.categories : [];
-    if (!categories.length || !(data.totals?.events > 0)) {
-      content.innerHTML = `<div class="life-wheel-empty">За выбранный период нет категоризированных календарных дел. Когда появятся события, здесь соберётся диаграмма.</div>
-        <p class="life-wheel-note">Пока учитываются события календаря. Напоминания подключим после общей категоризации.</p>`;
+    if (!categories.length || !(data.totals?.items > 0)) {
+      content.innerHTML = `<div class="life-wheel-empty">За выбранный период нет категоризированных событий и напоминаний. Когда появится активность, здесь соберётся диаграмма.</div>
+        <p class="life-wheel-note">Напоминания распределяются по тем же категориям и теми же правилами, что календарные события.</p>`;
       return;
     }
     content.innerHTML = chart(categories) +
       `<div class="life-wheel-list">${categories.map(categoryRow).join("")}</div>` +
-      `<p class="life-wheel-note">${data.metric_help || ""}<br>Сейчас учитываются события календаря. Напоминания пока не входят в расчёт.</p>`;
+      `<p class="life-wheel-note">${data.metric_help || ""}<br>Учитываются события календаря и сохранённые напоминания за выбранный период.</p>`;
   }
 
   async function load() {
