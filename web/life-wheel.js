@@ -11,8 +11,8 @@
 
   const style = document.createElement("style");
   style.textContent = `
-    .topbar { gap: 8px; }
     .life-wheel-button {
+      position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:70px;z-index:1;
       pointer-events:auto;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.9);
       border:1px solid var(--line);display:grid;place-items:center;box-shadow:0 5px 18px rgba(0,0,0,.05);
       cursor:pointer;color:#111;
