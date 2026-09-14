@@ -34,7 +34,7 @@ class WebViewportTests(unittest.TestCase):
         self.assertIn(".field select", html)
         self.assertIn("font-size: 16px", html)
 
-    def test_keyboard_moves_only_chat_bottom_and_composer(self):
+    def test_keyboard_compensates_actual_ios_body_pan(self):
         response = self.client.get("/voice-gesture.js")
         self.assertEqual(response.status_code, 200)
         script = response.get_data(as_text=True)
@@ -42,18 +42,15 @@ class WebViewportTests(unittest.TestCase):
 
         self.assertIn("--stable-app-height", script)
         self.assertIn("--keyboard-inset", script)
-        self.assertIn("--visual-offset-top", script)
-        self.assertIn(".workspace", script)
-        self.assertIn("top: var(--visual-offset-top, 0px)", script)
-        self.assertIn("bottom: calc(-1 * var(--visual-offset-top, 0px))", script)
+        self.assertIn("--viewport-pan", script)
+        self.assertIn("transform: translateY(var(--viewport-pan, 0px))", script)
+        self.assertIn("document.body?.getBoundingClientRect?.()", script)
+        self.assertIn("Math.max(bodyPan, viewportPan)", script)
+        self.assertIn("stableHeight - viewportHeight", script)
+        self.assertIn("scheduleStableViewportSync", script)
         self.assertIn(".chat-shell", script)
-        self.assertIn("var(--keyboard-inset, 0px) + var(--visual-offset-top, 0px)", script)
         self.assertIn(".composer-wrap", script)
-        self.assertIn("window.visualViewport", script)
-        self.assertIn("viewport.offsetTop", script)
-        self.assertIn("effectiveOffsetTop", script)
-        self.assertIn("keyboardOpen", script)
-        self.assertIn("stableHeight", script)
+        self.assertNotIn("--visual-offset-top", script)
         self.assertIn('document.activeElement?.id === "message"', script)
 
 
