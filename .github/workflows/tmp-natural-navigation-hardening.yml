@@ -19,6 +19,7 @@ jobs:
           fetch-depth: 0
       - name: Apply and test
         run: |
+          python scripts/tmp_prepare_hardening.py
           python scripts/tmp_harden_navigation.py
           python -m py_compile modules/router.py modules/navigation.py core/location_context.py integrations/navigation_2gis.py integrations/navigation_ors.py integrations/navigation_google.py web_app.py tests/test_navigation_user_behavior.py
           python -m unittest tests.test_navigation_user_behavior -v
