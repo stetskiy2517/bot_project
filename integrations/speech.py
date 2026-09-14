@@ -96,8 +96,33 @@ def _delete_remote_transcript(transcript_id: str) -> None:
     response.raise_for_status()
 
 
+def _store_web_transcript(text: str) -> None:
+    """Persist recognized text for an authenticated web request, never raw audio."""
+    if not text:
+        return
+    try:
+        from flask import has_request_context, session
+    except ImportError:
+        return
+    if not has_request_context():
+        return
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        return
+
+    from core.ai_memory_store import record_ai_memory_event
+
+    record_ai_memory_event(
+        user_id,
+        "voice_transcript",
+        0,
+        "recognized",
+        {"text": text, "source": "web_voice"},
+    )
+
+
 def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
-    """Transcribe audio and remove the provider-side audio/transcript afterwards."""
+    """Transcribe audio, persist web text, and remove provider-side raw artifacts."""
     if not ASSEMBLYAI_API_KEY:
         raise RuntimeError("ASSEMBLYAI_API_KEY not set")
 
@@ -109,7 +134,9 @@ def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
 
     transcript_id = _start_transcription(audio_url)
     try:
-        return _wait_for_transcript(transcript_id)
+        text = _wait_for_transcript(transcript_id)
+        _store_web_transcript(text)
+        return text
     finally:
         try:
             _delete_remote_transcript(transcript_id)
