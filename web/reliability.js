@@ -1,4 +1,99 @@
 (() => {
+  function installStableMobileViewport() {
+    const style = document.createElement("style");
+    style.id = "stableMobileViewportFix";
+    style.textContent = `
+      @media (max-width: 759px), (pointer: coarse) {
+        :root {
+          --stable-app-height: 100dvh;
+          --keyboard-inset: 0px;
+        }
+        .app,
+        .panel,
+        .login {
+          height: var(--stable-app-height, 100dvh) !important;
+        }
+        .sheet {
+          max-height: min(88dvh, calc(var(--stable-app-height, 100dvh) - 24px)) !important;
+        }
+        .chat-shell {
+          bottom: calc(env(safe-area-inset-bottom) + 82px + var(--keyboard-inset, 0px)) !important;
+        }
+        .composer-wrap {
+          bottom: var(--keyboard-inset, 0px) !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const root = document.documentElement;
+    let stableHeight = Math.max(
+      window.innerHeight || 0,
+      root.clientHeight || 0,
+    );
+
+    function keyboardFieldFocused() {
+      const active = document.activeElement;
+      if (!active || !(active instanceof HTMLElement)) return false;
+      return active.matches("input, textarea, select, [contenteditable='true']");
+    }
+
+    function syncViewport() {
+      const viewport = window.visualViewport;
+      const layoutHeight = Math.max(
+        window.innerHeight || 0,
+        root.clientHeight || 0,
+      );
+      const visualBottom = viewport
+        ? Math.max(0, viewport.height + viewport.offsetTop)
+        : layoutHeight;
+      const focused = keyboardFieldFocused();
+      const hiddenBottom = Math.max(0, stableHeight - visualBottom);
+      const keyboardOpen = focused && hiddenBottom > 100;
+
+      if (!keyboardOpen) {
+        stableHeight = Math.max(layoutHeight, visualBottom);
+      }
+
+      const keyboardInset = focused
+        ? Math.max(0, stableHeight - visualBottom)
+        : 0;
+      const effectiveInset = keyboardInset > 100 ? keyboardInset : 0;
+
+      root.style.setProperty(
+        "--stable-app-height",
+        Math.round(stableHeight) + "px",
+      );
+      root.style.setProperty(
+        "--keyboard-inset",
+        Math.round(effectiveInset) + "px",
+      );
+
+      if (effectiveInset && document.activeElement?.id === "message") {
+        requestAnimationFrame(() => {
+          const chat = document.getElementById("chat");
+          if (chat) chat.scrollTop = chat.scrollHeight;
+        });
+      }
+    }
+
+    syncViewport();
+    window.addEventListener("resize", syncViewport, {passive: true});
+    window.addEventListener("orientationchange", () => {
+      setTimeout(syncViewport, 120);
+    });
+    document.addEventListener("focusin", syncViewport);
+    document.addEventListener("focusout", () => {
+      requestAnimationFrame(syncViewport);
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncViewport, {passive: true});
+      window.visualViewport.addEventListener("scroll", syncViewport, {passive: true});
+    }
+  }
+
+  installStableMobileViewport();
+
   let csrf = "";
   let userId = null;
   let offset = 0;
