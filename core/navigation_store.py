@@ -37,6 +37,28 @@ def _ensure_row(user_id: int) -> None:
     )
 
 
+def _clean_address(value: str | None) -> str | None:
+    cleaned = " ".join(str(value or "").split()).strip(" ,.;")
+    if not cleaned:
+        return None
+    if len(cleaned) > 500:
+        raise ValueError("Address is too long")
+    return cleaned
+
+
+def _default_place(default_origin: str | None, home_address: str | None, office_address: str | None) -> str:
+    origin = (default_origin or "").casefold()
+    if office_address and origin == office_address.casefold():
+        return "office"
+    if home_address and origin == home_address.casefold():
+        return "home"
+    if home_address:
+        return "home"
+    if office_address:
+        return "office"
+    return "home"
+
+
 def get_navigation_preferences(user_id: int) -> dict:
     init_navigation_store()
     with db_lock:
@@ -49,6 +71,7 @@ def get_navigation_preferences(user_id: int) -> dict:
         return {
             "enabled": True,
             "default_origin": None,
+            "default_place": "home",
             "office_address": None,
             "home_address": None,
             "mode": DEFAULT_MODE,
@@ -61,24 +84,71 @@ def get_navigation_preferences(user_id: int) -> dict:
         arrival_buffer = int(row[5])
     except (TypeError, ValueError):
         arrival_buffer = DEFAULT_ARRIVAL_BUFFER_MINUTES
+    default_origin = row[1]
+    office_address = row[2]
+    home_address = row[3]
     return {
         "enabled": bool(row[0]),
-        "default_origin": row[1],
-        "office_address": row[2],
-        "home_address": row[3],
+        "default_origin": default_origin,
+        "default_place": _default_place(default_origin, home_address, office_address),
+        "office_address": office_address,
+        "home_address": home_address,
         "mode": mode,
         "arrival_buffer_minutes": max(0, min(arrival_buffer, 180)),
     }
 
 
+def save_navigation_settings(
+    user_id: int,
+    *,
+    enabled: bool,
+    home_address: str | None,
+    office_address: str | None,
+    default_place: str,
+    mode: str,
+    arrival_buffer_minutes: int,
+) -> None:
+    if mode not in VALID_MODES:
+        raise ValueError("Unknown navigation mode")
+    if default_place not in VALID_PLACES:
+        raise ValueError("Unknown default navigation place")
+    buffer_value = int(arrival_buffer_minutes)
+    if not 0 <= buffer_value <= 180:
+        raise ValueError("Arrival buffer must be between 0 and 180 minutes")
+
+    home = _clean_address(home_address)
+    office = _clean_address(office_address)
+    default_origin = home if default_place == "home" else office
+    if not default_origin:
+        default_origin = office if default_place == "home" else home
+
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        conn.execute(
+            """UPDATE navigation_preferences
+               SET enabled=?,default_origin=?,office_address=?,home_address=?,mode=?,arrival_buffer_minutes=?,updated_at=?
+               WHERE user_id=?""",
+            (
+                1 if enabled else 0,
+                default_origin,
+                office,
+                home,
+                mode,
+                buffer_value,
+                now,
+                int(user_id),
+            ),
+        )
+        conn.commit()
+
+
 def save_navigation_place(user_id: int, place: str, address: str, *, make_default: bool = True) -> None:
     if place not in VALID_PLACES:
         raise ValueError("Unknown navigation place")
-    value = " ".join(str(address).split()).strip(" ,.;")
+    value = _clean_address(address)
     if not value:
         raise ValueError("Address is required")
-    if len(value) > 500:
-        raise ValueError("Address is too long")
     column = "office_address" if place == "office" else "home_address"
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
@@ -97,9 +167,7 @@ def save_navigation_place(user_id: int, place: str, address: str, *, make_defaul
 
 
 def save_default_origin(user_id: int, address: str | None) -> None:
-    value = " ".join(str(address or "").split()).strip(" ,.;") or None
-    if value and len(value) > 500:
-        raise ValueError("Address is too long")
+    value = _clean_address(address)
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)

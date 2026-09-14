@@ -1,12 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from integrations.navigation_2gis import _point_from_item, _route_result, _routing_body
 from modules.navigation import (
     RouteEstimate,
     _event_destination,
-    _matrix_duration_seconds,
     build_travel_event,
     create_travel_for_event,
     resolve_origin,
@@ -24,16 +24,39 @@ class NavigationTests(unittest.TestCase):
             "end": {"dateTime": "2026-09-14T16:00:00+03:00", "timeZone": "Europe/Moscow"},
         }
 
-    def test_matrix_response_parses_duration_and_distance(self):
-        seconds, meters = _matrix_duration_seconds({
-            "rows": [{"elements": [{
-                "status": "OK",
-                "duration": {"value": 1901},
-                "distance": {"value": 12800},
-            }]}]
+    def test_2gis_route_response_parses_duration_and_distance(self):
+        seconds, meters = _route_result({
+            "status": "OK",
+            "result": [{"total_duration": 1901, "total_distance": 12800}],
         })
         self.assertEqual(seconds, 1901)
         self.assertEqual(meters, 12800)
+
+    def test_2gis_public_transport_list_response_is_supported(self):
+        seconds, meters = _route_result([
+            {"total_duration": 2100, "total_distance": 10100},
+            {"total_duration": 1800, "total_distance": 10500},
+        ])
+        self.assertEqual(seconds, 1800)
+        self.assertEqual(meters, 10500)
+
+    def test_2gis_geocoder_point_is_parsed(self):
+        lat, lon = _point_from_item({"point": {"lat": 55.8299, "lon": 37.6331}})
+        self.assertEqual(lat, 55.8299)
+        self.assertEqual(lon, 37.6331)
+
+    def test_future_driving_route_uses_statistical_traffic(self):
+        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
+        body = _routing_body((55.75, 37.61), (55.82, 37.63), "driving", departure)
+        self.assertEqual(body["traffic_mode"], "statistics")
+        self.assertEqual(body["utc"], int(departure.timestamp()))
+
+    def test_walking_route_does_not_add_traffic_fields(self):
+        departure = datetime(2099, 9, 14, 14, 10, tzinfo=self.zone)
+        body = _routing_body((55.75, 37.61), (55.82, 37.63), "walking", departure)
+        self.assertEqual(body["transport"], "walking")
+        self.assertNotIn("traffic_mode", body)
+        self.assertNotIn("utc", body)
 
     def test_travel_block_includes_route_and_arrival_buffer(self):
         estimate = RouteEstimate(
@@ -55,6 +78,7 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(travel["location"], "ВДНХ")
         private = travel["extendedProperties"]["private"]
         self.assertEqual(private["smartPlannerSourceEventId"], "meeting-123")
+        self.assertEqual(private["smartPlannerRouteProvider"], "2gis")
         self.assertEqual(private["smartPlannerRouteMinutes"], "32")
         self.assertEqual(private["smartPlannerArrivalBufferMinutes"], "15")
 

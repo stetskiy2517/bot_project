@@ -24,6 +24,7 @@ from core.db import (
     save_user_timezone,
 )
 from core.library_store import get_saved_reminder, list_saved_reminders
+from core.navigation_store import get_navigation_preferences, save_navigation_settings
 from core.note_store import delete_note, get_note, list_notes
 from core.push_store import (
     delete_push_subscription,
@@ -36,6 +37,7 @@ from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
+from modules.navigation import estimate_route, navigation_configured, navigation_provider
 from modules.note_conversation import clear_active_note, remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
@@ -90,6 +92,10 @@ def _validate_time_range(start: str, end: str) -> None:
 def _status_payload(user_id: int) -> dict:
     result = get_onboarding_status(user_id)
     result["timezone"] = get_user_timezone(user_id, default=None)
+    navigation = get_navigation_preferences(user_id)
+    navigation["provider"] = navigation_provider()
+    navigation["configured"] = navigation_configured()
+    result["navigation"] = navigation
     return result
 
 
@@ -117,8 +123,6 @@ def _voice_duration_ms() -> float | None:
 
 
 def _with_due_reminders(user_id: int, replies: list[str]) -> list[str]:
-    # If this user has at least one background Push subscription, the dispatcher
-    # owns delivery. Foreground polling remains a fallback for unsubscribed devices.
     if has_push_subscriptions(user_id):
         return replies
     due = claim_due_for_user(user_id)
@@ -212,8 +216,6 @@ def create_web_app() -> Flask:
     @app.before_request
     def protect_api():
         user_id = _current_user_id()
-        # Older releases created browser-session cookies. Upgrade any still-valid
-        # authenticated session in place so the user does not have to sign in again.
         if user_id is not None and not session.permanent:
             session.permanent = True
         if not request.path.startswith("/api/") or request.path in {"/api/health", "/api/google/login"}:
@@ -489,6 +491,41 @@ def create_web_app() -> Flask:
             return {"reminders": []}
         return {"reminders": claim_due_for_user(user_id)}
 
+    @app.post("/api/navigation/test")
+    def navigation_test():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        prefs = get_navigation_preferences(user_id)
+        origin = " ".join(str(payload.get("origin") or prefs.get("default_origin") or "").split()).strip()
+        destination = " ".join(str(payload.get("destination") or "").split()).strip()
+        mode = str(payload.get("mode") or prefs.get("mode") or "driving").strip().lower()
+        if mode not in {"driving", "transit", "walking"}:
+            return jsonify({"error": "invalid_navigation_mode", "message": "Неизвестный способ передвижения."}), 400
+        if not destination:
+            home = str(prefs.get("home_address") or "").strip()
+            office = str(prefs.get("office_address") or "").strip()
+            destination = office if origin.casefold() != office.casefold() else home
+        if not origin or not destination:
+            return jsonify({"error": "missing_navigation_address", "message": "Укажи адрес дома и офиса для проверки маршрута."}), 400
+        if not navigation_configured():
+            return jsonify({"error": "navigation_not_configured", "message": "На сервере ещё не настроен API-ключ 2ГИС."}), 503
+        user_timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+        try:
+            departure_at = datetime.now(ZoneInfo(user_timezone)) + timedelta(minutes=10)
+            estimate = estimate_route(origin, destination, mode=mode, departure_at=departure_at)
+        except Exception:
+            logger.exception("Navigation test failed for user %s", user_id)
+            return jsonify({"error": "navigation_test_failed", "message": "Не удалось построить маршрут. Проверь адреса и повтори."}), 502
+        return {
+            "ok": True,
+            "provider": navigation_provider(),
+            "origin": estimate.origin,
+            "destination": estimate.destination,
+            "mode": estimate.mode,
+            "duration_minutes": estimate.duration_minutes,
+            "distance_meters": estimate.distance_meters,
+        }
+
     @app.post("/api/chat")
     def chat():
         user_id = _require_user_id()
@@ -591,6 +628,23 @@ def create_web_app() -> Flask:
                     else:
                         raise ValueError("Неизвестный цвет категории")
                 save_calendar_preferences(user_id, category_colors=parsed_colors)
+
+            if "navigation" in payload:
+                navigation = payload["navigation"]
+                if not isinstance(navigation, dict):
+                    raise ValueError("Неверные настройки навигации")
+                enabled = navigation.get("enabled", True)
+                if not isinstance(enabled, bool):
+                    raise ValueError("Неверное состояние навигации")
+                save_navigation_settings(
+                    user_id,
+                    enabled=enabled,
+                    home_address=navigation.get("home_address"),
+                    office_address=navigation.get("office_address"),
+                    default_place=str(navigation.get("default_place") or "home"),
+                    mode=str(navigation.get("mode") or "driving"),
+                    arrival_buffer_minutes=int(navigation.get("arrival_buffer_minutes", 15)),
+                )
         except (TypeError, ValueError) as exc:
             return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
         return _status_payload(user_id)
