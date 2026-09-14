@@ -83,13 +83,10 @@ def _event_overlap(
     return overlap_start, overlap_end, all_day
 
 
-def _covered_dates(start: datetime, end: datetime, all_day: bool) -> set[str]:
+def _covered_dates(start: datetime, end: datetime) -> set[str]:
     dates: set[str] = set()
     cursor = start.date()
-    if all_day:
-        last = (end - timedelta(microseconds=1)).date()
-    else:
-        last = end.date()
+    last = (end - timedelta(microseconds=1)).date()
     while cursor <= last:
         dates.add(cursor.isoformat())
         cursor += timedelta(days=1)
@@ -102,8 +99,6 @@ def _event_units(start: datetime, end: datetime, all_day: bool) -> tuple[float, 
         days = max(1, int(round(seconds / 86400)))
         return float(days), 0.0, days
     hours = seconds / 3600
-    # One scheduled item counts as activity, while duration matters only up to four hours.
-    # This keeps a long meeting from dominating an entire category by itself.
     return 1.0 + min(hours, 4.0) / 4.0, hours, 0
 
 
@@ -149,7 +144,7 @@ def build_life_wheel_snapshot(
         if category not in stats:
             category = "other"
         units, hours, all_day_days = _event_units(start, end, all_day)
-        dates = _covered_dates(start, end, all_day)
+        dates = _covered_dates(start, end)
         current = stats[category]
         current["events"] += 1
         current["hours"] += hours
@@ -159,10 +154,10 @@ def build_life_wheel_snapshot(
         total_dates.update(dates)
         counted_events += 1
 
-    activity_values: dict[str, float] = {}
-    for key, item in stats.items():
-        # Regular presence matters more than packing many small items into one day.
-        activity_values[key] = len(item["active_days"]) + item["event_units"] * 0.5
+    activity_values = {
+        key: len(item["active_days"]) + item["event_units"] * 0.5
+        for key, item in stats.items()
+    }
     max_activity = max(activity_values.values(), default=0.0)
 
     categories = []
