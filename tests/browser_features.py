@@ -228,6 +228,7 @@ def main():
         button = page.locator("#undoNoteAction")
         expect(button).to_be_enabled()
         button.click()
+        page.wait_for_function("document.getElementById('undoNoteAction').textContent === 'Нет действия для отмены'")
         expect(button).to_be_disabled()
         assert not list_notes(user)
 
