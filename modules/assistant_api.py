@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
@@ -10,12 +12,14 @@ from core.assistant_preferences import get_assistant_preferences, save_assistant
 from core.notification_policy import get_policy, save_policy
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
+from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
 from modules.life_wheel import build_life_wheel_snapshot
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+logger = logging.getLogger(__name__)
 
 
 def _user():
@@ -38,6 +42,40 @@ def load_life_wheel_ui(response):
     return response
 
 
+@assistant_api.after_app_request
+def use_ai_for_unhandled_chat(response):
+    if (
+        request.path not in {"/api/chat", "/api/voice"}
+        or response.status_code != 200
+        or response.mimetype != "application/json"
+    ):
+        return response
+    try:
+        payload = response.get_json(silent=True)
+        if not isinstance(payload, dict) or payload.get("handled") is not False:
+            return response
+        replies = payload.get("replies")
+        if not isinstance(replies, list) or UNHANDLED_WEB_MESSAGE not in replies:
+            return response
+        if request.path == "/api/chat":
+            request_payload = request.get_json(silent=True) or {}
+            text = request_payload.get("message") if isinstance(request_payload, dict) else None
+        else:
+            text = payload.get("transcript")
+        if not isinstance(text, str) or not text.strip():
+            return response
+        answer = answer_unhandled(text)
+        if not answer:
+            return response
+        payload["handled"] = True
+        payload["replies"] = replace_unhandled_reply(replies, answer)
+        response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return response
+    except Exception:
+        logger.exception("Failed to apply AI fallback response")
+        return response
+
+
 @assistant_api.get("/life-wheel.js")
 def life_wheel_js():
     return send_from_directory(WEB_DIR, "life-wheel.js", mimetype="application/javascript")
@@ -56,6 +94,7 @@ def assistant_status():
         "undo": last_note_action(_user()),
         "reviews": review_history(_user()),
         "privacy": privacy_policy(),
+        "ai": ai_status(),
     }
 
 
