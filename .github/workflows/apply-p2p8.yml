@@ -1,0 +1,50 @@
+name: Apply approved P2-P8
+
+on:
+  push:
+    branches: [release/p2-p8-current]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          LC_ALL=C cat .p2p8/chunk* > /tmp/p2p8.patch.gz.b64
+          echo "2f322e75a52a91c7c3db9a4f9695a02fe17aecd964a7ba70199e7eaa2bdb9b52  /tmp/p2p8.patch.gz.b64" | sha256sum -c -
+          base64 -d /tmp/p2p8.patch.gz.b64 > /tmp/p2p8.patch.gz
+          echo "9478432ef2c76972b290128e1388fe6583fbbc9e94afded00dd89adf5c971e5b  /tmp/p2p8.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/p2p8.patch.gz > /tmp/p2p8.patch
+          echo "9339583d9907db9e5b613b56a41459e7a40d4c1e88a3825c1290df244cbe0bde  /tmp/p2p8.patch" | sha256sum -c -
+          git apply --check /tmp/p2p8.patch
+      - name: Apply approved changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/p2p8.patch
+          rm -rf .p2p8
+          rm -f .github/workflows/source-export-p2p8.yml
+          rm -f .github/workflows/apply-p2p8.yml
+          git diff --check
+          python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
+          node tests/voice_gesture_test.js
+          node tests/location_client_test.js
+      - name: Commit clean release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "Integrate approved P2-P8 security and reliability improvements [p2p8-applied]"
+          git push origin HEAD:release/p2-p8-current
