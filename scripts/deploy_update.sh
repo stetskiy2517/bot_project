@@ -7,20 +7,80 @@ TARGET_SHA="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
+DGIS_KEY_FILE="${DGIS_KEY_FILE:-}"
 PREVIOUS_SHA=""
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+
+cleanup_temp_secrets() {
+  if [ -n "$DGIS_KEY_FILE" ]; then
+    rm -f -- "$DGIS_KEY_FILE" 2>/dev/null || true
+  fi
+}
+trap cleanup_temp_secrets EXIT
 
 cd "$PROJECT_DIR"
 
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v sudo >/dev/null 2>&1 || fail "sudo is required"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 
 if [ -z "$TARGET_SHA" ]; then
   fail "Target commit SHA is required"
 fi
+
+navigation_secret_present() {
+  [ -n "$DGIS_KEY_FILE" ] && [ -s "$DGIS_KEY_FILE" ]
+}
+
+sync_navigation_secret() {
+  log "Updating navigation secret"
+  python3 - "$PROJECT_DIR/.env" "$DGIS_KEY_FILE" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+env_path = Path(sys.argv[1])
+key_path = Path(sys.argv[2])
+key = key_path.read_text(encoding="utf-8").strip()
+if not key:
+    raise SystemExit("DGIS key file is empty")
+
+updates = {
+    "NAVIGATION_PROVIDER": "2gis",
+    "DGIS_API_KEY": key,
+}
+lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+seen = set()
+out = []
+for line in lines:
+    if "=" in line and not line.lstrip().startswith("#"):
+        name = line.split("=", 1)[0].strip()
+        if name in updates:
+            out.append(f"{name}={updates[name]}")
+            seen.add(name)
+            continue
+    out.append(line)
+for name, value in updates.items():
+    if name not in seen:
+        out.append(f"{name}={value}")
+env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+os.chmod(env_path, 0o600)
+PY
+}
+
+wait_for_health() {
+  local attempts="${1:-30}"
+  for _ in $(seq 1 "$attempts"); do
+    if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 
 log "Fetching $BRANCH from GitHub"
 git fetch --prune origin "$BRANCH"
@@ -30,7 +90,15 @@ git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
 
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
-  log "Commit $TARGET_SHA is already deployed"
+  if navigation_secret_present; then
+    sync_navigation_secret
+    log "Restarting $SERVICE_NAME after secret update"
+    sudo -n systemctl restart "$SERVICE_NAME"
+    wait_for_health 30 || fail "Application health-check failed after navigation secret update"
+    log "Navigation secret applied to already deployed commit $TARGET_SHA"
+  else
+    log "Commit $TARGET_SHA is already deployed"
+  fi
   exit 0
 fi
 
@@ -62,13 +130,10 @@ rollback() {
 
   sudo -n systemctl restart "$SERVICE_NAME" || true
 
-  for _ in $(seq 1 20); do
-    if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
-      printf 'Rollback health-check: OK\n' >&2
-      exit "$exit_code"
-    fi
-    sleep 1
-  done
+  if wait_for_health 20; then
+    printf 'Rollback health-check: OK\n' >&2
+    exit "$exit_code"
+  fi
 
   printf 'CRITICAL: rollback completed but service health-check is still failing.\n' >&2
   exit "$exit_code"
@@ -77,6 +142,9 @@ trap rollback ERR
 
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
+if navigation_secret_present; then
+  sync_navigation_secret
+fi
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
 if [ ! -x .venv/bin/python ]; then
@@ -98,18 +166,7 @@ log "Restarting $SERVICE_NAME"
 sudo -n systemctl restart "$SERVICE_NAME"
 
 log "Waiting for application health-check"
-HEALTHY=0
-for _ in $(seq 1 30); do
-  if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
-    HEALTHY=1
-    break
-  fi
-  sleep 1
-done
-
-if [ "$HEALTHY" -ne 1 ]; then
-  false
-fi
+wait_for_health 30 || false
 
 log "Verifying services survive a VM reboot"
 systemctl is-enabled --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME is not enabled"
