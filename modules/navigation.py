@@ -39,12 +39,15 @@ class RouteEstimate:
 
 
 def navigation_provider() -> str:
-    return NAVIGATION_PROVIDER or "ors"
+    provider = (NAVIGATION_PROVIDER or "ors").strip().lower()
+    if provider in {"ors", "openrouteservice"}:
+        return "OpenRouteService"
+    return provider
 
 
 def navigation_configured() -> bool:
-    provider = navigation_provider()
-    if provider in {"ors", "openrouteservice"}:
+    provider = navigation_provider().casefold()
+    if provider == "openrouteservice":
         return ors_configured()
     if provider == "google":
         return google_configured()
@@ -79,7 +82,7 @@ def _event_destination(event: dict) -> str | None:
 
 
 def estimate_route(origin: str, destination: str, *, mode: str, departure_at: datetime) -> RouteEstimate:
-    provider = navigation_provider()
+    provider = navigation_provider().casefold()
     if provider in {"ors", "openrouteservice"}:
         if not ors_configured():
             raise RuntimeError("openrouteservice navigation is not configured")
