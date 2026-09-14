@@ -4,7 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from core.db import get_or_create_google_user
-from modules.life_wheel import build_life_wheel_snapshot, event_category
+from modules.life_wheel import build_life_wheel_snapshot, event_category, reminder_category
 from tests.web_test_support import web_test_app
 
 
@@ -31,16 +31,31 @@ def event(summary, start, end, *, category=None, status="confirmed", transparenc
     }
 
 
+def reminder(text, remind_at, *, category=None):
+    return {
+        "text": text,
+        "remind_at": remind_at.isoformat(),
+        "status": "completed",
+        **({"category": category} if category else {}),
+    }
+
+
 class LifeWheelCalculationTests(unittest.TestCase):
     def setUp(self):
         self.zone = ZoneInfo("Europe/Moscow")
         self.now = datetime(2026, 9, 14, 20, 0, tzinfo=self.zone)
 
-    def snapshot(self, events, days=30):
+    def snapshot(self, events, days=30, reminders=None):
         with patch("modules.life_wheel.get_user_timezone", return_value="Europe/Moscow"), patch(
             "modules.life_wheel.get_category_colors", return_value=COLORS
         ):
-            return build_life_wheel_snapshot(1, days=days, now=self.now, events=events)
+            return build_life_wheel_snapshot(
+                1,
+                days=days,
+                now=self.now,
+                events=events,
+                reminders=[] if reminders is None else reminders,
+            )
 
     def test_category_marker_has_priority(self):
         item = {
@@ -52,6 +67,17 @@ class LifeWheelCalculationTests(unittest.TestCase):
     def test_legacy_event_uses_existing_category_rules(self):
         self.assertEqual(event_category({"summary": "Запись к стоматологу"}), "health")
         self.assertEqual(event_category({"summary": "Созвон с клиентом"}), "work")
+
+    def test_reminder_uses_same_category_rules_as_calendar(self):
+        self.assertEqual(reminder_category({"text": "Позвонить маме"}), "family")
+        self.assertEqual(reminder_category({"text": "Позвонить клиенту"}), "work")
+        self.assertEqual(reminder_category({"text": "Принять лекарство"}), "health")
+
+    def test_stored_reminder_category_has_priority(self):
+        self.assertEqual(
+            reminder_category({"text": "Позвонить клиенту", "category": "personal"}),
+            "personal",
+        )
 
     def test_relative_score_reflects_regular_activity(self):
         work_one = event(
@@ -79,6 +105,27 @@ class LifeWheelCalculationTests(unittest.TestCase):
         self.assertLess(by_key["health"]["score"], 10)
         self.assertEqual(by_key["work"]["active_days"], 2)
         self.assertEqual(result["totals"]["events"], 3)
+        self.assertEqual(result["totals"]["reminders"], 0)
+
+    def test_reminders_are_counted_by_category(self):
+        items = [
+            reminder("Позвонить маме", datetime(2026, 9, 12, 20, 0, tzinfo=self.zone)),
+            reminder("Принять лекарство", datetime(2026, 9, 13, 22, 0, tzinfo=self.zone)),
+        ]
+        result = self.snapshot([], reminders=items)
+        by_key = {item["key"]: item for item in result["categories"]}
+        self.assertEqual(by_key["family"]["reminders"], 1)
+        self.assertEqual(by_key["health"]["reminders"], 1)
+        self.assertGreater(by_key["family"]["score"], 0)
+        self.assertGreater(by_key["health"]["score"], 0)
+        self.assertEqual(result["totals"]["reminders"], 2)
+        self.assertEqual(result["totals"]["items"], 2)
+        self.assertTrue(result["reminders_included"])
+
+    def test_reminders_outside_period_do_not_count(self):
+        old = reminder("Позвонить маме", datetime(2026, 7, 1, 20, 0, tzinfo=self.zone))
+        result = self.snapshot([], reminders=[old])
+        self.assertEqual(result["totals"]["reminders"], 0)
 
     def test_midnight_end_does_not_add_next_active_day(self):
         item = event(
@@ -133,12 +180,13 @@ class LifeWheelWebTests(unittest.TestCase):
         self.assertIn('id = "lifeWheelBtn"', text)
         self.assertIn("lifeWheelPanel", text)
         self.assertIn("/api/assistant/life-wheel", text)
+        self.assertIn("напомин", text.lower())
 
     def test_life_wheel_endpoint_uses_session_user_and_period(self):
         payload = {
             "period": {"days": 90},
             "categories": [],
-            "totals": {"events": 0},
+            "totals": {"events": 0, "reminders": 0, "items": 0},
         }
         with patch("modules.assistant_api.build_life_wheel_snapshot", return_value=payload) as build:
             response = self.client.get("/api/assistant/life-wheel?days=90")
