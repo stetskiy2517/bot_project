@@ -31,36 +31,11 @@ if [ -z "$TARGET_SHA" ]; then
   fail "Target commit SHA is required"
 fi
 
-log "Fetching $BRANCH from GitHub"
-git fetch --prune origin "$BRANCH"
-git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null || fail "Target commit $TARGET_SHA is not available"
-git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
-  || fail "Target commit $TARGET_SHA is not part of origin/$BRANCH"
-
-PREVIOUS_SHA="$(git rev-parse HEAD)"
-if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
-  log "Commit $TARGET_SHA is already deployed"
-  exit 0
-fi
-
-if git merge-base --is-ancestor "$TARGET_SHA" "$PREVIOUS_SHA" 2>/dev/null; then
-  log "Skipping stale deployment $TARGET_SHA; server is already at newer commit $PREVIOUS_SHA"
-  exit 0
-fi
-
-requirements_hash() {
-  if [ -f requirements.txt ]; then
-    sha256sum requirements.txt | awk '{print $1}'
-  else
-    printf 'missing\n'
-  fi
+navigation_secret_present() {
+  [ -n "$DGIS_KEY_FILE" ] && [ -s "$DGIS_KEY_FILE" ]
 }
 
 sync_navigation_secret() {
-  if [ -z "$DGIS_KEY_FILE" ] || [ ! -s "$DGIS_KEY_FILE" ]; then
-    return
-  fi
-
   log "Updating navigation secret"
   python3 - "$PROJECT_DIR/.env" "$DGIS_KEY_FILE" <<'PY'
 from pathlib import Path
@@ -96,6 +71,50 @@ os.chmod(env_path, 0o600)
 PY
 }
 
+wait_for_health() {
+  local attempts="${1:-30}"
+  for _ in $(seq 1 "$attempts"); do
+    if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+log "Fetching $BRANCH from GitHub"
+git fetch --prune origin "$BRANCH"
+git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null || fail "Target commit $TARGET_SHA is not available"
+git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
+  || fail "Target commit $TARGET_SHA is not part of origin/$BRANCH"
+
+PREVIOUS_SHA="$(git rev-parse HEAD)"
+if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
+  if navigation_secret_present; then
+    sync_navigation_secret
+    log "Restarting $SERVICE_NAME after secret update"
+    sudo -n systemctl restart "$SERVICE_NAME"
+    wait_for_health 30 || fail "Application health-check failed after navigation secret update"
+    log "Navigation secret applied to already deployed commit $TARGET_SHA"
+  else
+    log "Commit $TARGET_SHA is already deployed"
+  fi
+  exit 0
+fi
+
+if git merge-base --is-ancestor "$TARGET_SHA" "$PREVIOUS_SHA" 2>/dev/null; then
+  log "Skipping stale deployment $TARGET_SHA; server is already at newer commit $PREVIOUS_SHA"
+  exit 0
+fi
+
+requirements_hash() {
+  if [ -f requirements.txt ]; then
+    sha256sum requirements.txt | awk '{print $1}'
+  else
+    printf 'missing\n'
+  fi
+}
+
 OLD_REQUIREMENTS_HASH="$(requirements_hash)"
 
 rollback() {
@@ -111,13 +130,10 @@ rollback() {
 
   sudo -n systemctl restart "$SERVICE_NAME" || true
 
-  for _ in $(seq 1 20); do
-    if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
-      printf 'Rollback health-check: OK\n' >&2
-      exit "$exit_code"
-    fi
-    sleep 1
-  done
+  if wait_for_health 20; then
+    printf 'Rollback health-check: OK\n' >&2
+    exit "$exit_code"
+  fi
 
   printf 'CRITICAL: rollback completed but service health-check is still failing.\n' >&2
   exit "$exit_code"
@@ -126,7 +142,9 @@ trap rollback ERR
 
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
-sync_navigation_secret
+if navigation_secret_present; then
+  sync_navigation_secret
+fi
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
 if [ ! -x .venv/bin/python ]; then
@@ -148,18 +166,7 @@ log "Restarting $SERVICE_NAME"
 sudo -n systemctl restart "$SERVICE_NAME"
 
 log "Waiting for application health-check"
-HEALTHY=0
-for _ in $(seq 1 30); do
-  if curl -fsS --connect-timeout 2 --max-time 4 "$HEALTH_URL" >/dev/null 2>&1; then
-    HEALTHY=1
-    break
-  fi
-  sleep 1
-done
-
-if [ "$HEALTHY" -ne 1 ]; then
-  false
-fi
+wait_for_health 30 || false
 
 log "Verifying services survive a VM reboot"
 systemctl is-enabled --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME is not enabled"
