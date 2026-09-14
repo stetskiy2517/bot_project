@@ -27,6 +27,22 @@ NATURAL_DESTINATION_RE = re.compile(
     r"\b(?:будет|пройдет|пройдёт|состоится)\s+(?:в|на)\s+(?P<location>.+?)\s*$",
     re.IGNORECASE,
 )
+PREPOSITIONAL_DESTINATION_RE = re.compile(
+    r"\b(?:в|на)\s+(?P<location>.+?)\s*$",
+    re.IGNORECASE,
+)
+TEMPORAL_DESTINATION_RE = re.compile(
+    r"^(?:"
+    r"сегодня|завтра|послезавтра|вчера|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|"
+    r"следующ\w*\s+(?:недел\w*|месяц\w*|выходн\w*)|"
+    r"эт\w*\s+(?:недел\w*|месяц\w*|выходн\w*)|"
+    r"выходн\w*|утр\w*|дн(?:ем|ём|я)?|вечер\w*|ноч\w*|"
+    r"\d{1,2}(?:(?::|\.|-)\d{2})?|"
+    r"\d+(?:[.,]\d+)?\s*(?:мин\w*|ч(?:ас\w*)?)"
+    r")$",
+    re.IGNORECASE,
+)
 HOME_PLACE_RE = re.compile(r"\b(?:дома|домой|у\s+себя\s+дома)\b", re.IGNORECASE)
 OFFICE_PLACE_RE = re.compile(
     r"\b(?:на\s+работе|на\s+работу|в\s+офисе|в\s+офис)\b",
@@ -74,20 +90,36 @@ def _source_event_id(event: dict) -> str | None:
     return str(event.get("id") or "").strip() or None
 
 
+def _normalise_place_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip(" ,.;")
+
+
+def _clean_destination_candidate(value: str) -> str | None:
+    candidate = re.sub(r"\s+", " ", value).strip(" ,.;")
+    candidate = re.split(r"\s+(?:после|перед)\s+", candidate, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,.;")
+    if not candidate:
+        return None
+    if TEMPORAL_DESTINATION_RE.fullmatch(_normalise_place_text(candidate)):
+        return None
+    return candidate[:500]
+
+
+def _summary_destination(summary: str) -> str | None:
+    match = NATURAL_DESTINATION_RE.search(summary)
+    if match:
+        return _clean_destination_candidate(match.group("location"))
+    match = PREPOSITIONAL_DESTINATION_RE.search(summary)
+    if not match:
+        return None
+    return _clean_destination_candidate(match.group("location"))
+
+
 def _event_destination(event: dict) -> str | None:
     location = str(event.get("location") or "").strip()
     if location:
         return location
     summary = str(event.get("summary") or "").strip()
-    match = NATURAL_DESTINATION_RE.search(summary)
-    if not match:
-        return None
-    value = re.sub(r"\s+", " ", match.group("location")).strip(" ,.;")
-    return value[:500] if value else None
-
-
-def _normalise_place_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip(" ,.;")
+    return _summary_destination(summary)
 
 
 def _place_alias_kind(value: str, *, allow_bare: bool) -> str | None:
@@ -127,13 +159,12 @@ def _resolved_event_destination(event: dict, preferences: dict) -> str | None:
         return location
 
     summary = str(event.get("summary") or "").strip()
-    match = NATURAL_DESTINATION_RE.search(summary)
-    if match:
-        value = re.sub(r"\s+", " ", match.group("location")).strip(" ,.;")
+    value = _summary_destination(summary)
+    if value:
         kind = _place_alias_kind(value, allow_bare=True)
         if kind:
             return _saved_place_address(kind, preferences)
-        return value[:500] if value else None
+        return value
 
     kind = _place_alias_kind(summary, allow_bare=False)
     if kind:
