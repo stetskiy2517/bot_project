@@ -14,6 +14,7 @@ from config import NAVIGATION_PROVIDER
 from core.db import get_category_colors
 from core.navigation_store import get_navigation_preferences
 from integrations.navigation_2gis import configured as dgis_configured, estimate as dgis_estimate
+from integrations.navigation_google import configured as google_configured, estimate as google_estimate
 from modules.calendar_availability import _event_end
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 
@@ -37,11 +38,14 @@ class RouteEstimate:
 
 
 def navigation_provider() -> str:
-    return NAVIGATION_PROVIDER or "2gis"
+    return NAVIGATION_PROVIDER or "google"
 
 
 def navigation_configured() -> bool:
-    if navigation_provider() == "2gis":
+    provider = navigation_provider()
+    if provider == "google":
+        return google_configured()
+    if provider == "2gis":
         return dgis_configured()
     return False
 
@@ -73,16 +77,26 @@ def _event_destination(event: dict) -> str | None:
 
 def estimate_route(origin: str, destination: str, *, mode: str, departure_at: datetime) -> RouteEstimate:
     provider = navigation_provider()
-    if provider != "2gis":
+    if provider == "google":
+        if not google_configured():
+            raise RuntimeError("Google navigation is not configured")
+        duration_minutes, distance_meters = google_estimate(
+            origin,
+            destination,
+            mode=mode,
+            departure_at=departure_at,
+        )
+    elif provider == "2gis":
+        if not dgis_configured():
+            raise RuntimeError("2GIS navigation is not configured")
+        duration_minutes, distance_meters = dgis_estimate(
+            origin,
+            destination,
+            mode=mode,
+            departure_at=departure_at,
+        )
+    else:
         raise RuntimeError(f"Unsupported navigation provider: {provider}")
-    if not dgis_configured():
-        raise RuntimeError("2GIS navigation is not configured")
-    duration_minutes, distance_meters = dgis_estimate(
-        origin,
-        destination,
-        mode=mode,
-        departure_at=departure_at,
-    )
     return RouteEstimate(
         origin=origin,
         destination=destination,
