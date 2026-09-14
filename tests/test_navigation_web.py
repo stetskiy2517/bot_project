@@ -2,13 +2,14 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from tests.web_test_support import web_test_app
 from core.db import get_or_create_google_user
 from modules.navigation import RouteEstimate
 
 
 class NavigationWebTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = web_test_app()
         self.client = self.app.test_client()
         user_id = get_or_create_google_user(
             "navigation-web-user",
