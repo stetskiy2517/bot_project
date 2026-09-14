@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import secrets
+import time
 from urllib.parse import urlsplit
 
 from flask import g, jsonify, request, session
@@ -34,6 +35,31 @@ def csrf_token() -> str:
 def _origin(value: str) -> tuple[str, str, int | None]:
     parsed = urlsplit(value)
     return parsed.scheme, parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def _same_origin_request() -> bool:
+    """Return True only when browser metadata proves this request came from our own origin.
+
+    This is intentionally narrower than same-site. It exists only as a rolling-upgrade
+    compatibility path for tabs that were opened before the CSRF/request-id frontend
+    shipped. New clients still use the explicit headers below.
+    """
+    fetch_site = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if fetch_site == "cross-site":
+        return False
+
+    origin = request.headers.get("Origin")
+    if origin:
+        try:
+            return _origin(origin) == _origin(BASE_URL or request.host_url)
+        except ValueError:
+            return False
+
+    return fetch_site == "same-origin"
+
+
+def _legacy_request_id() -> str:
+    return f"{int(time.time() * 1000)}-{secrets.token_hex(16)}"
 
 
 def _fingerprint() -> str:
@@ -106,11 +132,21 @@ def install_web_security(app, states: dict[int, dict]) -> None:
         writes = request.method not in SAFE_METHODS
         if not writes and request.path != "/api/reminders/due":
             return None
+
+        legacy_client = False
         if writes:
             expected = session.get("csrf_token")
             provided = request.headers.get("X-CSRF-Token", "")
-            if not expected or not secrets.compare_digest(str(expected), provided):
+            request_id_header = request.headers.get("X-Request-ID", "")
+            csrf_ok = bool(expected and provided and secrets.compare_digest(str(expected), provided))
+
+            # Rolling-upgrade compatibility: an already-open old tab has neither
+            # security header. Permit it only when browser metadata proves exact
+            # same-origin. Any partially upgraded/malformed request still fails.
+            legacy_client = not provided and not request_id_header and _same_origin_request()
+            if not csrf_ok and not legacy_client:
                 return jsonify(error="csrf_failed", message="Обнови страницу и повтори действие."), 403
+
             origin = request.headers.get("Origin")
             try:
                 invalid_origin = origin and _origin(origin) != _origin(BASE_URL or request.host_url)
@@ -118,6 +154,7 @@ def install_web_security(app, states: dict[int, dict]) -> None:
                 invalid_origin = True
             if invalid_origin or request.headers.get("Sec-Fetch-Site") == "cross-site":
                 return jsonify(error="cross_site_request"), 403
+            g.legacy_client = legacy_client
 
         operation = user_operation(user_id, blocking=False)
         try:
@@ -132,9 +169,13 @@ def install_web_security(app, states: dict[int, dict]) -> None:
         states[user_id] = load_conversation(user_id)
         if not writes:
             return None
+
         request_id = request.headers.get("X-Request-ID", "")
         if not request_id:
-            return jsonify(error="request_id_required", message="Обнови страницу приложения."), 428
+            if legacy_client:
+                request_id = _legacy_request_id()
+            else:
+                return jsonify(error="request_id_required", message="Обнови страницу приложения."), 428
         try:
             previous = begin_request(user_id, request_id, _fingerprint())
         except ValueError as exc:
@@ -164,6 +205,9 @@ def install_web_security(app, states: dict[int, dict]) -> None:
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
+        if getattr(g, "legacy_client", False):
+            response.headers["X-Legacy-Client"] = "true"
+            response.headers["X-Client-Upgrade"] = "reload"
         key = getattr(g, "command_key", None)
         if not key:
             return response
@@ -185,6 +229,9 @@ def install_web_security(app, states: dict[int, dict]) -> None:
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["Referrer-Policy"] = "no-referrer"
             response.headers["X-Frame-Options"] = "DENY"
+            if getattr(g, "legacy_client", False):
+                response.headers["X-Legacy-Client"] = "true"
+                response.headers["X-Client-Upgrade"] = "reload"
         elif response.status_code >= 500 and not g.command_executing:
             phase = "retryable"
         if request.path != "/api/logout":
