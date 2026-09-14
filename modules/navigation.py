@@ -12,6 +12,7 @@ import re
 
 from config import NAVIGATION_PROVIDER
 from core.db import get_category_colors
+from core.location_context import current_location_origin
 from core.navigation_store import get_navigation_preferences
 from integrations.navigation_2gis import configured as dgis_configured, estimate as dgis_estimate
 from integrations.navigation_google import configured as google_configured, estimate as google_estimate
@@ -31,6 +32,14 @@ PREPOSITIONAL_DESTINATION_RE = re.compile(
     r"\b(?:в|на)\s+(?P<location>.+?)\s*$",
     re.IGNORECASE,
 )
+WALK_THROUGH_DESTINATION_RE = re.compile(
+    r"^\s*(?:прогул\w*|прагул\w*|погуля\w*|прогуля\w*|пробеж\w*)\s+по\s+(?P<location>.+?)\s*$",
+    re.IGNORECASE,
+)
+BARE_ACTIVITY_DESTINATION_RE = re.compile(
+    r"^\s*(?:прогул\w*|прагул\w*|погуля\w*|прогуля\w*|пробеж\w*|трениров\w*|поездк\w*|поех\w*)\s+(?P<location>.+?)\s*$",
+    re.IGNORECASE,
+)
 TEMPORAL_DESTINATION_RE = re.compile(
     r"^(?:"
     r"сегодня|завтра|послезавтра|вчера|"
@@ -41,6 +50,10 @@ TEMPORAL_DESTINATION_RE = re.compile(
     r"\d{1,2}(?:(?::|\.|-)\d{2})?|"
     r"\d+(?:[.,]\d+)?\s*(?:мин\w*|ч(?:ас\w*)?)"
     r")$",
+    re.IGNORECASE,
+)
+NON_LOCATION_TAIL_RE = re.compile(
+    r"^(?:с|со|у|для|к|от|до|через|после|перед|вместе\s+с)\b",
     re.IGNORECASE,
 )
 HOME_PLACE_RE = re.compile(r"\b(?:дома|домой|у\s+себя\s+дома)\b", re.IGNORECASE)
@@ -94,12 +107,15 @@ def _normalise_place_text(value: str) -> str:
     return re.sub(r"\s+", " ", value.casefold().replace("ё", "е")).strip(" ,.;")
 
 
-def _clean_destination_candidate(value: str) -> str | None:
+def _clean_destination_candidate(value: str, *, bare_activity: bool = False) -> str | None:
     candidate = re.sub(r"\s+", " ", value).strip(" ,.;")
     candidate = re.split(r"\s+(?:после|перед)\s+", candidate, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,.;")
     if not candidate:
         return None
-    if TEMPORAL_DESTINATION_RE.fullmatch(_normalise_place_text(candidate)):
+    normalized = _normalise_place_text(candidate)
+    if TEMPORAL_DESTINATION_RE.fullmatch(normalized):
+        return None
+    if bare_activity and NON_LOCATION_TAIL_RE.match(normalized):
         return None
     return candidate[:500]
 
@@ -109,9 +125,15 @@ def _summary_destination(summary: str) -> str | None:
     if match:
         return _clean_destination_candidate(match.group("location"))
     match = PREPOSITIONAL_DESTINATION_RE.search(summary)
-    if not match:
-        return None
-    return _clean_destination_candidate(match.group("location"))
+    if match:
+        return _clean_destination_candidate(match.group("location"))
+    match = WALK_THROUGH_DESTINATION_RE.match(summary)
+    if match:
+        return _clean_destination_candidate(match.group("location"), bare_activity=True)
+    match = BARE_ACTIVITY_DESTINATION_RE.match(summary)
+    if match:
+        return _clean_destination_candidate(match.group("location"), bare_activity=True)
+    return None
 
 
 def _event_destination(event: dict) -> str | None:
@@ -247,6 +269,9 @@ def resolve_origin(
     timezone: str,
     preferences: dict | None = None,
 ) -> str | None:
+    live_origin = current_location_origin(user_id)
+    if live_origin:
+        return live_origin
     prefs = preferences or get_navigation_preferences(user_id)
     previous = _previous_event_origin(user_id, target_event, timezone, prefs)
     if previous:

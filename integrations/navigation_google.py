@@ -50,14 +50,27 @@ def _rfc3339(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+GEO_ORIGIN_RE = re.compile(r"^geo:(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$")
+
+
+def _waypoint(value: str) -> dict:
+    raw = str(value).strip()
+    match = GEO_ORIGIN_RE.fullmatch(raw)
+    if not match:
+        return {"address": _normalize_address(raw)}
+    lat = float(match.group("lat"))
+    lon = float(match.group("lon"))
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise ValueError("Invalid current location coordinates")
+    return {"location": {"latLng": {"latitude": lat, "longitude": lon}}}
 def _route_body(origin: str, destination: str, mode: str, departure_at: datetime) -> dict:
     travel_mode = TRAVEL_MODES.get(mode)
     if not travel_mode:
         raise ValueError(f"Unsupported travel mode: {mode}")
 
     body = {
-        "origin": {"address": _normalize_address(origin)},
-        "destination": {"address": _normalize_address(destination)},
+        "origin": _waypoint(origin),
+        "destination": _waypoint(destination),
         "travelMode": travel_mode,
         "languageCode": "ru",
         "regionCode": "ru",
