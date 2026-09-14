@@ -14,7 +14,7 @@ from typing import Any
 from core.db import conn, db_lock
 
 
-ENTITY_TYPES = {"note", "reminder", "voice_transcript"}
+ENTITY_TYPES = {"note", "reminder", "voice_transcript", "calendar_event"}
 EVENT_TYPES = {
     "created",
     "updated",
