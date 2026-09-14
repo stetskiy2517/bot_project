@@ -79,13 +79,39 @@ class AIIntegrationTests(unittest.TestCase):
         self.assertTrue(post.call_args_list[1].args[0].endswith("/chat/completions"))
         self.assertTrue(post.call_args_list[2].args[0].endswith("/chat/completions"))
 
-    def test_structured_completion_returns_object(self):
+    def test_personal_scope_skips_unavailable_structured_output(self):
         settings = ai.AISettings(
             enabled=True,
             provider="gigachat",
             model="GigaChat-2",
             credentials="test-credentials",
             scope="GIGACHAT_API_PERS",
+            base_url="https://api.giga.chat/v1",
+            auth_url="https://auth.example/token",
+            timeout_seconds=30,
+            max_output_tokens=128,
+            ca_bundle=None,
+        )
+        schema = {
+            "type": "object",
+            "properties": {"intent": {"type": "string"}},
+            "required": ["intent"],
+            "additionalProperties": False,
+        }
+        with patch("integrations.ai.load_ai_settings", return_value=settings), \
+             patch("integrations.ai._gigachat_completion") as completion:
+            with self.assertRaises(ai.AIProviderError) as error:
+                ai.complete_structured([{"role": "user", "content": "Привет"}], schema)
+        self.assertIn("personal scope", str(error.exception))
+        completion.assert_not_called()
+
+    def test_structured_completion_returns_object_for_commercial_scope(self):
+        settings = ai.AISettings(
+            enabled=True,
+            provider="gigachat",
+            model="GigaChat-2",
+            credentials="test-credentials",
+            scope="GIGACHAT_API_CORP",
             base_url="https://api.giga.chat/v1",
             auth_url="https://auth.example/token",
             timeout_seconds=30,
