@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v10-life-wheel";
+const CACHE = "personal-secretary-v11-life-wheel-reminders";
 const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js", "/reliability.js", "/voice-gesture.js", "/assistant.js", "/life-wheel.js"];
 
 self.addEventListener("install", (event) => {
