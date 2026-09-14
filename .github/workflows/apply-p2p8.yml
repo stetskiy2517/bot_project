@@ -41,13 +41,75 @@ jobs:
         run: |
           set -euo pipefail
           git apply /tmp/p2p8.patch
-          python - <<'PY'
-          import base64
-          from pathlib import Path
-          payload = "Y29uc3QgYXNzZXJ0ID0gcmVxdWlyZSgnbm9kZTphc3NlcnQvc3RyaWN0Jyk7CmNvbnN0IGZzID0gcmVxdWlyZSgnbm9kZTpmcycpOwpjb25zdCB2bSA9IHJlcXVpcmUoJ25vZGU6dm0nKTsKCmNvbnN0IHNvdXJjZSA9IGZzLnJlYWRGaWxlU3luYygnd2ViL2xvY2F0aW9uLmpzJywgJ3V0ZjgnKTsKY29uc3QgZmx1c2ggPSAoKSA9PiBuZXcgUHJvbWlzZShyZXNvbHZlID0+IHNldEltbWVkaWF0ZShyZXNvbHZlKSk7Cgphc3luYyBmdW5jdGlvbiBzY2VuYXJpbyhmYWlsRmlyc3QpIHsKICBjb25zdCBldmVudHMgPSBuZXcgTWFwKCk7CiAgY29uc3QgY2FsbHMgPSBbXTsKICBjb25zdCBjbGVhcmVkID0gW107CiAgbGV0IGZhaWwgPSBmYWlsRmlyc3Q7CiAgbGV0IHBvc2l0aW9uQ2FsbGJhY2sgPSBudWxsOwogIGNvbnN0IHBvc2l0aW9uID0ge2Nvb3Jkczoge2xhdGl0dWRlOiA1NS43OCwgbG9uZ2l0dWRlOiAzNy42MywgYWNjdXJhY3k6IDI1fX07CiAgY29uc3QgZG9jdW1lbnQgPSB7CiAgICB2aXNpYmlsaXR5U3RhdGU6ICd2aXNpYmxlJywKICAgIGFkZEV2ZW50TGlzdGVuZXIobmFtZSwgY2FsbGJhY2spIHtldmVudHMuc2V0KG5hbWUsIGNhbGxiYWNrKTt9LAogIH07CiAgY29uc3QgY29udGV4dCA9IHZtLmNyZWF0ZUNvbnRleHQoewogICAgRGF0ZSwKICAgIEpTT04sCiAgICBNYXRoLAogICAgbmF2aWdhdG9yOiB7CiAgICAgIHBlcm1pc3Npb25zOiB7cXVlcnk6IGFzeW5jICgpID0+ICh7c3RhdGU6ICdncmFudGVkJ30pfSwKICAgICAgZ2VvbG9jYXRpb246IHsKICAgICAgICB3YXRjaFBvc2l0aW9uKHN1Y2Nlc3MpIHsKICAgICAgICAgIHBvc2l0aW9uQ2FsbGJhY2sgPSBzdWNjZXNzOwogICAgICAgICAgc3VjY2Vzcyhwb3NpdGlvbik7CiAgICAgICAgICByZXR1cm4gNDE7CiAgICAgICAgfSwKICAgICAgICBjbGVhcldhdGNoKGlkKSB7Y2xlYXJlZC5wdXNoKGlkKTt9LAogICAgICB9LAogICAgfSwKICAgIGRvY3VtZW50LAogICAgd2luZG93OiB7UGxhbm5lclJlcXVlc3RzOiB7cmVxdWVzdDogYXN5bmMgKHBhdGgsIG9wdGlvbnMpID0+IHsKICAgICAgY2FsbHMucHVzaCh7cGF0aCwgb3B0aW9uc30pOwogICAgICBpZiAoZmFpbCkge2ZhaWwgPSBmYWxzZTsgdGhyb3cgRXJyb3IoJ2NzcmZfZmFpbGVkJyk7fQogICAgICByZXR1cm4ge29rOiB0cnVlfTsKICAgIH19fSwKICAgIGZldGNoKCkge3Rocm93IEVycm9yKCdMb2NhdGlvbiBtdXN0IHVzZSB0aGUgYXV0aGVudGljYXRlZCByZXF1ZXN0IGhlbHBlcicpO30sCiAgfSk7CiAgdm0ucnVuSW5Db250ZXh0KHNvdXJjZSwgY29udGV4dCk7CiAgYXdhaXQgZmx1c2goKTsKICBhd2FpdCBmbHVzaCgpOwogIGFzc2VydC5lcXVhbChjYWxscy5sZW5ndGgsIDEpOwogIGFzc2VydC5lcXVhbChjYWxsc1swXS5wYXRoLCAnL2FwaS9sb2NhdGlvbicpOwogIGFzc2VydC5lcXVhbChjYWxsc1swXS5vcHRpb25zLm1ldGhvZCwgJ1BPU1QnKTsKICBhc3NlcnQuZGVlcEVxdWFsKEpTT04ucGFyc2UoY2FsbHNbMF0ub3B0aW9ucy5ib2R5KSwge2xhdGl0dWRlOiA1NS43OCwgbG9uZ2l0dWRlOiAzNy42MywgYWNjdXJhY3k6IDI1fSk7CgogIGlmIChmYWlsRmlyc3QpIHsKICAgIHBvc2l0aW9uQ2FsbGJhY2socG9zaXRpb24pOwogICAgYXdhaXQgZmx1c2goKTsKICAgIGF3YWl0IGZsdXNoKCk7CiAgICBhc3NlcnQuZXF1YWwoY2FsbHMubGVuZ3RoLCAyKTsKICB9CgogIGRvY3VtZW50LnZpc2liaWxpdHlTdGF0ZSA9ICdoaWRkZW4nOwogIGV2ZW50cy5nZXQoJ3Zpc2liaWxpdHljaGFuZ2UnKSgpOwogIGFzc2VydC5kZWVwRXF1YWwoY2xlYXJlZCwgWzQxXSk7Cn0KCihhc3luYyAoKSA9PiB7CiAgYXdhaXQgc2NlbmFyaW8oZmFsc2UpOwogIGF3YWl0IHNjZW5hcmlvKHRydWUpOwogIGNvbnNvbGUubG9nKCdMb2NhdGlvbiBjbGllbnQgdGVzdHMgcGFzc2VkICgyIHNjZW5hcmlvcyknKTsKfSkoKS5jYXRjaChlcnJvciA9PiB7Y29uc29sZS5lcnJvcihlcnJvcik7IHByb2Nlc3MuZXhpdENvZGUgPSAxO30pOwo="
-          Path('tests/location_client_test.js').write_bytes(base64.b64decode(payload))
-          PY
-          echo "732610d7b529e1810991d56905c1e72e2462b1fb07206d99d73392f2068499bf  tests/location_client_test.js" | sha256sum -c -
+          cat > tests/location_client_test.js <<'EOF'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+
+          const source = fs.readFileSync('web/location.js', 'utf8');
+          const flush = () => new Promise(resolve => setImmediate(resolve));
+
+          async function scenario(failFirst) {
+            const events = new Map();
+            const calls = [];
+            const cleared = [];
+            let fail = failFirst;
+            let positionCallback = null;
+            const position = {coords: {latitude: 55.78, longitude: 37.63, accuracy: 25}};
+            const document = {
+              visibilityState: 'visible',
+              addEventListener(name, callback) {events.set(name, callback);},
+            };
+            const context = vm.createContext({
+              Date,
+              JSON,
+              Math,
+              navigator: {
+                permissions: {query: async () => ({state: 'granted'})},
+                geolocation: {
+                  watchPosition(success) {
+                    positionCallback = success;
+                    success(position);
+                    return 41;
+                  },
+                  clearWatch(id) {cleared.push(id);},
+                },
+              },
+              document,
+              window: {PlannerRequests: {request: async (path, options) => {
+                calls.push({path, options});
+                if (fail) {fail = false; throw Error('csrf_failed');}
+                return {ok: true};
+              }}},
+              fetch() {throw Error('Location must use the authenticated request helper');},
+            });
+            vm.runInContext(source, context);
+            await flush();
+            await flush();
+            assert.equal(calls.length, 1);
+            assert.equal(calls[0].path, '/api/location');
+            assert.equal(calls[0].options.method, 'POST');
+            assert.deepEqual(JSON.parse(calls[0].options.body), {latitude: 55.78, longitude: 37.63, accuracy: 25});
+
+            if (failFirst) {
+              positionCallback(position);
+              await flush();
+              await flush();
+              assert.equal(calls.length, 2);
+            }
+
+            document.visibilityState = 'hidden';
+            events.get('visibilitychange')();
+            assert.deepEqual(cleared, [41]);
+          }
+
+          (async () => {
+            await scenario(false);
+            await scenario(true);
+            console.log('Location client tests passed (2 scenarios)');
+          })().catch(error => {console.error(error); process.exitCode = 1;});
+          EOF
+          echo "6aea0c1ad770ecf4dfe88fcdf655d37b8d6d53d970bc9b63e4957bc93e1d2ee2  tests/location_client_test.js" | sha256sum -c -
           rm -rf .p2p8
           rm -f .github/workflows/source-export-p2p8.yml
           rm -f .github/workflows/apply-p2p8.yml
