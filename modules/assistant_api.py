@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import time
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.notification_policy import get_policy, save_policy
@@ -11,8 +12,10 @@ from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
+from modules.life_wheel import build_life_wheel_snapshot
 
 assistant_api = Blueprint("assistant", __name__)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 def _user():
@@ -22,6 +25,22 @@ def _user():
 def _recent_login():
     stamp = session.get("auth_time")
     return isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and 0 <= time.time() - stamp <= 600
+
+
+@assistant_api.after_app_request
+def load_life_wheel_ui(response):
+    if request.path != "/" or response.status_code != 200 or response.mimetype != "text/html":
+        return response
+    html = response.get_data(as_text=True)
+    script = '<script src="/life-wheel.js"></script>'
+    if script not in html and "</body>" in html:
+        response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+    return response
+
+
+@assistant_api.get("/life-wheel.js")
+def life_wheel_js():
+    return send_from_directory(WEB_DIR, "life-wheel.js", mimetype="application/javascript")
 
 
 @assistant_api.errorhandler(ValueError)
@@ -48,6 +67,16 @@ def assistant_preferences():
 @assistant_api.get("/api/assistant/review")
 def day_review():
     return build_day_review(_user(), request.args.get("kind", "morning"))
+
+
+@assistant_api.get("/api/assistant/life-wheel")
+def life_wheel():
+    raw_days = request.args.get("days", "30")
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Период колеса жизни должен быть числом") from exc
+    return build_life_wheel_snapshot(_user(), days=days)
 
 
 @assistant_api.post("/api/assistant/undo/<int:action_id>")
