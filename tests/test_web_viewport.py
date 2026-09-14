@@ -34,6 +34,33 @@ class WebViewportTests(unittest.TestCase):
         self.assertIn(".field select", html)
         self.assertIn("font-size: 16px", html)
 
+    def test_keyboard_keeps_chat_top_anchored_and_only_raises_bottom_edge(self):
+        response = self.client.get("/reliability.js")
+        self.assertEqual(response.status_code, 200)
+        script = response.get_data(as_text=True)
+        response.close()
+
+        self.assertIn("installStableMobileViewport", script)
+        self.assertIn("--stable-app-height", script)
+        self.assertIn("--keyboard-inset", script)
+        self.assertIn(".chat-shell", script)
+        self.assertIn(".composer-wrap", script)
+        self.assertIn("stableHeight - visualBottom", script)
+        self.assertIn("keyboardOpen = focused && hiddenBottom > 100", script)
+        self.assertIn('document.activeElement?.id === "message"', script)
+        self.assertIn("chat.scrollTop = chat.scrollHeight", script)
+
+    def test_stable_viewport_fix_is_loaded_before_inline_chat_code(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        response.close()
+
+        reliability = html.find('<script src="/reliability.js"></script>')
+        inline_chat = html.find("const app = document.getElementById")
+        self.assertGreaterEqual(reliability, 0)
+        self.assertGreater(inline_chat, reliability)
+
 
 if __name__ == "__main__":
     unittest.main()
