@@ -268,10 +268,13 @@ def resolve_origin(
     target_event: dict,
     timezone: str,
     preferences: dict | None = None,
+    *,
+    prefer_live: bool = True,
 ) -> str | None:
-    live_origin = current_location_origin(user_id)
-    if live_origin:
-        return live_origin
+    if prefer_live:
+        live_origin = current_location_origin(user_id)
+        if live_origin:
+            return live_origin
     prefs = preferences or get_navigation_preferences(user_id)
     previous = _previous_event_origin(user_id, target_event, timezone, prefs)
     if previous:
@@ -372,7 +375,14 @@ def create_travel_for_event(user_id: int, source_event: dict, timezone: str) -> 
     source_start, all_day = _event_start(source_event, timezone)
     if not source_start or all_day:
         return None
-    origin = resolve_origin(user_id, source_event, timezone, preferences=prefs)
+    prefer_live = source_start <= datetime.now(source_start.tzinfo) + timedelta(hours=3)
+    origin = resolve_origin(
+        user_id,
+        source_event,
+        timezone,
+        preferences=prefs,
+        prefer_live=prefer_live,
+    )
     if not origin or origin.casefold() == destination.casefold():
         return None
     estimate = estimate_route(
