@@ -1,0 +1,55 @@
+name: Reliability checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Capture source
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/revision.txt
+          git archive HEAD -o evidence/source.tar
+      - name: Install dependencies
+        run: pip install -r requirements.txt coverage ruff
+      - name: Run Python suite
+        run: |
+          set -o pipefail
+          coverage run --source=core,modules,integrations,web_app -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee evidence/tests.log
+      - name: Validate source
+        if: always()
+        run: |
+          python -m compileall -q core modules integrations web_app.py
+          ruff check --select E9,F63,F7,F82 .
+          find web -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          node tests/voice_gesture_test.js
+          bash -n deploy.sh scripts/deploy_update.sh
+      - name: Local verification dependencies
+        if: always()
+        run: |
+          pip download -r requirements.txt --dest evidence/wheels
+          coverage report > evidence/coverage.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reliability-evidence
+          path: evidence/
+          retention-days: 7
