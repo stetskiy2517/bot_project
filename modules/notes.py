@@ -107,6 +107,15 @@ BARE_NOTE_BODY_QUESTION_RE = re.compile(
     r"^\s*(?:что|чего|когда|где|как|почему|зачем|кто|сколько|можно\s+ли|есть\s+ли)\b",
     re.IGNORECASE,
 )
+BARE_NOTE_GREETING_TITLE_RE = re.compile(
+    r"^\s*(?:привет|здравствуй(?:те)?|доброе\s+утро|добрый\s+день|добрый\s+вечер|хай|hello|hi)\b",
+    re.IGNORECASE,
+)
+BARE_NOTE_BODY_COMMAND_RE = re.compile(
+    r"^\s*(?:расскажи|объясни|поясни|подскажи|помоги|посоветуй|скажи|ответь|напиши|"
+    r"придумай|сравни|оцени|проанализируй|проверь|покажи|найди)\b",
+    re.IGNORECASE,
+)
 CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
 
@@ -138,7 +147,12 @@ def detect_bare_note(text: str) -> tuple[str, str] | None:
     title, body = _split_note_payload(candidate)
     if not title or not body:
         return None
-    if len(title.split()) > 8 or BARE_NOTE_BODY_QUESTION_RE.search(body):
+    if (
+        len(title.split()) > 8
+        or BARE_NOTE_BODY_QUESTION_RE.search(body)
+        or BARE_NOTE_GREETING_TITLE_RE.search(title)
+        or BARE_NOTE_BODY_COMMAND_RE.search(body)
+    ):
         return None
     return title, body
 
