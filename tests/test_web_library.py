@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 from datetime import datetime, timedelta, timezone
 import unittest
 from uuid import uuid4
@@ -16,7 +17,7 @@ from modules.note_conversation import ACTIVE_NOTE_KEY
 
 class WebLibraryTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
         stamp = uuid4().hex
@@ -31,7 +32,7 @@ class WebLibraryTests(unittest.TestCase):
             "Other User",
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = self.user_id
+            set_test_session(session, self.user_id)
             session.permanent = True
 
     def test_library_requires_authentication(self):
@@ -88,14 +89,14 @@ class WebLibraryTests(unittest.TestCase):
         self.assertEqual(payload["label"], "Список покупок")
         self.assertIn("Бананы, масло", payload["chat_text"])
         self.assertEqual(
-            web_app._user_state[self.user_id][ACTIVE_NOTE_KEY]["note_id"],
+            web_app.load_conversation(self.user_id)[ACTIVE_NOTE_KEY]["note_id"],
             note["note_id"],
         )
 
     def test_open_reminder_clears_active_note_and_sets_reminder_context(self):
         note = create_note(self.user_id, "Черновик", title="Проект")
         self.client.post("/api/library/open", json={"type": "note", "id": note["note_id"]})
-        self.assertIn(ACTIVE_NOTE_KEY, web_app._user_state[self.user_id])
+        self.assertIn(ACTIVE_NOTE_KEY, web_app.load_conversation(self.user_id))
 
         reminder = create_reminder(
             self.user_id,
@@ -111,9 +112,9 @@ class WebLibraryTests(unittest.TestCase):
         response.close()
         self.assertEqual(payload["label"], "Напоминание")
         self.assertIn("Забрать документы", payload["chat_text"])
-        self.assertNotIn(ACTIVE_NOTE_KEY, web_app._user_state[self.user_id])
+        self.assertNotIn(ACTIVE_NOTE_KEY, web_app.load_conversation(self.user_id))
         self.assertEqual(
-            web_app._user_state[self.user_id]["smart_planner_active_reminder"]["reminder_id"],
+            web_app.load_conversation(self.user_id)["smart_planner_active_reminder"]["reminder_id"],
             reminder["reminder_id"],
         )
 

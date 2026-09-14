@@ -5,12 +5,13 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from tests.web_client import create_test_app, set_test_session, bind_test_oauth
 from core.db import get_or_create_google_user
 
 
 class WebSessionPersistenceTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
 
     def test_session_policy_keeps_login_for_ninety_days(self):
@@ -29,6 +30,7 @@ class WebSessionPersistenceTests(unittest.TestCase):
             "persistent-callback@example.test",
             "Persistent User",
         )
+        bind_test_oauth(self.client)
         with patch("web_app.complete_web_signin", return_value=user_id):
             response = self.client.get("/oauth2callback?state=test-state&code=test-code")
 
@@ -42,23 +44,16 @@ class WebSessionPersistenceTests(unittest.TestCase):
             self.assertEqual(stored["user_id"], user_id)
             self.assertTrue(stored.permanent)
 
-    def test_existing_session_cookie_is_upgraded_without_relogin(self):
+    def test_legacy_user_id_only_cookie_requires_fresh_login(self):
         user_id = get_or_create_google_user(
-            "legacy-session-sub",
-            "legacy-session@example.test",
-            "Legacy Session",
+            "legacy-session-sub", "legacy-session@example.test", "Legacy Session",
         )
         with self.client.session_transaction() as stored:
             stored["user_id"] = user_id
             stored.permanent = False
-
-        response = self.client.get("/api/status")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Expires=", response.headers.get("Set-Cookie", ""))
+        self.assertEqual(self.client.get("/api/status").status_code, 401)
         with self.client.session_transaction() as stored:
-            self.assertEqual(stored["user_id"], user_id)
-            self.assertTrue(stored.permanent)
+            self.assertNotIn("user_id", stored)
 
     def test_persistent_session_expiry_is_refreshed_on_activity(self):
         user_id = get_or_create_google_user(
@@ -67,8 +62,7 @@ class WebSessionPersistenceTests(unittest.TestCase):
             "Refresh Session",
         )
         with self.client.session_transaction() as stored:
-            stored["user_id"] = user_id
-            stored.permanent = True
+            set_test_session(stored, user_id)
 
         first = self.client.get("/api/status")
         second = self.client.get("/api/status")
@@ -79,14 +73,16 @@ class WebSessionPersistenceTests(unittest.TestCase):
         self.assertIn("Expires=", second.headers.get("Set-Cookie", ""))
 
     def test_https_public_url_marks_session_cookie_secure(self):
-        with patch.object(web_app, "BASE_URL", "https://assistant.example.test"):
-            app = web_app.create_web_app()
+        with patch.object(web_app, "BASE_URL", "https://assistant.example.test"), \
+             patch.object(web_app, "WEB_SESSION_SECRET", "test-secret-" * 5):
+            app = create_test_app()
             client = app.test_client()
             user_id = get_or_create_google_user(
                 "secure-session-sub",
                 "secure-session@example.test",
                 "Secure Session",
             )
+            bind_test_oauth(client)
             with patch("web_app.complete_web_signin", return_value=user_id):
                 response = client.get("/oauth2callback?state=test-state&code=test-code")
 

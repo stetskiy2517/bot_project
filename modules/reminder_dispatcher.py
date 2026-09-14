@@ -9,7 +9,7 @@ from time import sleep
 
 from pywebpush import WebPushException
 
-from config import BASE_URL, WEB_PUSH_WORKER_INTERVAL_SECONDS
+from config import BASE_URL, WEB_PUSH_ENABLED, WEB_PUSH_WORKER_INTERVAL_SECONDS
 from core.push_store import (
     delete_push_subscription_by_id,
     list_push_subscriptions,
@@ -164,8 +164,7 @@ def send_test_push_for_user(user_id: int) -> dict:
     }
 
 
-def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
-    user_ids = list_push_user_ids()
+def _dispatch_due_user(user_ids: list[int], limit: int) -> dict[str, int]:
     if not user_ids:
         return {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0}
 
@@ -227,14 +226,14 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
                 accepted += 1
                 mark_push_success(subscription_id)
 
-        if transient_failures:
-            release_push_delivery(reminder["reminder_id"], last_error or "Push delivery failed")
-            released += 1
-            continue
-
         if accepted:
             complete_push_delivery(reminder["reminder_id"])
             delivered += 1
+            continue
+
+        if transient_failures:
+            release_push_delivery(reminder["reminder_id"], last_error or "Push delivery failed")
+            released += 1
             continue
 
         # Every subscription was permanently expired. Keep the reminder pending so it
@@ -250,11 +249,35 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
     }
 
 
+
+def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
+    from core.user_operations import UserBusyError, user_operation
+    from modules.assistant_commands import quiet_now
+
+    total = {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0}
+    for user_id in list_push_user_ids():
+        if total["claimed"] >= limit:
+            break
+        try:
+            with user_operation(user_id, timeout=0):
+                if quiet_now(user_id):
+                    continue
+                stats = _dispatch_due_user([user_id], limit - total["claimed"])
+                for name, value in stats.items():
+                    total[name] += value
+        except UserBusyError:
+            continue
+    return total
+
+
 def _worker_loop() -> None:
     interval = max(2, int(WEB_PUSH_WORKER_INTERVAL_SECONDS))
     while True:
         try:
             stats = dispatch_due_reminders_once()
+            from modules.assistant_notifications import dispatch_assistant_notifications
+
+            dispatch_assistant_notifications()
             if stats["claimed"]:
                 logger.info("Reminder Web Push dispatch: %s", stats)
         except Exception:
@@ -264,6 +287,8 @@ def _worker_loop() -> None:
 
 def start_reminder_push_worker() -> None:
     global _worker_started
+    if not WEB_PUSH_ENABLED:
+        return
     with _worker_lock:
         if _worker_started:
             return

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
 from config import BASE_URL, DB_PATH, WEB_PUSH_SUBJECT, WEB_PUSH_VAPID_PRIVATE_KEY
+from integrations.push_security import SafePushTransport, validate_push_endpoint, validate_push_keys
 
 
 def _private_key_path() -> Path:
@@ -110,6 +111,8 @@ def web_push_error_details(exc: WebPushException) -> tuple[int | None, str | Non
 
 
 def send_web_push(subscription: dict, payload: dict):
+    validate_push_endpoint(subscription["endpoint"])
+    validate_push_keys(subscription["p256dh"], subscription["auth"])
     subscription_info = {
         "endpoint": subscription["endpoint"],
         "keys": {
@@ -126,4 +129,5 @@ def send_web_push(subscription: dict, payload: dict):
         headers={"Urgency": "high"},
         ttl=86400,
         timeout=10,
+        requests_session=SafePushTransport(),
     )

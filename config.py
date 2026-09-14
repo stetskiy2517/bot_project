@@ -18,6 +18,7 @@ WEB_SESSION_SECRET=os.getenv("WEB_SESSION_SECRET","dev-only-change-me")
 DB_PATH=os.getenv("DB_PATH","bot.db")
 WEB_PUSH_VAPID_PRIVATE_KEY=os.getenv("WEB_PUSH_VAPID_PRIVATE_KEY")
 WEB_PUSH_SUBJECT=os.getenv("WEB_PUSH_SUBJECT")
+WEB_PUSH_ENABLED=os.getenv("WEB_PUSH_ENABLED", "true").lower() in {"true", "1", "yes"}
 WEB_PUSH_WORKER_INTERVAL_SECONDS=max(2,int(os.getenv("WEB_PUSH_WORKER_INTERVAL_SECONDS","5")))
 NAVIGATION_PROVIDER=(os.getenv("NAVIGATION_PROVIDER") or "2gis").strip().lower()
 DGIS_API_KEY=os.getenv("DGIS_API_KEY")

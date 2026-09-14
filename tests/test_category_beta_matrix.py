@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 from datetime import datetime
 from pathlib import Path
 import unittest
@@ -73,7 +74,7 @@ class CategoryBetaMatrixTests(unittest.TestCase):
 
 class CategorySettingsCompatibilityTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         suffix = self._testMethodName
         uid = get_or_create_google_user(
@@ -82,7 +83,7 @@ class CategorySettingsCompatibilityTests(unittest.TestCase):
             "Beta Family",
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = uid
+            set_test_session(session, uid)
 
     def test_legacy_color_payload_without_family_remains_valid(self):
         legacy = {

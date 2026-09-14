@@ -217,3 +217,24 @@ def set_navigation_enabled(user_id: int, enabled: bool) -> None:
 
 
 init_navigation_store()
+
+
+def validate_navigation_settings(values: dict) -> dict:
+    enabled = values.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ValueError("Неверное состояние навигации")
+    mode = values.get("mode", "driving")
+    place = values.get("default_place", "home")
+    buffer = values.get("arrival_buffer_minutes", 15)
+    if type(buffer) is not int or not 0 <= buffer <= 180:
+        raise ValueError("Буфер прибытия должен быть целым числом от 0 до 180")
+    if mode not in VALID_MODES or place not in VALID_PLACES:
+        raise ValueError("Неверные настройки навигации")
+    for name in ("home_address", "office_address"):
+        value = values.get(name)
+        if value is not None and not isinstance(value, str):
+            raise ValueError("Адрес должен быть текстом")
+        _clean_address(value)
+    return dict(enabled=enabled, home_address=values.get("home_address"),
+                office_address=values.get("office_address"), default_place=place,
+                mode=mode, arrival_buffer_minutes=buffer)

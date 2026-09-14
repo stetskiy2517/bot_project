@@ -140,6 +140,11 @@ rollback() {
 }
 trap rollback ERR
 
+if [ -x .venv/bin/python ] && [ -f scripts/backup_state.py ]; then
+  log "Backing up local state before code update"
+  .venv/bin/python scripts/backup_state.py
+fi
+
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
 if navigation_secret_present; then

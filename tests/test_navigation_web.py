@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 import unittest
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ from modules.navigation import RouteEstimate
 
 class NavigationWebTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         user_id = get_or_create_google_user(
             "navigation-web-user",
@@ -16,7 +17,7 @@ class NavigationWebTests(unittest.TestCase):
             "Navigation User",
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = user_id
+            set_test_session(session, user_id)
 
     @patch("web_app.navigation_provider", return_value="2gis")
     @patch("web_app.navigation_configured", return_value=True)

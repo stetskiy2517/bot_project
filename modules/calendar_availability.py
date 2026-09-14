@@ -20,7 +20,7 @@ from modules.calendar_user import (
 
 DEFAULT_SLOT_DURATION = timedelta(hours=1)
 SLOT_STEP = timedelta(minutes=30)
-MAX_SUGGESTIONS = 5
+MAX_SUGGESTIONS = 3
 CLOCK_FRAGMENT = r"\d{1,2}(?:(?::|\.)[0-5]\d)?(?:\s+(?:утра|дня|вечера|ночи))?"
 BETWEEN_TIME_RE = re.compile(
     rf"\bмежду\s+(?P<start>{CLOCK_FRAGMENT})\s+и\s+(?P<end>{CLOCK_FRAGMENT})\b",
@@ -58,8 +58,11 @@ def _event_end(event: dict, timezone: str) -> datetime | None:
 
 
 def _requested_duration(text: str) -> timedelta:
-    duration = _extract_duration(text)
-    return duration if duration > timedelta(0) else DEFAULT_SLOT_DURATION
+    duration_text = re.search(r"\b(\d{1,3})\s*(минут\w*|час\w*)\b", text, re.IGNORECASE)
+    duration = _extract_duration("на " + duration_text.group(0)) if duration_text else _extract_duration(text)
+    if duration <= timedelta(0) or duration > timedelta(hours=12):
+        raise ValueError("Длительность окна должна быть от 1 минуты до 12 часов.")
+    return duration
 
 
 def _period_has_explicit_day(text: str) -> bool:
@@ -316,8 +319,24 @@ def create_event_in_slot(
     start: datetime,
     end: datetime,
 ) -> dict:
-    """Создать обычное календарное событие в уже проверенном свободном интервале."""
-    event = apply_event_features(_build_event(title, start, end, get_category_colors(user_id)), title)
+    """Recheck a previously offered slot before inserting the requested event."""
+    from modules.calendar_actions import _find_conflicts
+
+    if start.tzinfo is None or end.tzinfo is None or end <= start:
+        raise ValueError("Некорректный интервал.")
+    if start <= datetime.now(start.tzinfo):
+        raise ValueError("Это время уже прошло. Запроси новые окна.")
+    prefs = get_calendar_preferences(user_id)
+    if start.date() != end.date() or (
+        start.time() < _parse_hhmm(prefs["work_start"])
+        or end.time() > _parse_hhmm(prefs["work_end"])
+    ):
+        raise ValueError("Рабочие часы изменились. Запроси новые окна.")
+    if _find_conflicts(user_id, start, end):
+        raise ValueError("Окно уже занято. Запроси свободное время заново.")
+    # The title is data: an e-mail or command inside it must not add attendees.
+    event = _build_event(title, start, end, get_category_colors(user_id))
+    event["summary"] = title
     event["start"]["timeZone"] = timezone
     event["end"]["timeZone"] = timezone
     _create_event(user_id, event)

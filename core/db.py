@@ -27,7 +27,8 @@ OAUTH_STATE_TTL_MINUTES = 15
 
 _db_dir = os.path.dirname(os.path.abspath(DB_PATH))
 os.makedirs(_db_dir, exist_ok=True)
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
+conn.execute("PRAGMA secure_delete=ON")
 db_lock = threading.RLock()
 
 
@@ -116,11 +117,12 @@ def save_oauth_state(state:str,user_id:int|None=None)->None:
 
 def consume_oauth_state(state:str)->int|None:
     with db_lock:
-        row=conn.execute("SELECT user_id,created_at FROM oauth_states WHERE state=?",(state,)).fetchone()
+        row = conn.execute(
+            "DELETE FROM oauth_states WHERE state=? RETURNING user_id,created_at", (state,),
+        ).fetchone()
+        conn.commit()
         if not row:
             return None
-        conn.execute("DELETE FROM oauth_states WHERE state=?",(state,))
-        conn.commit()
     try:
         created=datetime.fromisoformat(row[1])
     except (TypeError,ValueError):

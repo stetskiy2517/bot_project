@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 import unittest
 from unittest.mock import patch
 
@@ -7,7 +8,7 @@ from core.db import get_or_create_google_user
 
 class ChatCleanupTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
 
@@ -18,7 +19,7 @@ class ChatCleanupTests(unittest.TestCase):
             "Chat Cleanup",
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = user_id
+            set_test_session(session, user_id)
         return user_id
 
     def test_collapsed_chat_history_is_removed_from_dom(self):

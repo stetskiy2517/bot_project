@@ -1,3 +1,4 @@
+from tests.web_client import create_test_app, set_test_session
 from datetime import datetime, timedelta, timezone
 import unittest
 from uuid import uuid4
@@ -10,7 +11,7 @@ from core.reminder_store import claim_due_reminders, create_reminder
 
 class ReminderReopenTests(unittest.TestCase):
     def setUp(self):
-        self.app = web_app.create_web_app()
+        self.app = create_test_app()
         self.client = self.app.test_client()
         web_app._user_state.clear()
         stamp = uuid4().hex
@@ -25,7 +26,7 @@ class ReminderReopenTests(unittest.TestCase):
             "Reminder Reopen Other",
         )
         with self.client.session_transaction() as session:
-            session["user_id"] = self.user_id
+            set_test_session(session, self.user_id)
             session.permanent = True
 
     def test_future_completed_reminder_can_be_returned_to_pending(self):

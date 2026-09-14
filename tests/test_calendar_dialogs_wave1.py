@@ -118,6 +118,10 @@ class CalendarDialoguePendingTests(unittest.IsolatedAsyncioTestCase):
         pending_title = context.user_data["smart_planner_pending"]
         with patch("modules.calendar_actions.create_event_in_slot", return_value={"summary": "Созвон"}) as create:
             handled = await resume_pending_action(self.update, context, "Созвон", pending_title)
+            create.assert_not_called()
+            pending_confirm = context.user_data["smart_planner_pending"]
+            self.assertEqual(pending_confirm["type"], "free_slot_confirm")
+            await resume_pending_action(self.update, context, "да", pending_confirm)
         self.assertTrue(handled)
         create.assert_called_once()
         self.assertNotIn("smart_planner_pending", context.user_data)

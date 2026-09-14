@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
+from core.undo_store import entity_snapshot, record_undo
 from core.reminder_recurrence import next_repeat_at, validate_repeat_rule
 
 REMINDER_PENDING = "pending"
@@ -222,6 +223,7 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
             if not row:
                 return False
             reminder = _from_row(row)
+            before = entity_snapshot("reminder", user_id, reminder_id)
             update = (
                 "UPDATE reminders SET deleted_at=?,lease_until=NULL "
                 "WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL"
@@ -243,6 +245,7 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
                 snapshot,
                 commit=False,
             )
+            record_undo("reminder", user_id, reminder_id, before, "Удаление напоминания")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -286,6 +289,7 @@ def complete_reminder(
             if not row:
                 return None
             current = _from_row(row)
+            before = entity_snapshot("reminder", user_id, reminder_id)
 
             if completed:
                 if current["status"] == REMINDER_COMPLETED:
@@ -334,6 +338,7 @@ def complete_reminder(
                     reminder,
                     commit=False,
                 )
+            record_undo("reminder", user_id, reminder_id, before, "Отметка выполнения напоминания")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -355,6 +360,7 @@ def reschedule_reminder(user_id: int, reminder_id: int, remind_at: datetime) -> 
             if not row:
                 return None
             current = _from_row(row)
+            before = entity_snapshot("reminder", user_id, reminder_id)
             next_value = None
             if current.get("repeat_rule"):
                 next_value = next_repeat_at(
@@ -389,6 +395,7 @@ def reschedule_reminder(user_id: int, reminder_id: int, remind_at: datetime) -> 
                     reminder,
                     commit=False,
                 )
+            record_undo("reminder", user_id, reminder_id, before, "Перенос напоминания")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -441,14 +448,20 @@ def _due_occurrence(item: dict, current: datetime) -> datetime | None:
     return None
 
 
-def _advance_repeat(item: dict, occurrence: datetime) -> str | None:
+def _advance_repeat(item: dict, occurrence: datetime, current: datetime | None = None) -> str | None:
     if not item.get("repeat_rule"):
         return None
-    return next_repeat_at(
-        occurrence,
-        item["repeat_rule"],
-        item.get("repeat_timezone"),
-    ).isoformat()
+    from zoneinfo import ZoneInfo
+
+    anchor = occurrence
+    if current and current > occurrence:
+        local = occurrence.astimezone(ZoneInfo(item.get("repeat_timezone") or "UTC"))
+        days = (current.astimezone(local.tzinfo).date() - local.date()).days
+        anchor = local + timedelta(days=max(0, (days // 7 - 1) * 7))
+    result = next_repeat_at(anchor, item["repeat_rule"], item.get("repeat_timezone"))
+    while current and result <= current:
+        result = next_repeat_at(result, item["repeat_rule"], item.get("repeat_timezone"))
+    return result.isoformat()
 
 
 def claim_due_reminders(
@@ -473,7 +486,7 @@ def claim_due_reminders(
                 occurrence = _due_occurrence(item, current_dt)
                 if occurrence is None:
                     continue
-                next_value = _advance_repeat(item, occurrence)
+                next_value = _advance_repeat(item, occurrence, current_dt)
                 conn.execute(
                     "UPDATE reminders SET remind_at=?,status=?,delivered_at=?,completed_at=NULL,"
                     "lease_until=NULL,last_error=NULL,next_remind_at=? "
@@ -538,7 +551,7 @@ def claim_due_for_push(
                 if occurrence is None:
                     continue
                 is_new_occurrence = item["status"] != REMINDER_PENDING
-                next_value = _advance_repeat(item, occurrence)
+                next_value = _advance_repeat(item, occurrence, current_dt)
                 attempts = 1 if is_new_occurrence else item["delivery_attempts"] + 1
                 conn.execute(
                     "UPDATE reminders SET remind_at=?,status=?,delivered_at=NULL,completed_at=NULL,"

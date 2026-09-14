@@ -103,3 +103,4 @@ class WebContext:
 class WebPlannerResult:
     handled: bool
     replies: list[str]
+    actions: list[dict] = field(default_factory=list)
