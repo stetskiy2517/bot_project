@@ -25,15 +25,13 @@ EXPLICIT_DOTTED_TIME_RE = re.compile(
     re.IGNORECASE,
 )
 VOICE_MEETING_CLIENT_ASR_RE = re.compile(
-    r"^(?P<prefix>\s*(?:(?:добавь|добавить|создай|создать|поставь|поставить|"
-    r"запланируй|запланировать|назначь|назначить|внеси)\s+)?)"
-    r"(?P<word>встречи)(?=\s+с\s+клиентом\b)",
+    r"^(?P<prefix>\s*)(?P<word>встречи)(?=\s+с\s+клиентом\b)",
     re.IGNORECASE,
 )
 
 
 def _normalize_meeting_client_asr(text: str) -> str:
-    """Fix a narrow Russian ASR ambiguity without changing normal plural queries."""
+    """Fix the short-command ASR ambiguity 'встреча' -> 'встречи'."""
 
     def replace(match: re.Match) -> str:
         word = match.group("word")
