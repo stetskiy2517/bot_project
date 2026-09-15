@@ -6,6 +6,7 @@ import logging
 
 from core.ai_prompts import chat_system_prompt
 from core.assistant_preferences import get_assistant_preferences
+from core.feature_access import has_ai_access
 from core.memory_store import memory_prompt_context
 from integrations.ai import AIError, complete, get_ai_status, is_ai_available
 from integrations.navigation_ors import configured as navigation_configured
@@ -56,7 +57,7 @@ def _system_prompt_for_user(user_id: int | None) -> str:
 
 def answer_unhandled(text: str, *, user_id: int | None = None) -> str | None:
     candidate = " ".join(str(text or "").split()).strip()
-    if not candidate or not is_ai_available():
+    if not candidate or not has_ai_access(user_id) or not is_ai_available():
         return None
     try:
         messages = [

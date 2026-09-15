@@ -1,8 +1,8 @@
 """Append-only behavioural memory events for future AI processing.
 
 This store is intentionally independent from any model. It preserves a compact
-history of user actions so an AI layer can analyse behaviour later without
-changing the current deterministic planner.
+history of AI-enabled user actions so an AI layer can analyse behaviour later
+without changing the deterministic planner.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import json
 from typing import Any
 
 from core.db import conn, db_lock
+from core.feature_access import has_ai_access
 
 
 ENTITY_TYPES = {"note", "reminder", "voice_transcript", "calendar_event"}
@@ -62,6 +63,12 @@ def record_ai_memory_event(
 ) -> int:
     """Append one immutable event and return its id.
 
+    For users without AI access we retain only a non-sensitive skip marker. This
+    prevents background AI processing and provider spend while still marking the
+    source entity as seen so deterministic features do not repeatedly backfill it.
+    A future subscription upgrade can explicitly request a fresh backfill from
+    the source tables if the user opts into AI memory.
+
     Callers that already own a database transaction can pass ``commit=False``;
     ``db_lock`` is re-entrant, so the insert stays in the caller's transaction.
     """
@@ -72,7 +79,12 @@ def record_ai_memory_event(
     if event_type not in EVENT_TYPES:
         raise ValueError("Unknown AI memory event type")
 
-    payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str)
+    safe_snapshot: dict[str, Any]
+    if has_ai_access(int(user_id)):
+        safe_snapshot = snapshot
+    else:
+        safe_snapshot = {"ai_access_skipped": True}
+    payload = json.dumps(safe_snapshot, ensure_ascii=False, sort_keys=True, default=str)
     created_at = datetime.now(timezone.utc).isoformat()
     with db_lock:
         cur = conn.execute(

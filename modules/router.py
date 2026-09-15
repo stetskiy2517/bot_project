@@ -293,7 +293,9 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_CREATE, 0.97)
     if any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_CREATE, 0.99)
-    if RECURRENCE_DECLARATION_RE.search(lower):
+    if RECURRENCE_DECLARATION_RE.search(lower) and (
+        lower.startswith("я ") or not _contains_event_marker(lower)
+    ):
         return IntentResult(INTENT_UNKNOWN, 0.0)
     if NON_EVENT_STATEMENT_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)

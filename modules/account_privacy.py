@@ -11,6 +11,7 @@ import time
 
 from core.command_store import user_operation
 from core.db import conn, db_lock, get_google_account
+from core.feature_access import init_feature_access_store
 from core.location_context import clear_current_location
 from core.memory_store import init_memory_store
 from core.proactive_store import init_proactive_store
@@ -21,7 +22,7 @@ USER_TABLES = (
     "command_effects", "command_requests", "conversation_state", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
     "command_templates", "proactive_actions", "ai_memory_event_processing", "ai_calendar_sync",
-    "user_memories", "ai_memory_events", "notes", "reminders", "tasks",
+    "user_memories", "ai_memory_events", "feature_entitlements", "notes", "reminders", "tasks",
     "push_subscriptions", "navigation_preferences", "privacy_challenges",
     "oauth_states", "users", "google_accounts",
 )
@@ -30,6 +31,7 @@ USER_TABLES = (
 def init_privacy():
     init_memory_store()
     init_proactive_store()
+    init_feature_access_store()
     with db_lock:
         conn.execute("""CREATE TABLE IF NOT EXISTS privacy_challenges (
             user_id INTEGER PRIMARY KEY, digest TEXT NOT NULL, expires_at REAL NOT NULL
@@ -43,7 +45,7 @@ def privacy_policy() -> dict:
         "minimum_backups_kept": MIN_SNAPSHOTS_TO_KEEP,
         "notice": (
             "Стираются локальная учётная запись, заметки, напоминания, история, изученная ИИ-память, "
-            "журнал проактивных действий, настройки, push-подписки и токены доступа. События в Google Calendar остаются. "
+            "журнал проактивных действий, настройки, доступ к ИИ, push-подписки и токены доступа. События в Google Calendar остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -82,6 +84,7 @@ def export_account(user_id: int) -> dict:
                 "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes",
                 "assistant_preferences": "settings_json",
                 "command_templates": "template_id,name,spec_json",
+                "feature_entitlements": "feature,enabled,source,updated_at",
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
