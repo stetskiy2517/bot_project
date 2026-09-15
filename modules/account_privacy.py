@@ -11,6 +11,7 @@ import time
 
 from core.command_store import user_operation
 from core.db import conn, db_lock, get_google_account
+from core.feature_access import init_feature_access_store
 from core.location_context import clear_current_location
 from core.memory_store import init_memory_store
 from core.proactive_store import init_proactive_store
@@ -30,6 +31,7 @@ USER_TABLES = (
 def init_privacy():
     init_memory_store()
     init_proactive_store()
+    init_feature_access_store()
     with db_lock:
         conn.execute("""CREATE TABLE IF NOT EXISTS privacy_challenges (
             user_id INTEGER PRIMARY KEY, digest TEXT NOT NULL, expires_at REAL NOT NULL
