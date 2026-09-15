@@ -11,12 +11,14 @@ from core.navigation_store import get_navigation_preferences, list_navigation_us
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 from modules.navigation import (
     _linked_travel_events,
+    _places_equivalent,
+    _previous_event_context,
     _resolved_event_destination,
+    _route_is_effectively_same_place,
     build_travel_event,
     estimate_route,
     is_managed_travel_event,
     navigation_configured,
-    resolve_origin,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,14 +50,14 @@ def sync_recurring_travel_for_user(user_id: int, *, now: datetime | None = None)
         destination = _resolved_event_destination(event, prefs)
         if not destination:
             continue
-        origin = resolve_origin(
-            user_id,
-            event,
-            timezone_name,
-            preferences=prefs,
-            prefer_live=start <= datetime.now(start.tzinfo) + timedelta(hours=3),
-        )
-        if not origin or origin.casefold() == destination.casefold():
+
+        previous = _previous_event_context(user_id, event, timezone_name, prefs)
+        if previous is None or not previous.end_location or previous.end >= start:
+            # A background worker cannot safely guess a start point. Interactive
+            # event creation queues a Home / Office / Other question instead.
+            continue
+        origin = previous.end_location
+        if _places_equivalent(origin, destination):
             continue
         try:
             estimate = estimate_route(
@@ -64,12 +66,16 @@ def sync_recurring_travel_for_user(user_id: int, *, now: datetime | None = None)
                 mode=str(prefs.get("mode") or "driving"),
                 departure_at=start,
             )
+            if _route_is_effectively_same_place(estimate):
+                continue
             travel = build_travel_event(
                 event,
                 estimate,
                 timezone=timezone_name,
                 arrival_buffer_minutes=int(prefs.get("arrival_buffer_minutes") or 0),
                 color_id=get_category_colors(user_id).get("travel"),
+                earliest_start=previous.end,
+                origin_source="previous_event",
             )
             _get_calendar_service(user_id).events().insert(calendarId="primary", body=travel).execute()
             created_count += 1
