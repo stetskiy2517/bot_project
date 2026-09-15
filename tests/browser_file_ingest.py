@@ -108,8 +108,8 @@ def main() -> None:
             )
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-shell')")
 
-            expect(page.locator("#recordBtn")).to_be_visible()
-            expect(page.locator("#composerWrap")).to_be_visible()
+            expect(page.locator("#voiceBtn")).to_be_visible()
+            expect(page.locator(".composer-wrap")).to_be_visible()
             expect(page.locator("#message")).to_be_visible()
             expect(page.locator("#fileAttachBtn")).to_be_visible()
             expect(page.locator("#chatVoiceBtn")).not_to_be_visible()
