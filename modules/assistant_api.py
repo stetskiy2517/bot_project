@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.ai_memory_store import record_ai_memory_event
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
+from core.feature_access import ai_access_status, has_ai_access
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
 from core.proactive_store import list_proactive_actions
@@ -25,6 +26,7 @@ from modules.proactive import proactive_status, start_proactive_worker
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 logger = logging.getLogger(__name__)
+PROACTIVE_AI_SETTINGS = {"proactive_reminders_enabled", "proactive_calendar_events_enabled"}
 
 
 def _user():
@@ -37,7 +39,7 @@ def _recent_login():
 
 
 def _journal_user_utterance(user_id: int, text: str, channel: str) -> None:
-    """Queue a natural user statement for memory extraction without creating a note."""
+    """Queue an AI-enabled user's natural statement for memory extraction without creating a note."""
     clean = str(text or "").strip()
     if not clean:
         return
@@ -77,6 +79,9 @@ def use_ai_for_unhandled_chat(response):
     ):
         return response
     try:
+        user_id = _user()
+        if not has_ai_access(user_id):
+            return response
         payload = response.get_json(silent=True)
         if not isinstance(payload, dict) or payload.get("handled") is not False:
             return response
@@ -93,10 +98,10 @@ def use_ai_for_unhandled_chat(response):
         if not isinstance(text, str) or not text.strip():
             return response
         try:
-            _journal_user_utterance(_user(), text, channel)
+            _journal_user_utterance(user_id, text, channel)
         except Exception:
             logger.exception("Failed to journal user utterance for AI memory")
-        answer = answer_unhandled(text, user_id=_user())
+        answer = answer_unhandled(text, user_id=user_id)
         if not answer:
             return response
         payload["handled"] = True
@@ -133,6 +138,7 @@ def assistant_status():
         "reviews": review_history(user_id),
         "privacy": privacy_policy(),
         "ai": ai_status(),
+        "access": ai_access_status(user_id),
         "memory": memory_status(user_id),
         "proactive": proactive_status(user_id),
     }
@@ -158,7 +164,17 @@ def assistant_proactive():
 
 @assistant_api.post("/api/assistant/preferences")
 def assistant_preferences():
-    return {"preferences": save_assistant_preferences(_user(), request.get_json(silent=True) or {})}
+    user_id = _user()
+    payload = request.get_json(silent=True) or {}
+    if (
+        not has_ai_access(user_id)
+        and any(payload.get(key) is True for key in PROACTIVE_AI_SETTINGS)
+    ):
+        return jsonify(
+            error="ai_access_required",
+            message="Для проактивных ИИ-функций нужен доступ к ИИ. Календарь и обычные напоминания работают без него.",
+        ), 403
+    return {"preferences": save_assistant_preferences(user_id, payload)}
 
 
 @assistant_api.get("/api/assistant/review")
