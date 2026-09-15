@@ -2,6 +2,7 @@
   "use strict";
   let installed = false;
   let originBusy = false;
+  let originEditing = false;
   let optimizationBusy = false;
   let activeOriginRequest = null;
   let activeOptimizationRequest = null;
@@ -61,6 +62,7 @@
         <button type="button" class="action" data-origin="home">Дом</button>
         <button type="button" class="action" data-origin="office">Офис</button>
         <button type="button" class="action" data-origin="other">Другое</button>
+        <button type="button" class="action" data-origin="none">Без трансфера</button>
       </div>
       <div id="navigationOriginAddressRow" hidden style="margin-top:10px;display:flex;gap:8px">
         <input id="navigationOriginAddress" type="text" maxlength="500" placeholder="Адрес или место" style="flex:1;min-width:0">
@@ -72,10 +74,17 @@
       button.addEventListener("click", () => chooseOrigin(button.dataset.origin));
     });
     card.querySelector("#navigationOriginAddressSubmit").addEventListener("click", submitAddress);
-    card.querySelector("#navigationOriginAddress").addEventListener("keydown", (event) => {
+    const input = card.querySelector("#navigationOriginAddress");
+    input.addEventListener("input", () => { originEditing = true; });
+    input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") submitAddress();
     });
     return card;
+  }
+
+  function originDialogOpen() {
+    const card = document.getElementById("navigationOriginQuestion");
+    return Boolean(activeOriginRequest && card && !card.hidden);
   }
 
   function ensureOptimizationCard() {
@@ -111,17 +120,25 @@
   function showAddressInput(choice) {
     const card = ensureOriginCard();
     const row = card.querySelector("#navigationOriginAddressRow");
+    const previousChoice = row.dataset.choice || "";
+    const wasHidden = row.hidden;
     row.hidden = false;
     row.style.display = "flex";
     row.dataset.choice = choice;
+    originEditing = true;
     const input = card.querySelector("#navigationOriginAddress");
     input.placeholder = choice === "home" ? "Адрес дома" : choice === "office" ? "Адрес офиса" : "Откуда поедете?";
-    input.value = "";
+    if (wasHidden || previousChoice !== choice) input.value = "";
     input.focus();
   }
 
   async function chooseOrigin(choice) {
     if (!activeOriginRequest || originBusy) return;
+    if (choice === "none") {
+      originEditing = false;
+      await sendOrigin("other", activeOriginRequest.destination, true);
+      return;
+    }
     if (choice === "other") {
       showAddressInput(choice);
       return;
@@ -134,6 +151,7 @@
       showAddressInput(choice);
       return;
     }
+    originEditing = false;
     await sendOrigin(choice, "");
   }
 
@@ -147,20 +165,24 @@
       card.querySelector("#navigationOriginState").textContent = "Укажи адрес или место.";
       return;
     }
-    await sendOrigin(choice, address);
+    await sendOrigin(choice, address, false);
   }
 
-  async function sendOrigin(choice, address) {
+  async function sendOrigin(choice, address, skipTransfer = false) {
+    const request = activeOriginRequest;
+    if (!request) return;
     const card = ensureOriginCard();
     const state = card.querySelector("#navigationOriginState");
     originBusy = true;
-    state.textContent = "Считаю маршрут…";
+    state.textContent = skipTransfer ? "Оставляю без трансфера…" : "Считаю маршрут…";
     try {
       const data = await api("/api/navigation/origin-request", {
         method: "POST",
-        body: JSON.stringify({event_id: activeOriginRequest.event_id, choice, address}),
+        body: JSON.stringify({event_id: request.event_id, choice, address}),
       });
-      if (data.status === "same_location") {
+      if (skipTransfer) {
+        state.textContent = "Оставил событие без трансфера.";
+      } else if (data.status === "same_location") {
         state.textContent = "Трансфер не нужен: место отправления и событие совпадают.";
       } else if (data.status === "optimization_required") {
         state.textContent = `Не хватает ${data.missing_minutes || 0} мин. Предлагаю оптимизацию расписания.`;
@@ -169,7 +191,11 @@
       } else {
         state.textContent = "Маршрут не создан.";
       }
+      originEditing = false;
       activeOriginRequest = null;
+      const row = card.querySelector("#navigationOriginAddressRow");
+      row.hidden = true;
+      row.style.display = "none";
       setTimeout(() => {
         card.hidden = true;
         state.textContent = "";
@@ -178,6 +204,8 @@
       }, data.status === "optimization_required" ? 600 : 1800);
     } catch (error) {
       state.textContent = error.message;
+      const row = card.querySelector("#navigationOriginAddressRow");
+      originEditing = !row.hidden;
     } finally {
       originBusy = false;
     }
@@ -235,7 +263,7 @@
   }
 
   async function pollOptimizationRequest() {
-    if (optimizationBusy || document.hidden) return;
+    if (optimizationBusy || originBusy || originEditing || originDialogOpen() || document.hidden) return;
     try {
       const data = await api("/api/navigation/optimization-request");
       const request = data.request;
@@ -254,7 +282,7 @@
   }
 
   async function pollOriginRequest() {
-    if (originBusy || optimizationBusy || activeOptimizationRequest || document.hidden) return;
+    if (originBusy || originEditing || optimizationBusy || activeOptimizationRequest || document.hidden) return;
     try {
       const data = await api("/api/navigation/origin-request");
       const request = data.request;
@@ -263,11 +291,14 @@
         if (!activeOriginRequest) card.hidden = true;
         return;
       }
+      if (activeOriginRequest?.event_id === request.event_id && !card.hidden) return;
       activeOriginRequest = request;
       card.querySelector("#navigationOriginTitle").textContent = `Откуда поедете на «${request.title}»?`;
       card.querySelector("#navigationOriginText").textContent = `Место события: ${request.destination}. Выберите точку старта.`;
-      card.querySelector("#navigationOriginAddressRow").hidden = true;
-      card.querySelector("#navigationOriginAddressRow").style.display = "none";
+      const row = card.querySelector("#navigationOriginAddressRow");
+      row.hidden = true;
+      row.style.display = "none";
+      row.dataset.choice = "";
       card.querySelector("#navigationOriginState").textContent = "";
       card.hidden = false;
     } catch (_error) {
