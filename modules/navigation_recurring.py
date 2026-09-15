@@ -10,7 +10,9 @@ from core.db import get_category_colors, get_user_timezone
 from core.navigation_store import get_navigation_preferences, list_navigation_user_ids
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 from modules.navigation import (
+    _is_movement_source_event,
     _linked_travel_events,
+    _movement_access_destination,
     _places_equivalent,
     _previous_event_context,
     _resolved_event_destination,
@@ -47,7 +49,12 @@ def sync_recurring_travel_for_user(user_id: int, *, now: datetime | None = None)
         start, all_day = _event_start(event, timezone_name)
         if not start or all_day or start <= current.astimezone(start.tzinfo):
             continue
-        destination = _resolved_event_destination(event, prefs)
+        if _is_movement_source_event(event):
+            destination = _movement_access_destination(event, prefs)
+            if not destination:
+                continue
+        else:
+            destination = _resolved_event_destination(event, prefs)
         if not destination:
             continue
 
