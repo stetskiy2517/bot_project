@@ -1,0 +1,30 @@
+.mobile-toast {
+  position: absolute;
+  z-index: 130;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 82px);
+  max-width: calc(100% - 36px);
+  padding: 10px 14px;
+  border-radius: 13px;
+  background: rgba(38, 38, 37, 0.94);
+  color: #fff;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.mobile-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.mobile-action-button:disabled {
+  opacity: .45;
+  cursor: default;
+}
