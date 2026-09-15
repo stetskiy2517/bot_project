@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
@@ -13,6 +14,7 @@ from core.reminder_store import create_reminder
 from core.task_planner_store import create_planner_task
 from modules.calendar import _create_event
 from modules.email_actions import build_email_plan
+from modules.file_ingest import ALLOWED_CATEGORIES
 
 logger = logging.getLogger(__name__)
 email_actions_api = Blueprint("email_actions", __name__)
@@ -38,6 +40,89 @@ def _parse_when(value: object, *, required: bool) -> datetime | None:
     return parsed
 
 
+def _valid_timezone(value: object) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        ZoneInfo(raw)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("Некорректный часовой пояс события") from exc
+    return raw
+
+
+def _clean_location(value: object) -> str:
+    return " ".join(str(value or "").split()).strip(" ,.;")[:500]
+
+
+def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
+    if proposal.get("ready") is False:
+        raise ValueError("Событие из вложения требует проверки перед добавлением")
+
+    title = " ".join(str(proposal.get("title") or "").split()).strip()[:200]
+    if not title:
+        raise ValueError("У события из вложения нет названия")
+    start = _parse_when(proposal.get("start"), required=True)
+    end = _parse_when(proposal.get("end"), required=True)
+    assert start is not None and end is not None
+    if end <= start:
+        raise ValueError("Окончание события должно быть позже начала")
+    if end - start > timedelta(days=45):
+        raise ValueError("Слишком большая длительность события")
+    if start.astimezone(timezone.utc) < datetime.now(timezone.utc) - timedelta(minutes=5):
+        raise ValueError("Нельзя добавить событие из прошлого")
+
+    start_timezone = _valid_timezone(proposal.get("start_timezone"))
+    end_timezone = _valid_timezone(proposal.get("end_timezone"))
+    category = str(proposal.get("category") or "personal").strip().lower()
+    if category not in ALLOWED_CATEGORIES:
+        category = "personal"
+
+    location = _clean_location(proposal.get("location"))
+    start_location = _clean_location(proposal.get("start_location"))
+    end_location = _clean_location(proposal.get("end_location"))
+    movement = bool(proposal.get("movement") and start_location and end_location)
+    calendar_location = start_location if movement else (location or start_location or end_location)
+
+    details = str(proposal.get("description") or "").strip()[:1500]
+    description = (
+        f"AI Smart Planner category: {category}\n"
+        "Создано из вложения электронной почты после подтверждения пользователя."
+    )
+    if movement:
+        description += f"\nМаршрут: {start_location} → {end_location}"
+    if details:
+        description += f"\n\n{details}"
+
+    private = {
+        "smartPlannerType": "email_attachment_import",
+        "smartPlannerManaged": "1",
+    }
+    if movement:
+        private["smartPlannerMovement"] = "1"
+        private["smartPlannerStartLocation"] = start_location
+        private["smartPlannerEndLocation"] = end_location
+
+    event = {
+        "summary": title,
+        "description": description,
+        "start": {"dateTime": start.isoformat()},
+        "end": {"dateTime": end.isoformat()},
+        "transparency": "opaque",
+        "extendedProperties": {"private": private},
+    }
+    if start_timezone:
+        event["start"]["timeZone"] = start_timezone
+    if end_timezone:
+        event["end"]["timeZone"] = end_timezone
+    if calendar_location:
+        event["location"] = calendar_location
+    color = get_category_colors(user_id).get(category)
+    if color:
+        event["colorId"] = color
+    return _create_event(user_id, event)
+
+
 @email_actions_api.after_app_request
 def email_actions_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
@@ -57,7 +142,7 @@ def email_actions_js():
 def email_plan():
     payload = request.get_json(silent=True) or {}
     request_text = str(payload.get("request") or "Разбери последние письма: что нужно учесть в планах?")[:1000]
-    return build_email_plan(_user(), request_text)
+    return build_email_plan(_user(), request_text, include_attachments=True)
 
 
 @email_actions_api.post("/api/email/action")
@@ -68,6 +153,12 @@ def apply_email_action():
     if action_type not in {"task", "reminder", "calendar_event"} or not title:
         raise ValueError("Некорректное действие из письма")
     user_id = _user()
+
+    attachment_event = payload.get("attachment_event")
+    if action_type == "calendar_event" and isinstance(attachment_event, dict):
+        created = _create_attachment_calendar_event(user_id, attachment_event)
+        return {"ok": True, "type": "calendar_event", "item": created, "source": "email_attachment"}
+
     when = _parse_when(payload.get("due_at"), required=action_type != "task")
     duration = payload.get("duration_minutes")
     if duration is not None:

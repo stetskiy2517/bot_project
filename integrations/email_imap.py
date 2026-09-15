@@ -15,6 +15,7 @@ MAX_HEADER_SCAN = 5000
 HEADER_SCAN_BATCH = 50
 MAX_PREVIEW = 700
 MAX_BODY = 6000
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 class EmailAuthenticationError(RuntimeError):
@@ -76,6 +77,58 @@ def _message_text(message: Message) -> str:
     return clean[:MAX_BODY]
 
 
+def _attachment_metadata(message: Message) -> list[dict]:
+    attachments: list[dict] = []
+    parts = list(message.walk()) if message.is_multipart() else [message]
+    for index, part in enumerate(parts):
+        if part.get_content_maintype() == "multipart":
+            continue
+        filename = _decode(part.get_filename())
+        if not filename:
+            continue
+        payload = part.get_payload(decode=True)
+        size = len(payload) if isinstance(payload, (bytes, bytearray)) else 0
+        attachments.append(
+            {
+                "filename": filename[:255],
+                "mime_type": str(part.get_content_type() or "application/octet-stream").lower()[:200],
+                "size": size,
+                "part_index": index,
+            }
+        )
+    return attachments
+
+
+def extract_attachment_bytes(
+    raw: bytes,
+    attachment: dict,
+    *,
+    max_bytes: int = MAX_ATTACHMENT_BYTES,
+) -> bytes:
+    """Decode one attachment from an already fetched RFC822 message."""
+    limit = max(1, int(max_bytes))
+    try:
+        declared_size = int(attachment.get("size") or 0)
+        part_index = int(attachment.get("part_index"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректные данные вложения") from exc
+    if declared_size > limit:
+        raise ValueError("Вложение превышает допустимый размер")
+
+    message = email.message_from_bytes(raw)
+    parts = list(message.walk()) if message.is_multipart() else [message]
+    if part_index < 0 or part_index >= len(parts):
+        raise ValueError("Вложение больше не найдено в письме")
+    part = parts[part_index]
+    payload = part.get_payload(decode=True)
+    if not isinstance(payload, (bytes, bytearray)) or not payload:
+        raise ValueError("Не удалось получить содержимое вложения")
+    data = bytes(payload)
+    if len(data) > limit:
+        raise ValueError("Вложение превышает допустимый размер")
+    return data
+
+
 def _message_payload(raw: bytes) -> dict:
     message = email.message_from_bytes(raw)
     date_value = _decode(message.get("Date"))
@@ -84,12 +137,17 @@ def _message_payload(raw: bytes) -> dict:
     except (TypeError, ValueError, OverflowError):
         parsed = None
     body = _message_text(message)
+    attachments = _attachment_metadata(message)
     return {
         "from": _decode(message.get("From")),
         "subject": _decode(message.get("Subject")) or "Без темы",
         "date": parsed or date_value,
         "preview": body[:MAX_PREVIEW],
         "body": body,
+        "attachments": attachments,
+        # RFC822 bytes stay in memory only so attachment analysis does not need a
+        # second IMAP fetch. This private field is never returned by public APIs.
+        "_raw_message": raw if attachments else None,
     }
 
 
@@ -296,6 +354,7 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
             if not isinstance(raw, (bytes, bytearray)):
                 continue
             item = _message_payload(bytes(raw))
+            item["provider_message_id"] = message_id.decode("ascii", errors="ignore")
             if query_normalized and not already_filtered:
                 haystack = " ".join((item["from"], item["subject"], item.get("body") or item["preview"])).casefold()
                 if query_normalized not in haystack:
