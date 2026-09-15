@@ -4,9 +4,15 @@
   if (!root || !settingsPanel || typeof api !== "function") return;
 
   const section = document.createElement("details");
-  section.className = "assistant-section";
+  section.className = "assistant-section settings-group";
   section.innerHTML = `
-    <summary>Проактивный помощник · ИИ</summary>
+    <summary class="settings-group-summary-ready">
+      <span class="settings-group-title">Проактивный помощник</span>
+      <span class="settings-group-meta">ИИ</span>
+      <svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </summary>
     <p class="settings-help">Дополнительная ИИ-функция. Базовые календарь и напоминания работают без неё. При доступном ИИ секретарь может анализировать привычки и сам выбирать между напоминанием и блоком времени.</p>
     <label class="field">Автоматические напоминания <input id="proactiveRemindersEnabled" type="checkbox"></label>
     <label class="field">Автоматические события календаря <input id="proactiveCalendarEnabled" type="checkbox"></label>
