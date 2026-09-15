@@ -7,20 +7,28 @@
   section.className = "assistant-section";
   section.innerHTML = `
     <summary>Проактивный помощник</summary>
-    <p class="settings-help">Если включить, секретарь может сам создать повторяющееся напоминание только по явно указанной привычке с точным временем и высокой уверенностью. Календарь, заметки и другие действия автоматически не меняются.</p>
+    <p class="settings-help">Секретарь сам определяет, нужна ли по привычке точечная подсказка или блок времени. Напоминания и события календаря включаются отдельно. Автодействие выполняется только при точном расписании и высокой уверенности.</p>
     <label class="field">Автоматические напоминания <input id="proactiveRemindersEnabled" type="checkbox"></label>
-    <button class="action" type="button" id="saveProactiveReminders">Сохранить</button>
+    <label class="field">Автоматические события календаря <input id="proactiveCalendarEnabled" type="checkbox"></label>
+    <button class="action" type="button" id="saveProactiveActions">Сохранить</button>
     <p id="proactiveState" class="settings-help"></p>`;
   root.insertBefore(section, root.lastElementChild);
 
-  const toggle = document.getElementById("proactiveRemindersEnabled");
-  const save = document.getElementById("saveProactiveReminders");
+  const reminderToggle = document.getElementById("proactiveRemindersEnabled");
+  const calendarToggle = document.getElementById("proactiveCalendarEnabled");
+  const save = document.getElementById("saveProactiveActions");
   const state = document.getElementById("proactiveState");
   let loading = false;
 
   function describe(action) {
     if (!action) return "Автоматических действий пока не было.";
-    const labels = {created: "создано напоминание", covered: "напоминание уже было", not_actionable: "действие не требовалось", failed: "ошибка создания"};
+    const noun = action.action_type === "calendar_event" ? "событие календаря" : "напоминание";
+    const labels = {
+      created: `создано ${noun}`,
+      covered: `${noun} уже было`,
+      not_actionable: "автодействие не определено",
+      failed: "ошибка создания",
+    };
     return `Последнее решение: ${labels[action.status] || action.status}. ${action.reason || ""}`.trim();
   }
 
@@ -29,7 +37,8 @@
     loading = true;
     try {
       const data = await api("/api/assistant");
-      toggle.checked = Boolean(data.preferences?.proactive_reminders_enabled);
+      reminderToggle.checked = Boolean(data.preferences?.proactive_reminders_enabled);
+      calendarToggle.checked = Boolean(data.preferences?.proactive_calendar_events_enabled);
       state.textContent = describe(data.proactive?.last_action);
     } catch (error) {
       state.textContent = error.message;
@@ -43,11 +52,19 @@
     try {
       await api("/api/assistant/preferences", {
         method: "POST",
-        body: JSON.stringify({proactive_reminders_enabled: toggle.checked}),
+        body: JSON.stringify({
+          proactive_reminders_enabled: reminderToggle.checked,
+          proactive_calendar_events_enabled: calendarToggle.checked,
+        }),
       });
-      state.textContent = toggle.checked
-        ? "Включено. Секретарь будет проверять только безопасные привычки с точным расписанием."
-        : "Выключено. Новые автоматические напоминания создаваться не будут.";
+      if (reminderToggle.checked || calendarToggle.checked) {
+        const enabled = [];
+        if (reminderToggle.checked) enabled.push("напоминания");
+        if (calendarToggle.checked) enabled.push("события календаря");
+        state.textContent = `Включено: ${enabled.join(" и ")}. Секретарь будет действовать только при точном расписании и высокой уверенности.`;
+      } else {
+        state.textContent = "Выключено. Новые автоматические действия создаваться не будут.";
+      }
     } catch (error) {
       state.textContent = error.message;
     } finally {
