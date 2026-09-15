@@ -12,6 +12,7 @@ from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review
+from modules.file_ingest_api import file_ingest_api
 from modules.navigation import is_managed_travel_event
 
 mobile_ui_api = Blueprint("mobile_ui", __name__)
@@ -81,6 +82,7 @@ def inject_mobile_ui(response):
     scripts = (
         '<script src="/mobile-ui.js"></script>',
         '<script src="/mobile-ui-fixes.js"></script>',
+        '<script src="/file-ingest.js"></script>',
     )
     if "</head>" in html:
         for stylesheet in stylesheets:
@@ -169,3 +171,6 @@ def mobile_today():
         "task_summary": task_summary(user_id, now=now_utc),
         "review": review,
     }
+
+
+mobile_ui_api.register_blueprint(file_ingest_api)
