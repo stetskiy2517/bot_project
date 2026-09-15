@@ -28,3 +28,12 @@
   opacity: .45;
   cursor: default;
 }
+
+#mobileTodayContent > .mobile-card:last-child .mobile-card-title > span:first-child {
+  font-size: 0;
+}
+
+#mobileTodayContent > .mobile-card:last-child .mobile-card-title > span:first-child::after {
+  content: "Сводка секретаря";
+  font-size: 13px;
+}
