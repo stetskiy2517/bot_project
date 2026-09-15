@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 MAX_PREVIEW = 700
 MAX_BODY = 6000
+MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 def _service(token: dict):
@@ -18,13 +19,19 @@ def _service(token: dict):
     return build("gmail", "v1", credentials=credentials, cache_discovery=False)
 
 
-def _decode_body_data(value: str | None, charset: str = "utf-8") -> str:
+def _decode_urlsafe_bytes(value: str | None) -> bytes:
     if not value:
-        return ""
+        return b""
     try:
         padded = value + "=" * (-len(value) % 4)
-        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        return base64.urlsafe_b64decode(padded.encode("ascii"))
     except (ValueError, UnicodeError):
+        return b""
+
+
+def _decode_body_data(value: str | None, charset: str = "utf-8") -> str:
+    raw = _decode_urlsafe_bytes(value)
+    if not raw:
         return ""
     try:
         return raw.decode(charset, errors="replace")
@@ -81,6 +88,93 @@ def _payload_text(payload: dict) -> str:
     return clean[:MAX_BODY]
 
 
+def _attachment_metadata(payload: dict) -> list[dict]:
+    attachments: list[dict] = []
+
+    def walk(part: dict) -> None:
+        if not isinstance(part, dict):
+            return
+        filename = str(part.get("filename") or "").strip()
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        if filename:
+            try:
+                size = max(0, int(body.get("size") or 0))
+            except (TypeError, ValueError):
+                size = 0
+            attachments.append(
+                {
+                    "filename": filename[:255],
+                    "mime_type": str(part.get("mimeType") or "application/octet-stream").lower()[:200],
+                    "size": size,
+                    "attachment_id": str(body.get("attachmentId") or "")[:500] or None,
+                    "part_id": str(part.get("partId") or "")[:100] or None,
+                }
+            )
+        for child in part.get("parts", []) or []:
+            walk(child)
+
+    walk(payload)
+    return attachments
+
+
+def _find_part(payload: dict, part_id: str) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("partId") or "") == part_id:
+        return payload
+    for child in payload.get("parts", []) or []:
+        found = _find_part(child, part_id)
+        if found is not None:
+            return found
+    return None
+
+
+def fetch_attachment_bytes(
+    token: dict,
+    message_id: str,
+    attachment: dict,
+    *,
+    max_bytes: int = MAX_ATTACHMENT_BYTES,
+) -> bytes:
+    """Fetch one Gmail attachment without persisting it locally."""
+    limit = max(1, int(max_bytes))
+    try:
+        declared_size = int(attachment.get("size") or 0)
+    except (TypeError, ValueError):
+        declared_size = 0
+    if declared_size > limit:
+        raise ValueError("Вложение превышает допустимый размер")
+
+    service = _service(token)
+    attachment_id = str(attachment.get("attachment_id") or "").strip()
+    if attachment_id:
+        result = service.users().messages().attachments().get(
+            userId="me",
+            messageId=str(message_id),
+            id=attachment_id,
+        ).execute()
+        data = _decode_urlsafe_bytes(result.get("data"))
+    else:
+        part_id = str(attachment.get("part_id") or "").strip()
+        if not part_id:
+            raise ValueError("Вложение не содержит идентификатора части письма")
+        message = service.users().messages().get(
+            userId="me",
+            id=str(message_id),
+            format="full",
+        ).execute()
+        payload = message.get("payload", {}) if isinstance(message.get("payload"), dict) else {}
+        part = _find_part(payload, part_id)
+        body = part.get("body") if isinstance(part, dict) and isinstance(part.get("body"), dict) else {}
+        data = _decode_urlsafe_bytes(body.get("data"))
+
+    if not data:
+        raise ValueError("Не удалось получить содержимое вложения")
+    if len(data) > limit:
+        raise ValueError("Вложение превышает допустимый размер")
+    return data
+
+
 def _normalized_date(value: str) -> str:
     if not value:
         return ""
@@ -116,10 +210,12 @@ def list_messages(token: dict, *, limit: int = 10, query: str | None = None, unr
         if not body:
             body = str(message.get("snippet") or "").strip()[:MAX_BODY]
         results.append({
+            "provider_message_id": str(message.get("id") or item.get("id") or ""),
             "from": headers.get("from", ""),
             "subject": headers.get("subject") or "Без темы",
             "date": _normalized_date(headers.get("date", "")),
             "preview": body[:MAX_PREVIEW],
             "body": body,
+            "attachments": _attachment_metadata(payload),
         })
     return results
