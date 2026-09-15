@@ -12,6 +12,7 @@ import threading
 from typing import Any
 
 from core.ai_memory_store import record_ai_memory_event
+from core.ai_prompts import memory_system_prompt
 from core.db import conn, db_lock
 from core.memory_store import (
     MEMORY_KINDS,
@@ -41,6 +42,20 @@ MEMORY_SCHEMA = {
                     "value": {"type": "string"},
                     "confidence": {"type": "number"},
                     "evidence": {"type": "string"},
+                    "action_title": {"type": "string"},
+                    "schedule": {
+                        "type": "object",
+                        "properties": {
+                            "repeat": {
+                                "type": "string",
+                                "enum": ["daily", "weekdays", "weekends", "weekly"],
+                            },
+                            "time": {"type": "string"},
+                            "weekday": {"type": "integer", "minimum": 0, "maximum": 6},
+                        },
+                        "required": ["repeat", "time"],
+                        "additionalProperties": False,
+                    },
                 },
                 "required": ["kind", "key", "value", "confidence", "evidence"],
                 "additionalProperties": False,
@@ -51,19 +66,9 @@ MEMORY_SCHEMA = {
     "additionalProperties": False,
 }
 
-MEMORY_SYSTEM_PROMPT = """Ты извлекаешь долговременную память для личного ИИ-секретаря.
-Верни только устойчивые сведения, которые могут быть полезны в будущих разговорах и планировании.
-Допустимые типы: fact, preference, habit, relationship, goal, observation.
-Не сохраняй одноразовые детали вроде отдельной встречи, покупки или случайной фразы, если в них нет устойчивого факта о пользователе.
-Не выдумывай связи. Предпочтение сохраняй только если оно явно сказано или хорошо подтверждено повторением.
-Привычку сохраняй, если пользователь явно говорит о регулярности, есть повторяющееся напоминание или несколько одинаковых событий.
-Для одного календарного события не объявляй привычку без признака повторения.
-Для здоровья разрешено сохранять только явно указанную пользователем рутину. Никогда не додумывай диагноз, препарат, дозировку или медицинскую схему.
-Не делай выводы о политике, религии, сексуальной жизни, этничности или других чувствительных характеристиках, если это не нужно для прямой функции секретаря.
-key делай коротким и стабильным, в lower_snake_case. value — короткая формулировка на русском.
-confidence от 0 до 1: явный факт 0.9-1.0; сильное повторение 0.8-0.95; слабое наблюдение 0.55-0.7. Если уверенность ниже 0.55 — не добавляй память.
-Максимум 6 элементов. Если сохранять нечего, верни {"memories":[]}.
-"""
+MEMORY_SYSTEM_PROMPT = memory_system_prompt()
+HABIT_SCHEDULE_TYPES = {"daily", "weekdays", "weekends", "weekly"}
+HABIT_CLOCK_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -343,6 +348,37 @@ def _parse_json_object(raw: str) -> dict:
     return payload
 
 
+def _normalize_habit_schedule(value: Any) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    repeat = str(value.get("repeat") or "").strip().lower()
+    clock = str(value.get("time") or "").strip()
+    if repeat not in HABIT_SCHEDULE_TYPES or not HABIT_CLOCK_RE.fullmatch(clock):
+        return None
+    result: dict[str, Any] = {"repeat": repeat, "time": clock}
+    if repeat == "weekly":
+        try:
+            weekday = int(value.get("weekday"))
+        except (TypeError, ValueError):
+            return None
+        if not 0 <= weekday <= 6:
+            return None
+        result["weekday"] = weekday
+    return result
+
+
+def _habit_value(item: dict, statement: str) -> Any:
+    action_title = _clean_string(item.get("action_title"), 160).strip(" .,:;-")
+    schedule = _normalize_habit_schedule(item.get("schedule"))
+    if not action_title or schedule is None:
+        return statement
+    return {
+        "statement": statement,
+        "action_title": action_title,
+        "schedule": schedule,
+    }
+
+
 def _extract_memories(payload: dict) -> list[dict]:
     items = payload.get("memories")
     if not isinstance(items, list):
@@ -353,15 +389,16 @@ def _extract_memories(payload: dict) -> list[dict]:
             continue
         kind = str(item.get("kind") or "").strip().lower()
         key = _clean_string(item.get("key"), 120)
-        value = _clean_string(item.get("value"), 1000)
+        statement = _clean_string(item.get("value"), 1000)
         evidence = _clean_string(item.get("evidence"), 500)
         try:
             confidence = float(item.get("confidence"))
         except (TypeError, ValueError):
             continue
         confidence = max(0.0, min(1.0, confidence))
-        if kind not in MEMORY_KINDS or not key or not value or confidence < 0.55:
+        if kind not in MEMORY_KINDS or not key or not statement or confidence < 0.55:
             continue
+        value: Any = _habit_value(item, statement) if kind == "habit" else statement
         result.append(
             {
                 "kind": kind,
@@ -391,11 +428,7 @@ def _call_memory_model(source: dict) -> list[dict]:
             _structured_output_disabled = True
             logger.warning("Structured AI output unavailable; using validated JSON fallback")
     fallback_messages = [
-        {
-            "role": "system",
-            "content": MEMORY_SYSTEM_PROMPT
-            + "\nОтветь только JSON-объектом формата {\"memories\":[{\"kind\":\"fact\",\"key\":\"...\",\"value\":\"...\",\"confidence\":0.9,\"evidence\":\"...\"}]}. Без markdown.",
-        },
+        {"role": "system", "content": memory_system_prompt(json_only=True)},
         {"role": "user", "content": f"Источник для анализа:\n{source_json}"},
     ]
     raw = complete(fallback_messages, max_tokens=900, temperature=0.001)
