@@ -45,6 +45,7 @@ jobs:
           node --check web/yandex-auth.js &&
           node --check web/mobile-ui.js &&
           node --check web/mobile-ui-fixes.js &&
+          node --check web/file-ingest.js &&
           node --check web/admin.js &&
           node --check web/admin-metrics.js &&
           node --check web/email.js
