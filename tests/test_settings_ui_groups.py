@@ -24,6 +24,18 @@ class SettingsUiGroupsTests(unittest.TestCase):
         self.assertIn('details.classList.add("settings-group")', script)
         self.assertIn("new MutationObserver", script)
 
+    def test_proactive_assistant_uses_standard_settings_group_markup(self):
+        response = self.client.get("/proactive.js")
+        self.assertEqual(response.status_code, 200)
+        script = response.get_data(as_text=True)
+        response.close()
+
+        self.assertIn('section.className = "assistant-section settings-group"', script)
+        self.assertIn('class="settings-group-summary-ready"', script)
+        self.assertIn('class="settings-group-title">Проактивный помощник', script)
+        self.assertIn('class="settings-group-meta">ИИ', script)
+        self.assertIn('class="settings-group-chevron"', script)
+
     def test_existing_setting_controls_keep_their_ids(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
