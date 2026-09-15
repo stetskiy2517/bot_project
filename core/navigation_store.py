@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 
 from core.db import conn, db_lock
 
@@ -11,6 +12,7 @@ DEFAULT_ARRIVAL_BUFFER_MINUTES = 15
 VALID_MODES = {"driving", "transit", "walking"}
 VALID_PLACES = {"office", "home"}
 MAX_BUFFER_MINUTES = 180
+MAX_PENDING_ORIGIN_REQUESTS = 20
 
 
 def init_navigation_store() -> None:
@@ -26,6 +28,7 @@ def init_navigation_store() -> None:
                 arrival_buffer_minutes INTEGER NOT NULL DEFAULT 15,
                 parking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
                 walking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
+                pending_origin_json TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL
             )"""
         )
@@ -33,6 +36,8 @@ def init_navigation_store() -> None:
         for column in ("parking_buffer_minutes", "walking_buffer_minutes"):
             if column not in columns:
                 conn.execute(f"ALTER TABLE navigation_preferences ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+        if "pending_origin_json" not in columns:
+            conn.execute("ALTER TABLE navigation_preferences ADD COLUMN pending_origin_json TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
 
 
@@ -116,7 +121,6 @@ def get_navigation_preferences(user_id: int) -> dict:
         "base_arrival_buffer_minutes": base,
         "parking_buffer_minutes": parking,
         "walking_buffer_minutes": walking,
-        # Compatibility: existing navigation logic consumes this value and now gets the full door-to-door buffer.
         "arrival_buffer_minutes": total,
     }
 
@@ -274,6 +278,95 @@ def set_navigation_enabled(user_id: int, enabled: bool) -> None:
     with db_lock:
         _ensure_row(user_id)
         conn.execute("UPDATE navigation_preferences SET enabled=?,updated_at=? WHERE user_id=?", (1 if enabled else 0, now, int(user_id)))
+        conn.commit()
+
+
+def _pending_origin_requests(raw: object) -> list[dict]:
+    try:
+        value = json.loads(str(raw or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        event_id = str(item.get("event_id") or "").strip()
+        if not event_id:
+            continue
+        result.append({
+            "event_id": event_id[:300],
+            "timezone": str(item.get("timezone") or "Europe/Moscow")[:100],
+            "destination": _clean_address(item.get("destination")),
+            "title": " ".join(str(item.get("title") or "Событие").split())[:200],
+            "created_at": str(item.get("created_at") or "")[:80],
+        })
+    return result[-MAX_PENDING_ORIGIN_REQUESTS:]
+
+
+def list_pending_navigation_origins(user_id: int) -> list[dict]:
+    init_navigation_store()
+    with db_lock:
+        row = conn.execute(
+            "SELECT pending_origin_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+    return _pending_origin_requests(row[0] if row else "[]")
+
+
+def queue_navigation_origin_request(
+    user_id: int,
+    *,
+    event_id: str,
+    timezone_name: str,
+    destination: str,
+    title: str,
+) -> None:
+    event_id = str(event_id or "").strip()
+    destination = _clean_address(destination)
+    if not event_id or not destination:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        row = conn.execute(
+            "SELECT pending_origin_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+        requests = _pending_origin_requests(row[0] if row else "[]")
+        requests = [item for item in requests if item["event_id"] != event_id]
+        requests.append({
+            "event_id": event_id[:300],
+            "timezone": str(timezone_name or "Europe/Moscow")[:100],
+            "destination": destination,
+            "title": " ".join(str(title or "Событие").split())[:200],
+            "created_at": now,
+        })
+        requests = requests[-MAX_PENDING_ORIGIN_REQUESTS:]
+        conn.execute(
+            "UPDATE navigation_preferences SET pending_origin_json=?,updated_at=? WHERE user_id=?",
+            (json.dumps(requests, ensure_ascii=False), now, int(user_id)),
+        )
+        conn.commit()
+
+
+def remove_navigation_origin_request(user_id: int, event_id: str) -> None:
+    target = str(event_id or "").strip()
+    if not target:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        row = conn.execute(
+            "SELECT pending_origin_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+        requests = [item for item in _pending_origin_requests(row[0] if row else "[]") if item["event_id"] != target]
+        conn.execute(
+            "UPDATE navigation_preferences SET pending_origin_json=?,updated_at=? WHERE user_id=?",
+            (json.dumps(requests, ensure_ascii=False), now, int(user_id)),
+        )
         conn.commit()
 
 
