@@ -22,7 +22,7 @@ from core.email_store import (
     save_email_oauth_state,
 )
 from integrations.email_gmail import GMAIL_SCOPE
-from integrations.email_imap import test_connection
+from integrations.email_imap import EmailAuthenticationError, EmailTransportError, test_connection
 from modules.email import answer_email_query, detect_email_intent
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ def connect_imap():
     if provider not in {"yandex", "mailru"}:
         return jsonify(error="unsupported_email_provider", message="Сейчас через IMAP поддерживаются Яндекс и Mail.ru."), 400
     address = str(payload.get("email") or "").strip()
-    password = str(payload.get("app_password") or "")
+    password = str(payload.get("app_password") or "").strip()
     if "@" not in address or not password or len(password) > 512:
         return jsonify(error="invalid_email_credentials", message="Укажи email и пароль приложения."), 400
     try:
@@ -163,9 +163,15 @@ def connect_imap():
             {"app_password": password},
             display_name=PROVIDERS[provider]["label"],
         )
+    except EmailAuthenticationError as exc:
+        logger.warning("Email authentication rejected for provider=%s user=%s", provider, _user())
+        return jsonify(error="email_authentication_failed", message=str(exc)), 400
+    except EmailTransportError as exc:
+        logger.warning("Email server unavailable for provider=%s user=%s", provider, _user())
+        return jsonify(error="email_server_unavailable", message=str(exc)), 503
     except Exception:
         logger.exception("Failed to connect %s email for user %s", provider, _user())
-        return jsonify(error="email_connection_failed", message="Не удалось войти в ящик. Проверь email и пароль приложения."), 400
+        return jsonify(error="email_connection_failed", message="Не удалось подключить почту. Попробуй ещё раз позже."), 400
     return {"ok": True, "account": account}
 
 
