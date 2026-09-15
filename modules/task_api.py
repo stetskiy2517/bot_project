@@ -121,9 +121,12 @@ def tasks_delete(task_id: int):
     if not current:
         return jsonify(error="task_not_found"), 404
     remove_future_task_block(user_id, current)
+    subtasks = list_planner_tasks(user_id, status=None, limit=500, parent_task_id=task_id)
+    for subtask in subtasks:
+        update_planner_task(user_id, int(subtask["task_id"]), {"parent_task_id": None})
     if not delete_planner_task(user_id, task_id):
         return jsonify(error="task_not_found"), 404
-    return {"ok": True}
+    return {"ok": True, "detached_subtasks": len(subtasks)}
 
 
 @task_api.get("/api/tasks/schedule/preview")
