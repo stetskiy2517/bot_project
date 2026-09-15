@@ -1,20 +1,16 @@
-.app.mobile-shell.mobile-view-home .composer-wrap,
-.app.mobile-shell.mobile-view-chat .composer-wrap {
-  display: block !important;
+.app.mobile-shell.mobile-view-home .composer-wrap {
+  display: none !important;
 }
 
-.app.mobile-shell.mobile-view-home .composer-wrap {
+.app.mobile-shell.mobile-view-chat .composer-wrap {
+  display: block !important;
   z-index: 35;
   bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 .app.mobile-shell.mobile-view-home .voice-shell {
-  bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 70px) !important;
-  padding-bottom: 10px;
-}
-
-.app.mobile-shell.mobile-view-home .composer-voice-button {
-  display: none;
+  bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: 34px !important;
 }
 
 .mobile-toast {

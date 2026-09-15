@@ -112,18 +112,24 @@ def main() -> None:
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-shell')")
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-home')")
 
+            # Voice home contains only the main hold-to-record control.
             expect(page.locator("#voiceBtn")).to_be_visible()
             expect(page.locator("#mobileBottomNav")).to_be_visible()
+            expect(page.locator(".composer-wrap")).not_to_be_visible()
+            expect(page.locator("#message")).not_to_be_visible()
+            expect(page.locator("#fileAttachBtn")).not_to_be_visible()
+
+            # The late file-ingest style must not be able to force the composer onto home.
+            expect(page.locator("#fileIngestStyles")).to_have_count(1)
+            expect(page.locator(".composer-wrap")).not_to_be_visible()
+
+            # Composer belongs to the dedicated chat tab and must sit above bottom navigation.
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-chat')")
             expect(page.locator(".composer-wrap")).to_be_visible()
             expect(page.locator("#message")).to_be_visible()
             expect(page.locator("#fileAttachBtn")).to_be_visible()
-            expect(page.locator("#chatVoiceBtn")).not_to_be_visible()
-
-            # The home composer must be part of the core mobile layout, not depend on
-            # file-ingest.js injecting a late style override.
-            page.locator("#fileIngestStyles").evaluate("node => node.remove()")
-            expect(page.locator(".composer-wrap")).to_be_visible()
-            expect(page.locator("#message")).to_be_visible()
+            expect(page.locator("#chatVoiceBtn")).to_be_visible()
 
             composer_box = page.locator(".composer-wrap").bounding_box()
             nav_box = page.locator("#mobileBottomNav").bounding_box()
@@ -148,6 +154,12 @@ def main() -> None:
             expect(add_button).to_be_enabled()
             add_button.click()
             expect(add_button).to_have_text("Добавлено ✓")
+
+            # Returning to voice mode hides the composer again.
+            page.locator('#mobileBottomNav [data-view="home"]').click()
+            page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-home')")
+            expect(page.locator("#voiceBtn")).to_be_visible()
+            expect(page.locator(".composer-wrap")).not_to_be_visible()
 
             assert not errors, errors
             context.close()
