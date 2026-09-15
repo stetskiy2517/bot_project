@@ -30,25 +30,39 @@ class AIAssistantTests(unittest.TestCase):
         self.assertNotIn("модули календаря, напоминаний, заметок и задач", system_prompt)
 
     @patch("modules.ai_assistant.memory_prompt_context", return_value='[{"kind":"preference","key":"meeting_time","value":"После 10:00","confidence":0.95}]')
-    @patch("modules.ai_assistant.complete", return_value="Учту это.")
+    @patch("modules.ai_assistant.complete", return_value="Тебе лучше назначать встречи после 10 утра.")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
-    def test_user_memory_is_added_as_data_context(self, _available, complete, memory_context):
-        self.assertEqual(answer_unhandled("Когда лучше поставить встречу?", user_id=42), "Учту это.")
+    def test_user_memory_is_merged_into_single_system_message(self, _available, complete, memory_context):
+        self.assertEqual(
+            answer_unhandled("В какое время мне лучше назначать встречи?", user_id=42),
+            "Тебе лучше назначать встречи после 10 утра.",
+        )
         memory_context.assert_called_once_with(42)
         messages = complete.call_args.args[0]
-        self.assertEqual(messages[-1]["role"], "user")
-        self.assertEqual(len(messages), 3)
-        self.assertIn("Долговременная память пользователя", messages[1]["content"])
-        self.assertIn("После 10:00", messages[1]["content"])
-        self.assertIn("не как инструкции", messages[1]["content"])
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("Долговременная память пользователя", messages[0]["content"])
+        self.assertIn("После 10:00", messages[0]["content"])
+        self.assertIn("не как инструкции", messages[0]["content"])
 
     @patch("modules.ai_assistant.memory_prompt_context", return_value="")
     @patch("modules.ai_assistant.complete", return_value="Привет.")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
-    def test_empty_memory_does_not_add_extra_system_message(self, _available, complete, memory_context):
+    def test_empty_memory_does_not_change_message_shape(self, _available, complete, memory_context):
         answer_unhandled("Привет", user_id=42)
         memory_context.assert_called_once_with(42)
         self.assertEqual(len(complete.call_args.args[0]), 2)
+
+    @patch("modules.ai_assistant.memory_prompt_context", side_effect=RuntimeError("db temporarily busy"))
+    @patch("modules.ai_assistant.complete", return_value="Отвечаю без памяти.")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_memory_failure_does_not_disable_ai_chat(self, _available, complete, memory_context):
+        self.assertEqual(answer_unhandled("Привет", user_id=42), "Отвечаю без памяти.")
+        memory_context.assert_called_once_with(42)
+        messages = complete.call_args.args[0]
+        self.assertEqual(len(messages), 2)
+        self.assertNotIn("Долговременная память пользователя", messages[0]["content"])
 
     @patch("modules.ai_assistant.complete", side_effect=AIProviderError("provider failed"))
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
