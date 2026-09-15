@@ -166,7 +166,7 @@ def speech_status() -> dict:
 
 def _transcribe_assembly(data: bytes) -> str:
     if not ASSEMBLYAI_API_KEY:
-        raise RuntimeError("AssemblyAI is not configured")
+        raise RuntimeError("ASSEMBLYAI_API_KEY не задан")
     audio_url = _upload_audio(BytesIO(data))
     transcript_id = _start_transcription(audio_url)
     try:
@@ -179,12 +179,11 @@ def _transcribe_assembly(data: bytes) -> str:
 
 
 def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
-    """Transcribe once, falling back between configured providers without retaining raw audio."""
+    """Transcribe once and use Yandex only as a compatible OggOpus fallback."""
     data = _read_audio_bytes(source)
-    if not data:
-        return ""
-    errors: list[str] = []
     attempted = 0
+    last_error: Exception | None = None
+
     for provider in _provider_order():
         if provider == "assemblyai":
             if not ASSEMBLYAI_API_KEY:
@@ -193,25 +192,31 @@ def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
             try:
                 text = _transcribe_assembly(data)
             except Exception as exc:
+                last_error = exc
                 logger.warning("AssemblyAI speech recognition failed: %s", type(exc).__name__)
-                errors.append(f"assemblyai:{type(exc).__name__}")
                 continue
-        elif provider == "yandex":
-            if not yandex_configured():
+            if text:
+                _store_web_transcript(text)
+            return text
+
+        if provider == "yandex":
+            # SpeechKit v1 fallback is intentionally limited to short OggOpus audio.
+            # WebM/MP4 must stay with AssemblyAI until a format-neutral Yandex path is added.
+            if not yandex_configured() or not data.startswith(b"OggS"):
                 continue
             attempted += 1
             try:
                 text = recognize_oggopus(data)
             except YandexSpeechError as exc:
+                last_error = exc
                 logger.warning("Yandex SpeechKit fallback unavailable: %s", exc)
-                errors.append(f"yandex:{type(exc).__name__}")
                 continue
-        else:
-            continue
-        if text:
-            _store_web_transcript(text)
+            if text:
+                _store_web_transcript(text)
             return text
-        errors.append(f"{provider}:empty")
+
+    if last_error is not None:
+        raise last_error
     if attempted == 0:
-        raise RuntimeError("No speech recognition provider is configured")
-    raise RuntimeError("Speech recognition failed for configured providers: " + ", ".join(errors))
+        raise RuntimeError("ASSEMBLYAI_API_KEY не задан")
+    raise RuntimeError("Не удалось распознать речь")

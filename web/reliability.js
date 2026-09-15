@@ -199,7 +199,7 @@
       summary.insertBefore(meta, summary.querySelector(".settings-group-chevron"));
     }
     if (metaId) meta.id = metaId;
-    if (metaText && !meta.textContent) meta.textContent = metaText;
+    meta.textContent = metaText;
     return meta;
   }
 
@@ -282,11 +282,18 @@
     }
   }
 
-  const assistantGroups = [
-    ["Обзоры и тихие часы", "Расписание", "assistantDeliveryMeta"],
-    ["Избранные команды", "Шаблоны", "assistantTemplatesMeta"],
-    ["Отмена и данные", "Данные аккаунта", "assistantDataMeta"],
-  ];
+  function assistantGroupConfig(details) {
+    if (details.querySelector("#assistantDeliveryFields")) {
+      return ["Обзоры и тихие часы", "Расписание", "assistantDeliveryMeta"];
+    }
+    if (details.querySelector("#templateForm") || details.querySelector("#assistantTemplates")) {
+      return ["Избранные команды", "Шаблоны", "assistantTemplatesMeta"];
+    }
+    if (details.querySelector("#undoNoteAction") || details.querySelector("#exportAccountData") || details.querySelector("#eraseAccountData")) {
+      return ["Отмена и данные", "Данные аккаунта", "assistantDataMeta"];
+    }
+    return null;
+  }
 
   function updateAssistantMeta() {
     const deliveryMeta = document.getElementById("assistantDeliveryMeta");
@@ -307,9 +314,8 @@
     const root = document.getElementById("assistantSettings");
     if (!root) return;
     const groups = Array.from(root.querySelectorAll(":scope > details.assistant-section"));
-    groups.forEach((details, index) => {
-      const currentTitle = details.querySelector(":scope > summary")?.textContent?.trim();
-      const config = assistantGroups.find(([title]) => title === currentTitle) || assistantGroups[index];
+    groups.forEach(details => {
+      const config = assistantGroupConfig(details);
       if (!config) return;
       decorateSummary(details, config[0], config[1], config[2]);
     });
