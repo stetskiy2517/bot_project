@@ -13,6 +13,7 @@ DEFAULTS = {
     "morning_enabled": False, "morning_time": "08:00",
     "evening_enabled": False, "evening_time": "20:00",
     "quiet_enabled": False, "quiet_start": "22:00", "quiet_end": "08:00",
+    "proactive_reminders_enabled": False,
 }
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
@@ -70,7 +71,6 @@ def quiet_until(user_id: int, now: datetime) -> datetime | None:
         return None
     day = local.date() + (timedelta(days=1) if start > end and current >= start else timedelta(0))
     candidate = datetime.combine(day, end, tzinfo=zone).astimezone(timezone.utc)
-    # Resolve a non-existent DST boundary by UTC round-trip; never resume before now.
     return max(candidate, now.astimezone(timezone.utc) + timedelta(seconds=1))
 
 
