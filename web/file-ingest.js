@@ -66,7 +66,7 @@
   fileInput.id = "fileAttachInput";
   fileInput.type = "file";
   fileInput.hidden = true;
-  fileInput.accept = ".pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.tif,.tiff,.bmp,image/jpeg,image/png,image/tiff,image/bmp,application/pdf";
+  fileInput.accept = ".pdf,.txt,.doc,.docx,.epub,.ppt,.pptx,.xlsx,.jpg,.jpeg,.png,.tif,.tiff,.bmp,image/jpeg,image/png,image/tiff,image/bmp,application/pdf";
 
   composer.insertBefore(attachButton, chatVoice || composer.querySelector(".send-button"));
   composer.appendChild(fileInput);
