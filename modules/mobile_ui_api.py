@@ -78,13 +78,18 @@ def inject_mobile_ui(response):
         '<link rel="stylesheet" href="/mobile-ui.css" />',
         '<link rel="stylesheet" href="/mobile-ui-overlays.css" />',
     )
-    script = '<script src="/mobile-ui.js"></script>'
+    scripts = (
+        '<script src="/mobile-ui.js"></script>',
+        '<script src="/mobile-ui-fixes.js"></script>',
+    )
     if "</head>" in html:
         for stylesheet in stylesheets:
             if stylesheet not in html:
                 html = html.replace("</head>", f"    {stylesheet}\n  </head>", 1)
-    if script not in html and "</body>" in html:
-        html = html.replace("</body>", f"    {script}\n  </body>", 1)
+    if "</body>" in html:
+        for script in scripts:
+            if script not in html:
+                html = html.replace("</body>", f"    {script}\n  </body>", 1)
     response.set_data(html)
     return response
 
@@ -102,6 +107,11 @@ def mobile_ui_overlays_css():
 @mobile_ui_api.get("/mobile-ui.js")
 def mobile_ui_js():
     return send_from_directory(WEB_DIR, "mobile-ui.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/mobile-ui-fixes.js")
+def mobile_ui_fixes_js():
+    return send_from_directory(WEB_DIR, "mobile-ui-fixes.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/api/mobile/today")
