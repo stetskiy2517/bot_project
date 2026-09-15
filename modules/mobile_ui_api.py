@@ -10,6 +10,7 @@ from flask import Blueprint, request, send_from_directory, session
 
 from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
+from modules.calendar_location_api import calendar_location_api
 from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review
 from modules.file_ingest_api import file_ingest_api
@@ -179,4 +180,5 @@ def mobile_today():
     }
 
 
+mobile_ui_api.register_blueprint(calendar_location_api)
 mobile_ui_api.register_blueprint(file_ingest_api)
