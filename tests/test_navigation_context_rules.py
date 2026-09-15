@@ -177,7 +177,7 @@ class NavigationContextRuleTests(unittest.TestCase):
         body = service.events().insert.call_args.kwargs["body"]
         self.assertEqual(body["start"]["dateTime"], "2099-09-14T14:30:00+03:00")
         self.assertEqual(target["_smartPlannerNavigation"]["status"], "route_conflict")
-        self.assertEqual(target["_smartPlannerNavigation"]["missing_minutes"], 5)
+        self.assertEqual(target["_smartPlannerNavigation"]["missing_minutes"], 25)
 
     @patch("modules.navigation._get_calendar_service")
     @patch("modules.navigation.get_category_colors", return_value={"travel": "7"})
