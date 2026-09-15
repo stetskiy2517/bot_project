@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -30,6 +31,15 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertTrue(payload["overdue"])
         self.assertEqual(payload["task_id"], 7)
 
+    def test_swipe_navigation_matches_bottom_nav_contract(self):
+        source = (
+            Path(__file__).resolve().parent.parent / "web" / "swipe-navigation.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn('["home", "chat", "today", "more"]', source)
+        self.assertIn('planner-library-open', source)
+        self.assertIn('closeTopSheet', source)
+        self.assertIn('library-swipe-row', source)
+
 
 class MobileUiApiTests(unittest.TestCase):
     def setUp(self):
@@ -48,6 +58,12 @@ class MobileUiApiTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('/mobile-ui.css', body)
         self.assertIn('/mobile-ui.js', body)
+        self.assertIn('/swipe-navigation.js', body)
+
+    def test_swipe_navigation_asset_is_served(self):
+        response = self.client.get("/swipe-navigation.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("VIEW_ORDER", response.get_data(as_text=True))
 
     def test_today_endpoint_is_stable_without_calendar(self):
         with self.client.session_transaction() as session:
