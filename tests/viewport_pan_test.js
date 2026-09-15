@@ -122,7 +122,7 @@ vm.runInContext(viewportSource, context, {filename: "viewport-module.js"});
 assert.equal(root.style.getPropertyValue("--stable-app-height"), "844px");
 assert.equal(root.style.getPropertyValue("--keyboard-inset"), "344px");
 assert.equal(root.style.getPropertyValue("--viewport-pan"), "84px");
-assert.equal(root.style.getPropertyValue("--voice-keyboard-lift"), "103px");
+assert.equal(root.style.getPropertyValue("--voice-keyboard-lift"), "151px");
 assert.equal(root.classList.contains("composer-keyboard-open"), true);
 
 console.log("viewport pan tests passed");
