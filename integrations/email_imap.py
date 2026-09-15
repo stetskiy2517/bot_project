@@ -11,6 +11,8 @@ import re
 from core.email_store import PROVIDERS
 
 MAX_FETCH = 50
+MAX_HEADER_SCAN = 5000
+HEADER_SCAN_BATCH = 100
 MAX_PREVIEW = 500
 
 
@@ -70,6 +72,12 @@ def _message_payload(raw: bytes) -> dict:
     }
 
 
+def _header_matches(raw: bytes, query: str) -> bool:
+    message = email.message_from_bytes(raw)
+    haystack = " ".join((_decode(message.get("From")), _decode(message.get("Subject")))).casefold()
+    return query in haystack
+
+
 def _auth_error_message(provider: str) -> str:
     if provider == "yandex":
         return (
@@ -118,6 +126,79 @@ def test_connection(provider: str, address: str, password: str) -> None:
             pass
 
 
+def _quoted_search_value(query: str) -> bytes:
+    escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'.encode("utf-8")
+
+
+def _server_search(client, query: str, *, unread_only: bool) -> list[bytes] | None:
+    value = _quoted_search_value(query)
+    criteria: list[str | bytes] = []
+    if unread_only:
+        criteria.append("UNSEEN")
+    criteria.extend(("OR", "OR", "FROM", value, "SUBJECT", value, "BODY", value))
+    try:
+        status, data = client.search("UTF-8", *criteria)
+    except (imaplib.IMAP4.error, UnicodeError, ValueError):
+        return None
+    if status != "OK":
+        return None
+    if not data or not data[0]:
+        return []
+    return data[0].split()
+
+
+def _base_ids(client, *, unread_only: bool) -> list[bytes]:
+    criteria = "UNSEEN" if unread_only else "ALL"
+    status, data = client.search(None, criteria)
+    if status != "OK" or not data or not data[0]:
+        return []
+    return data[0].split()
+
+
+def _fallback_header_search(client, ids: list[bytes], query: str, *, limit: int) -> list[bytes]:
+    candidates = ids[-MAX_HEADER_SCAN:]
+    matches: list[bytes] = []
+    end = len(candidates)
+    while end > 0 and len(matches) < limit:
+        start = max(0, end - HEADER_SCAN_BATCH)
+        batch = candidates[start:end]
+        message_set = ",".join(item.decode("ascii") for item in batch)
+        status, payload = client.fetch(message_set, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+        if status == "OK" and payload:
+            batch_matches: list[bytes] = []
+            for entry in payload:
+                if not isinstance(entry, tuple) or len(entry) < 2:
+                    continue
+                meta, raw = entry[0], entry[1]
+                if not isinstance(meta, (bytes, bytearray)) or not isinstance(raw, (bytes, bytearray)):
+                    continue
+                match = re.match(rb"^(\d+)", bytes(meta))
+                if match and _header_matches(bytes(raw), query):
+                    batch_matches.append(match.group(1))
+            matches.extend(sorted(batch_matches, key=int, reverse=True))
+        end = start
+    return sorted(matches[:limit], key=int)
+
+
+def _search_ids(client, query: str, *, unread_only: bool, limit: int) -> tuple[list[bytes], bool]:
+    if query:
+        server_ids = _server_search(client, query, unread_only=unread_only)
+        if server_ids is not None:
+            return server_ids[-limit:], True
+
+    ids = _base_ids(client, unread_only=unread_only)
+    if not ids:
+        return [], bool(query)
+    if not query:
+        return ids[-MAX_FETCH:], False
+
+    header_ids = _fallback_header_search(client, ids, query, limit=limit)
+    if header_ids:
+        return header_ids, True
+    return ids[-MAX_FETCH:], False
+
+
 def list_messages(provider: str, address: str, password: str, *, limit: int = 10, query: str | None = None, unread_only: bool = False) -> list[dict]:
     limit = max(1, min(int(limit), 30))
     query_normalized = " ".join(str(query or "").casefold().split())
@@ -126,11 +207,12 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
         status, _ = client.select("INBOX", readonly=True)
         if status != "OK":
             raise RuntimeError("Не удалось открыть входящие")
-        criteria = "UNSEEN" if unread_only else "ALL"
-        status, data = client.search(None, criteria)
-        if status != "OK" or not data:
-            return []
-        ids = data[0].split()[-MAX_FETCH:]
+        ids, already_filtered = _search_ids(
+            client,
+            query_normalized,
+            unread_only=unread_only,
+            limit=limit,
+        )
         results: list[dict] = []
         for message_id in reversed(ids):
             status, payload = client.fetch(message_id, "(RFC822)")
@@ -140,7 +222,7 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
             if not isinstance(raw, (bytes, bytearray)):
                 continue
             item = _message_payload(bytes(raw))
-            if query_normalized:
+            if query_normalized and not already_filtered:
                 haystack = " ".join((item["from"], item["subject"], item["preview"])).casefold()
                 if query_normalized not in haystack:
                     continue
