@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import logging
 import threading
-from time import sleep
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.db import get_user_timezone
@@ -16,11 +15,14 @@ from modules.navigation import (
     MANAGED_VALUE,
     TRAVEL_KIND,
     RouteEstimate,
-    _previous_event_origin,
+    _places_equivalent,
+    _previous_event_context,
     _resolved_event_destination,
+    _route_is_effectively_same_place,
     estimate_route,
     navigation_configured,
     navigation_provider,
+    travel_window,
 )
 from modules.navigation_notifications import send_navigation_push_for_user
 
@@ -87,14 +89,26 @@ def _fresh_live_origin(user_id: int) -> str | None:
     return f"geo:{location.latitude:.7f},{location.longitude:.7f}"
 
 
-def _origin_for_recalculation(user_id: int, source_event: dict, timezone_name: str, preferences: dict) -> str | None:
+def _origin_for_recalculation(
+    user_id: int,
+    source_event: dict,
+    travel_event: dict,
+    timezone_name: str,
+    preferences: dict,
+) -> tuple[str | None, datetime | None, str]:
+    previous = _previous_event_context(user_id, source_event, timezone_name, preferences)
+    if previous is not None:
+        if previous.end_location:
+            return previous.end_location, previous.end, "previous_event"
+        return None, previous.end, "previous_event_unknown"
+
     live = _fresh_live_origin(user_id)
     if live:
-        return live
-    previous = _previous_event_origin(user_id, source_event, timezone_name, preferences)
-    if previous:
-        return previous
-    return str(preferences.get("default_origin") or "").strip() or None
+        return live, None, "live"
+
+    private = _private(travel_event)
+    stored = str(private.get("smartPlannerOrigin") or "").strip() or None
+    return stored, None, str(private.get("smartPlannerOriginSource") or "stored")
 
 
 def _traffic_aware(mode: str, departure_at: datetime, *, now: datetime) -> bool:
@@ -172,15 +186,18 @@ def _format_local_time(value: datetime) -> str:
     return value.strftime("%H:%M")
 
 
-def _route_description(estimate: RouteEstimate, arrival_buffer: int, traffic_aware: bool) -> str:
+def _route_description(estimate: RouteEstimate, arrival_buffer: int, traffic_aware: bool, missing_minutes: int) -> str:
     traffic_text = "да" if traffic_aware else "нет"
-    return (
+    description = (
         "AI Smart Planner category: travel\n"
         f"Маршрут: {estimate.origin} -> {estimate.destination}\n"
         f"Расчетное время: {estimate.duration_minutes} мин\n"
         f"Запас до встречи: {arrival_buffer} мин\n"
         f"Актуальные пробки: {traffic_text}"
     )
+    if missing_minutes:
+        description += f"\nНе хватает между событиями: {missing_minutes} мин"
+    return description
 
 
 def _should_send_early_alert(old_departure: datetime, new_departure: datetime, now: datetime) -> bool:
@@ -213,11 +230,13 @@ def _patch_travel_event(
     now: datetime,
     traffic_aware: bool,
     private: dict,
+    earliest_start: datetime | None,
+    origin_source: str,
     *,
     mark_leave_alert: bool,
     mark_early_alert: bool,
 ) -> dict:
-    new_departure = source_start - timedelta(minutes=estimate.duration_minutes + arrival_buffer)
+    window = travel_window(source_start, estimate.duration_minutes + arrival_buffer, earliest_start)
     private = dict(private)
     private["smartPlannerRouteProvider"] = navigation_provider()
     private["smartPlannerRouteMode"] = estimate.mode
@@ -225,15 +244,19 @@ def _patch_travel_event(
     private["smartPlannerArrivalBufferMinutes"] = str(arrival_buffer)
     private["smartPlannerTrafficAware"] = "1" if traffic_aware else "0"
     private["smartPlannerLastRecalculatedAt"] = now.astimezone(timezone.utc).isoformat()
-    private["smartPlannerDepartureAt"] = _departure_marker(new_departure)
+    private["smartPlannerDepartureAt"] = _departure_marker(window.start)
+    private["smartPlannerOrigin"] = estimate.origin
+    private["smartPlannerOriginSource"] = origin_source
+    private["smartPlannerRouteConflict"] = "1" if window.missing_minutes else "0"
+    private["smartPlannerMissingMinutes"] = str(window.missing_minutes)
     if mark_leave_alert:
         private["smartPlannerLeaveAlertedAt"] = now.astimezone(timezone.utc).isoformat()
     if mark_early_alert:
-        private["smartPlannerLastEarlyAlertDepartureAt"] = _departure_marker(new_departure)
+        private["smartPlannerLastEarlyAlertDepartureAt"] = _departure_marker(window.start)
 
     patch = {
-        "description": _route_description(estimate, arrival_buffer, traffic_aware),
-        "start": {"dateTime": new_departure.isoformat(), "timeZone": timezone_name},
+        "description": _route_description(estimate, arrival_buffer, traffic_aware, window.missing_minutes),
+        "start": {"dateTime": window.start.isoformat(), "timeZone": timezone_name},
         "end": {"dateTime": source_start.isoformat(), "timeZone": timezone_name},
         "extendedProperties": {"private": private},
     }
@@ -286,8 +309,24 @@ def recalculate_user_navigation_once(user_id: int, *, now: datetime | None = Non
             continue
 
         destination = _resolved_event_destination(source_event, preferences)
-        origin = _origin_for_recalculation(user_id, source_event, timezone_name, preferences)
-        if not destination or not origin or destination.casefold() == origin.casefold():
+        origin, earliest_start, origin_source = _origin_for_recalculation(
+            user_id, source_event, travel_event, timezone_name, preferences
+        )
+        if not destination or not origin:
+            continue
+        if _places_equivalent(destination, origin):
+            service.events().delete(calendarId="primary", eventId=travel_id).execute()
+            stats["stale_deleted"] += 1
+            continue
+        if earliest_start is not None and earliest_start >= source_start:
+            service.events().delete(calendarId="primary", eventId=travel_id).execute()
+            stats["stale_deleted"] += 1
+            send_navigation_push_for_user(
+                user_id,
+                title="Нет времени на дорогу",
+                body=f"«{_event_label(source_event)}» начинается сразу после предыдущего события.",
+                tag=f"navigation-{source_event_id}",
+            )
             continue
 
         mode = str(preferences.get("mode") or "driving")
@@ -299,14 +338,21 @@ def recalculate_user_navigation_once(user_id: int, *, now: datetime | None = Non
             departure_at=estimate_departure,
         )
         stats["recalculated"] += 1
+        if _route_is_effectively_same_place(estimate):
+            service.events().delete(calendarId="primary", eventId=travel_id).execute()
+            stats["stale_deleted"] += 1
+            continue
 
         arrival_buffer = max(0, int(preferences.get("arrival_buffer_minutes") or 0))
-        new_departure = source_start - timedelta(minutes=estimate.duration_minutes + arrival_buffer)
+        window = travel_window(source_start, estimate.duration_minutes + arrival_buffer, earliest_start)
+        new_departure = window.start
         traffic_aware = _traffic_aware(mode, estimate_departure, now=local_now)
         old_route_minutes = int(private.get("smartPlannerRouteMinutes") or 0)
+        old_missing = int(private.get("smartPlannerMissingMinutes") or 0)
         departure_shift_seconds = abs((new_departure - scheduled_departure).total_seconds())
         route_changed = abs(estimate.duration_minutes - old_route_minutes) >= 2
         schedule_changed = departure_shift_seconds >= 2 * 60
+        conflict_changed = window.missing_minutes != old_missing
 
         leave_now = (
             new_departure <= local_now + timedelta(minutes=LEAVE_NOW_WINDOW_MINUTES)
@@ -320,30 +366,33 @@ def recalculate_user_navigation_once(user_id: int, *, now: datetime | None = Non
         leave_alert_sent = False
         early_alert_sent = False
         traffic_suffix = " Пробки учтены." if traffic_aware else ""
+        shortage_suffix = f" Не хватает {window.missing_minutes} мин между событиями." if window.missing_minutes else ""
         if leave_now:
             leave_alert_sent = send_navigation_push_for_user(
                 user_id,
                 title="Пора выезжать",
                 body=(
                     f"«{_event_label(source_event)}» в {_format_local_time(source_start)}. "
-                    f"Дорога сейчас {estimate.duration_minutes} мин + {arrival_buffer} мин запас.{traffic_suffix}"
+                    f"Дорога сейчас {estimate.duration_minutes} мин + {arrival_buffer} мин запас."
+                    f"{traffic_suffix}{shortage_suffix}"
                 ),
                 tag=f"navigation-{source_event_id}",
             )
             stats["alerts"] += int(leave_alert_sent)
-        elif early_alert:
+        elif early_alert or (window.missing_minutes and conflict_changed):
             early_alert_sent = send_navigation_push_for_user(
                 user_id,
-                title="Маршрут изменился",
+                title="Маршрут изменился" if not window.missing_minutes else "Мало времени на дорогу",
                 body=(
-                    f"На «{_event_label(source_event)}» лучше выехать в {_format_local_time(new_departure)}. "
-                    f"Дорога {estimate.duration_minutes} мин + {arrival_buffer} мин запас.{traffic_suffix}"
+                    f"На «{_event_label(source_event)}» выезд не раньше {_format_local_time(new_departure)}. "
+                    f"Дорога {estimate.duration_minutes} мин + {arrival_buffer} мин запас."
+                    f"{traffic_suffix}{shortage_suffix}"
                 ),
                 tag=f"navigation-{source_event_id}",
             )
             stats["alerts"] += int(early_alert_sent)
 
-        if schedule_changed or route_changed or leave_alert_sent or early_alert_sent:
+        if schedule_changed or route_changed or conflict_changed or leave_alert_sent or early_alert_sent:
             _patch_travel_event(
                 service,
                 travel_event,
@@ -354,6 +403,8 @@ def recalculate_user_navigation_once(user_id: int, *, now: datetime | None = Non
                 local_now,
                 traffic_aware,
                 private,
+                earliest_start,
+                origin_source,
                 mark_leave_alert=leave_alert_sent,
                 mark_early_alert=early_alert_sent,
             )
