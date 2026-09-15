@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import imaplib
 import unittest
 import uuid
 from unittest.mock import patch
 
 from core.db import conn, db_lock, get_or_create_google_user
 from core.email_store import delete_email_account, get_email_account, list_email_accounts, save_email_account
-from integrations.email_imap import _message_payload
+from integrations.email_imap import EmailAuthenticationError, _connect, _message_payload
 from modules.email import answer_email_query, detect_email_intent
 
 
@@ -76,6 +77,24 @@ class EmailAssistantTests(unittest.TestCase):
         self.assertIn("Иван", payload["from"])
         self.assertEqual(payload["subject"], "Тест")
         self.assertIn("письмо для теста", payload["preview"])
+
+    @patch("integrations.email_imap.imaplib.IMAP4_SSL")
+    def test_imap_connection_strips_pasted_whitespace(self, imap_ssl):
+        client = imap_ssl.return_value
+        result = _connect("yandex", " owner@yandex.ru ", " app-secret \n")
+        self.assertIs(result, client)
+        client.login.assert_called_once_with("owner@yandex.ru", "app-secret")
+
+    @patch("integrations.email_imap.imaplib.IMAP4_SSL")
+    def test_yandex_auth_error_explains_activation_delay_and_imap(self, imap_ssl):
+        client = imap_ssl.return_value
+        client.login.side_effect = imaplib.IMAP4.error("AUTHENTICATIONFAILED")
+        with self.assertRaises(EmailAuthenticationError) as caught:
+            _connect("yandex", "owner@yandex.ru", "app-secret")
+        message = str(caught.exception)
+        self.assertIn("2–3 часа", message)
+        self.assertIn("IMAP", message)
+        self.assertIn("Пароли приложений", message)
 
     @patch("modules.email._read_account")
     def test_query_combines_connected_accounts(self, read_account):
