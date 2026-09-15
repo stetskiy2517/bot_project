@@ -70,6 +70,31 @@ OFFICE_PLACE_RE = re.compile(
     r"\b(?:на\s+работе|на\s+работу|в\s+офисе|в\s+офис)\b",
     re.IGNORECASE,
 )
+MOVEMENT_EVENT_RE = re.compile(
+    r"^\s*(?:"
+    r"дорога|дорогу|дороге|трансфер\w*|такси|метро|электричк\w*|автобус\w*|"
+    r"трамва\w*|троллейбус\w*|маршрутк\w*|поездка|поездку|поездке|"
+    r"еду|ехать|поехать|добраться|пешком|велосипед\w*|самокат\w*|"
+    r"авиаперел[её]т\w*|перел[её]т\w*|рейс\w*|самол[её]т\w*|вылет\w*|"
+    r"поезд(?:а|у|ом|е|ы|ов|ам|ами|ах)?"
+    r")\b",
+    re.IGNORECASE,
+)
+LONG_DISTANCE_TRANSPORT_RE = re.compile(
+    r"\b(?:"
+    r"авиаперел[её]т\w*|перел[её]т\w*|авиарейс\w*|рейс\w*|самол[её]т\w*|вылет\w*|"
+    r"поезд(?:а|у|ом|е|ы|ов|ам|ами|ах)?|ж\s*/?\s*д|железнодорож\w*|"
+    r"сапсан\w*|ласточк\w*|междугородн\w*\s+автобус\w*"
+    r")\b",
+    re.IGNORECASE,
+)
+DEPARTURE_TERMINAL_RE = re.compile(
+    r"\b(?:"
+    r"аэропорт\w*|аэровокзал\w*|терминал\w*|вокзал\w*|автовокзал\w*|"
+    r"автостанци\w*|железнодорож\w*\s+станци\w*|ж\s*/?\s*д\s+станци\w*"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -221,6 +246,37 @@ def _resolved_event_destination(event: dict, preferences: dict) -> str | None:
     if kind:
         return _saved_place_address(kind, preferences)
     return None
+
+
+def _is_movement_source_event(event: dict) -> bool:
+    private = _private(event)
+    if private.get("smartPlannerMovement") == "1":
+        return True
+    summary = " ".join(str(event.get("summary") or "").split()).strip()
+    return bool(summary and MOVEMENT_EVENT_RE.search(summary))
+
+
+def _movement_access_destination(event: dict, preferences: dict) -> str | None:
+    """Return a departure terminal only when the movement itself needs an access leg.
+
+    Local movement events such as a commute, taxi ride or explicit transfer are
+    already the user's travel block and must not get another generated transfer.
+    Flights and rail/intercity services are different: when the calendar contains
+    a real departure terminal, the planner may create a transfer to that terminal.
+    """
+    if not _is_movement_source_event(event):
+        return None
+    private = _private(event)
+    departure = _resolve_place(private.get("smartPlannerStartLocation"), preferences)
+    if not departure:
+        departure = _resolve_place(event.get("location"), preferences)
+    if not departure or not DEPARTURE_TERMINAL_RE.search(departure):
+        return None
+    summary = " ".join(str(event.get("summary") or "").split()).strip()
+    description = " ".join(str(event.get("description") or "").split()).strip()
+    if not LONG_DISTANCE_TRANSPORT_RE.search(f"{summary}\n{description}"):
+        return None
+    return departure
 
 
 def _event_end_location(user_id: int, event: dict, preferences: dict) -> str | None:
@@ -475,9 +531,21 @@ def create_travel_for_event(
         _navigation_status(source_event, "recurring_deferred")
         return None
     source_id = _source_event_id(source_event)
-    destination = _resolved_event_destination(source_event, prefs)
-    if not source_id or not destination or is_managed_travel_event(source_event):
+    if not source_id or is_managed_travel_event(source_event):
         return None
+
+    if _is_movement_source_event(source_event):
+        destination = _movement_access_destination(source_event, prefs)
+        if not destination:
+            remove_navigation_origin_request(user_id, source_id)
+            remove_navigation_optimization_request(user_id, source_id)
+            _navigation_status(source_event, "movement_event")
+            return None
+    else:
+        destination = _resolved_event_destination(source_event, prefs)
+    if not destination:
+        return None
+
     source_start, all_day = _event_start(source_event, timezone)
     if not source_start or all_day:
         return None
