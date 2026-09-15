@@ -11,7 +11,7 @@ import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.assistant_preferences import get_assistant_preferences
-from core.db import conn, db_lock, get_user_timezone
+from core.db import conn, db_lock, get_category_colors, get_user_timezone
 from core.memory_store import list_memories
 from core.proactive_store import (
     get_proactive_decision,
@@ -21,11 +21,14 @@ from core.proactive_store import (
 )
 from core.reminder_recurrence import next_repeat_at
 from core.reminder_store import create_reminder, list_active_reminders
+from modules.calendar import _create_event, _detect_category
+from modules.calendar_user import _list_events
 from modules.reminders import _first_repeat_due, _reminder_clock, _repeat_rule
 
 logger = logging.getLogger(__name__)
 
 MIN_AUTO_CONFIDENCE = 0.90
+MIN_ACTION_CONFIDENCE = 0.90
 AUTO_SOURCE_TYPES = {"note", "voice_transcript"}
 ALLOWED_REPEAT_RULES = {"daily", "weekdays", "weekends"}
 WEEKLY_DAY_RE = re.compile(r"^weekly:[0-6]$")
@@ -89,6 +92,8 @@ VERB_REWRITES = (
     (re.compile(r"^поливаю\b", re.IGNORECASE), "Полить"),
     (re.compile(r"^выгуливаю\b", re.IGNORECASE), "Выгулять"),
 )
+
+WEEKDAY_CODES = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -192,7 +197,7 @@ def _reminder_text(memory: dict) -> str:
 
 def _repair_existing_proactive_title(user_id: int, memory: dict) -> bool:
     """Fix titles created by the old raw-habit formatter without touching user edits."""
-    decision = get_proactive_decision(user_id, int(memory["memory_id"]))
+    decision = get_proactive_decision(user_id, int(memory["memory_id"]), "reminder")
     if not decision or decision.get("status") != "created" or not decision.get("reminder_id"):
         return False
 
@@ -227,6 +232,7 @@ def _repair_existing_proactive_title(user_id: int, memory: dict) -> bool:
         reminder_id=reminder_id,
         reason="Нормализован короткий заголовок автоматически созданного напоминания.",
         confidence=float(memory.get("confidence") or 0),
+        action_type="reminder",
     )
     logger.info("Normalized proactive reminder title user=%s reminder=%s", user_id, reminder_id)
     return True
@@ -247,7 +253,7 @@ def _same_clock(left: datetime, right: datetime, zone: ZoneInfo) -> bool:
     return abs((a.hour * 60 + a.minute) - (b.hour * 60 + b.minute)) <= 20
 
 
-def _parse_reminder_time(value: str) -> datetime | None:
+def _parse_datetime(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except (TypeError, ValueError):
@@ -257,7 +263,7 @@ def _parse_reminder_time(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _find_coverage(user_id: int, text: str, due: datetime, rule: str, timezone_name: str) -> tuple[str | None, dict | None]:
+def _find_reminder_coverage(user_id: int, text: str, due: datetime, rule: str, timezone_name: str) -> tuple[str | None, dict | None]:
     try:
         zone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
@@ -267,13 +273,59 @@ def _find_coverage(user_id: int, text: str, due: datetime, rule: str, timezone_n
         reminder_tokens = _stems(reminder.get("text") or "")
         if target_tokens and reminder_tokens and not (target_tokens & reminder_tokens):
             continue
-        current = _parse_reminder_time(reminder.get("remind_at"))
+        current = _parse_datetime(reminder.get("remind_at"))
         if current is None or not _same_clock(due, current, zone):
             continue
         if reminder.get("repeat_rule") == rule:
             return "recurring", reminder
         if not reminder.get("repeat_rule") and abs((current - due.astimezone(timezone.utc)).total_seconds()) <= 45 * 60:
             return "one_time", reminder
+    return None, None
+
+
+def _event_datetime(event: dict, field: str, zone: ZoneInfo) -> datetime | None:
+    payload = event.get(field) or {}
+    raw = payload.get("dateTime")
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=zone)
+    return parsed.astimezone(zone)
+
+
+def _find_calendar_coverage(
+    user_id: int,
+    title: str,
+    start: datetime,
+    duration_minutes: int,
+    timezone_name: str,
+) -> tuple[str | None, dict | None]:
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("Europe/Moscow")
+    target_tokens = _stems(title)
+    window_start = start - timedelta(minutes=30)
+    window_end = start + timedelta(minutes=duration_minutes + 30)
+    for event in _list_events(user_id, window_start, window_end):
+        event_tokens = _stems(event.get("summary") or "")
+        if target_tokens and event_tokens and not (target_tokens & event_tokens):
+            continue
+        event_start = _event_datetime(event, "start", zone)
+        event_end = _event_datetime(event, "end", zone)
+        if event_start is None or not _same_clock(start, event_start, zone):
+            continue
+        if event_end is not None:
+            actual_duration = max(0, int((event_end - event_start).total_seconds() // 60))
+            if abs(actual_duration - duration_minutes) > 30:
+                continue
+        if event.get("recurringEventId") or event.get("recurrence"):
+            return "recurring", event
+        return "one_time", event
     return None, None
 
 
@@ -324,21 +376,45 @@ def _structured_due(rule: str, hour: int, minute: int, zone: ZoneInfo, now: date
 
 
 def _structured_candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
+    value = memory.get("value")
+    if not isinstance(value, dict):
+        return None
     title = _structured_action_title(memory)
     schedule = _structured_schedule(memory)
-    if not title or schedule is None:
+    action_type = str(value.get("action_type") or "").strip().lower()
+    try:
+        action_confidence = float(value.get("action_confidence"))
+    except (TypeError, ValueError):
+        return None
+    if (
+        not title
+        or schedule is None
+        or action_type not in {"reminder", "calendar_event"}
+        or action_confidence < MIN_ACTION_CONFIDENCE
+    ):
         return None
     try:
         zone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
         zone = ZoneInfo("Europe/Moscow")
     rule, hour, minute = schedule
-    return {
+    candidate = {
+        "action_type": action_type,
         "text": title,
         "due": _structured_due(rule, hour, minute, zone, now),
         "repeat_rule": rule,
         "timezone": timezone_name,
+        "action_confidence": action_confidence,
     }
+    if action_type == "calendar_event":
+        try:
+            duration_minutes = int(value.get("duration_minutes", 60))
+        except (TypeError, ValueError):
+            return None
+        if not 15 <= duration_minutes <= 480:
+            return None
+        candidate["duration_minutes"] = duration_minutes
+    return candidate
 
 
 def _candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
@@ -347,9 +423,8 @@ def _candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
     if memory.get("source_type") not in AUTO_SOURCE_TYPES:
         return None
 
-    structured = _structured_candidate(memory, timezone_name, now)
-    if structured:
-        return structured
+    if isinstance(memory.get("value"), dict):
+        return _structured_candidate(memory, timezone_name, now)
 
     combined = _memory_text(memory)
     if not combined or not _has_explicit_clock(combined):
@@ -363,17 +438,55 @@ def _candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
     if due is None:
         return None
     return {
+        "action_type": "reminder",
         "text": _reminder_text(memory),
         "due": due,
         "repeat_rule": rule,
         "timezone": timezone_name,
+        "action_confidence": 1.0,
     }
+
+
+def _calendar_rrule(rule: str) -> str:
+    if rule == "daily":
+        return "RRULE:FREQ=DAILY"
+    if rule == "weekdays":
+        return "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+    if rule == "weekends":
+        return "RRULE:FREQ=WEEKLY;BYDAY=SA,SU"
+    match = WEEKLY_DAY_RE.fullmatch(rule)
+    if match:
+        weekday = int(rule.split(":", 1)[1])
+        return f"RRULE:FREQ=WEEKLY;BYDAY={WEEKDAY_CODES[weekday]}"
+    raise ValueError("Unsupported calendar recurrence rule")
+
+
+def _create_calendar_action(user_id: int, memory: dict, candidate: dict) -> dict:
+    timezone_name = candidate["timezone"]
+    start = candidate["due"]
+    end = start + timedelta(minutes=int(candidate["duration_minutes"]))
+    category, color_id = _detect_category(candidate["text"], get_category_colors(user_id))
+    event = {
+        "summary": candidate["text"],
+        "description": f"AI Smart Planner category: {category}",
+        "start": {"dateTime": start.isoformat(), "timeZone": timezone_name},
+        "end": {"dateTime": end.isoformat(), "timeZone": timezone_name},
+        "recurrence": [_calendar_rrule(candidate["repeat_rule"])],
+        "extendedProperties": {
+            "private": {"smartPlannerProactiveMemory": str(memory["memory_id"])}
+        },
+    }
+    if color_id:
+        event["colorId"] = color_id
+    return _create_event(user_id, event)
 
 
 def evaluate_user_proactive(user_id: int, *, now: datetime | None = None) -> dict:
     prefs = get_assistant_preferences(user_id)
-    if not prefs.get("proactive_reminders_enabled", False):
-        return {"created": 0, "covered": 0, "skipped": 0}
+    reminders_enabled = bool(prefs.get("proactive_reminders_enabled", False))
+    calendar_enabled = bool(prefs.get("proactive_calendar_events_enabled", False))
+    if not reminders_enabled and not calendar_enabled:
+        return {"created": 0, "created_reminders": 0, "created_calendar_events": 0, "covered": 0, "skipped": 0}
 
     timezone_name = get_user_timezone(user_id) or "Europe/Moscow"
     try:
@@ -384,7 +497,7 @@ def evaluate_user_proactive(user_id: int, *, now: datetime | None = None) -> dic
     current = now or datetime.now(zone)
     current = current.astimezone(zone) if current.tzinfo else current.replace(tzinfo=zone)
 
-    created = covered = skipped = 0
+    created = created_reminders = created_events = covered = skipped = 0
     for memory in list_memories(user_id, limit=200):
         if memory.get("kind") != "habit" or float(memory.get("confidence") or 0) < MIN_AUTO_CONFIDENCE:
             continue
@@ -394,27 +507,92 @@ def evaluate_user_proactive(user_id: int, *, now: datetime | None = None) -> dic
             _repair_existing_proactive_title(user_id, memory)
         except Exception:
             logger.exception("Could not normalize proactive reminder title for user %s memory %s", user_id, memory.get("memory_id"))
-        if not should_evaluate_memory(user_id, memory):
-            continue
 
         candidate = _candidate(memory, timezone_name, current)
         if not candidate:
+            if should_evaluate_memory(user_id, memory, "none"):
+                record_proactive_decision(
+                    user_id,
+                    memory["memory_id"],
+                    memory.get("updated_at") or "",
+                    status="not_actionable",
+                    reason="ИИ не определил безопасный тип автодействия и точное расписание с достаточной уверенностью.",
+                    confidence=float(memory.get("confidence") or 0),
+                    action_type="none",
+                )
+                skipped += 1
+            continue
+
+        action_type = candidate["action_type"]
+        if action_type == "reminder" and not reminders_enabled:
+            continue
+        if action_type == "calendar_event" and not calendar_enabled:
+            continue
+        if not should_evaluate_memory(user_id, memory, action_type):
+            continue
+
+        if action_type == "reminder":
+            coverage, existing = _find_reminder_coverage(
+                user_id,
+                candidate["text"],
+                candidate["due"],
+                candidate["repeat_rule"],
+                timezone_name,
+            )
+            if coverage == "recurring":
+                record_proactive_decision(
+                    user_id,
+                    memory["memory_id"],
+                    memory.get("updated_at") or "",
+                    status="covered",
+                    reminder_id=existing.get("reminder_id") if existing else None,
+                    reason="Подходящее повторяющееся напоминание уже существует.",
+                    confidence=float(memory.get("confidence") or 0),
+                    action_type="reminder",
+                )
+                covered += 1
+                continue
+            if coverage == "one_time":
+                candidate["due"] = next_repeat_at(candidate["due"], candidate["repeat_rule"], timezone_name)
+            try:
+                reminder = create_reminder(
+                    user_id,
+                    candidate["text"],
+                    candidate["due"],
+                    repeat_rule=candidate["repeat_rule"],
+                    repeat_timezone=timezone_name,
+                )
+            except Exception as exc:
+                record_proactive_decision(
+                    user_id,
+                    memory["memory_id"],
+                    memory.get("updated_at") or "",
+                    status="failed",
+                    reason=f"Не удалось создать напоминание: {type(exc).__name__}",
+                    confidence=float(memory.get("confidence") or 0),
+                    action_type="reminder",
+                )
+                logger.exception("Proactive reminder creation failed for user %s memory %s", user_id, memory["memory_id"])
+                continue
             record_proactive_decision(
                 user_id,
                 memory["memory_id"],
                 memory.get("updated_at") or "",
-                status="not_actionable",
-                reason="Нет точного времени и безопасного повторяющегося расписания для автодействия.",
+                status="created",
+                reminder_id=reminder["reminder_id"],
+                reason="Создано напоминание по явно указанной привычке с точным временем и высокой уверенностью.",
                 confidence=float(memory.get("confidence") or 0),
+                action_type="reminder",
             )
-            skipped += 1
+            created += 1
+            created_reminders += 1
             continue
 
-        coverage, existing = _find_coverage(
+        coverage, existing = _find_calendar_coverage(
             user_id,
             candidate["text"],
             candidate["due"],
-            candidate["repeat_rule"],
+            int(candidate["duration_minutes"]),
             timezone_name,
         )
         if coverage == "recurring":
@@ -423,49 +601,50 @@ def evaluate_user_proactive(user_id: int, *, now: datetime | None = None) -> dic
                 memory["memory_id"],
                 memory.get("updated_at") or "",
                 status="covered",
-                reminder_id=existing.get("reminder_id") if existing else None,
-                reason="Подходящее повторяющееся напоминание уже существует.",
+                calendar_event_id=(existing or {}).get("recurringEventId") or (existing or {}).get("id"),
+                reason="Подходящее повторяющееся событие уже есть в календаре.",
                 confidence=float(memory.get("confidence") or 0),
+                action_type="calendar_event",
             )
             covered += 1
             continue
         if coverage == "one_time":
-            candidate["due"] = next_repeat_at(
-                candidate["due"], candidate["repeat_rule"], timezone_name
-            )
+            candidate["due"] = next_repeat_at(candidate["due"], candidate["repeat_rule"], timezone_name)
 
         try:
-            reminder = create_reminder(
-                user_id,
-                candidate["text"],
-                candidate["due"],
-                repeat_rule=candidate["repeat_rule"],
-                repeat_timezone=timezone_name,
-            )
+            event = _create_calendar_action(user_id, memory, candidate)
         except Exception as exc:
             record_proactive_decision(
                 user_id,
                 memory["memory_id"],
                 memory.get("updated_at") or "",
                 status="failed",
-                reason=f"Не удалось создать напоминание: {type(exc).__name__}",
+                reason=f"Не удалось создать событие календаря: {type(exc).__name__}",
                 confidence=float(memory.get("confidence") or 0),
+                action_type="calendar_event",
             )
-            logger.exception("Proactive reminder creation failed for user %s memory %s", user_id, memory["memory_id"])
+            logger.exception("Proactive calendar creation failed for user %s memory %s", user_id, memory["memory_id"])
             continue
-
-        reason = "Создано по явно указанной привычке с точным временем и высокой уверенностью."
         record_proactive_decision(
             user_id,
             memory["memory_id"],
             memory.get("updated_at") or "",
             status="created",
-            reminder_id=reminder["reminder_id"],
-            reason=reason,
+            calendar_event_id=event.get("id"),
+            reason="Создано событие календаря: привычка занимает интервал времени и должна блокировать занятость.",
             confidence=float(memory.get("confidence") or 0),
+            action_type="calendar_event",
         )
         created += 1
-    return {"created": created, "covered": covered, "skipped": skipped}
+        created_events += 1
+
+    return {
+        "created": created,
+        "created_reminders": created_reminders,
+        "created_calendar_events": created_events,
+        "covered": covered,
+        "skipped": skipped,
+    }
 
 
 def _enabled_user_ids() -> list[int]:
@@ -475,7 +654,8 @@ def _enabled_user_ids() -> list[int]:
     for row in rows:
         user_id = int(row[0])
         try:
-            if get_assistant_preferences(user_id).get("proactive_reminders_enabled", False):
+            prefs = get_assistant_preferences(user_id)
+            if prefs.get("proactive_reminders_enabled", False) or prefs.get("proactive_calendar_events_enabled", False):
                 result.append(user_id)
         except Exception:
             logger.exception("Could not read proactive preferences for user %s", user_id)
@@ -483,7 +663,14 @@ def _enabled_user_ids() -> list[int]:
 
 
 def run_proactive_cycle() -> dict:
-    totals = {"users": 0, "created": 0, "covered": 0, "skipped": 0}
+    totals = {
+        "users": 0,
+        "created": 0,
+        "created_reminders": 0,
+        "created_calendar_events": 0,
+        "covered": 0,
+        "skipped": 0,
+    }
     for user_id in _enabled_user_ids():
         try:
             result = evaluate_user_proactive(user_id)
@@ -491,7 +678,7 @@ def run_proactive_cycle() -> dict:
             logger.exception("Proactive cycle failed for user %s", user_id)
             continue
         totals["users"] += 1
-        for key in ("created", "covered", "skipped"):
+        for key in ("created", "created_reminders", "created_calendar_events", "covered", "skipped"):
             totals[key] += int(result.get(key, 0))
     return totals
 
