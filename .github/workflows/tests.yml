@@ -43,6 +43,7 @@ jobs:
           node --check web/navigation-extra.js &&
           node --check web/note-tools.js &&
           node --check web/yandex-auth.js &&
+          node --check web/mobile-ui.js &&
           node --check web/admin.js &&
           node --check web/admin-metrics.js &&
           node --check web/email.js
