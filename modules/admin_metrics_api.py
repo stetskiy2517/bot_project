@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_from_directory, session
+from flask import Blueprint, jsonify, send_from_directory, session
 
 from core.admin_metrics import product_metrics, system_health
 from core.admin_store import is_admin
@@ -18,16 +18,6 @@ def _admin_user_id() -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0 or not is_admin(value):
         raise PermissionError("admin access required")
     return value
-
-
-@admin_metrics_api.after_app_request
-def admin_metrics_ui_hook(response):
-    if request.path == "/admin" and response.status_code == 200 and response.mimetype == "text/html":
-        html = response.get_data(as_text=True)
-        script = '<script src="/admin-metrics.js"></script>'
-        if script not in html and "</body>" in html:
-            response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
-    return response
 
 
 @admin_metrics_api.get("/admin-metrics.js")
