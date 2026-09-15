@@ -46,7 +46,7 @@ class WebViewportTests(unittest.TestCase):
         self.assertIn("--voice-keyboard-lift", script)
         self.assertIn("composer-keyboard-open", script)
         self.assertIn("width: 104px", script)
-        self.assertIn("Math.min(128, Math.max(76, keyboardInset * 0.3))", script)
+        self.assertIn("Math.min(176, Math.max(132, keyboardInset * 0.44))", script)
         self.assertIn("transform: translateY(var(--viewport-pan, 0px))", script)
         self.assertIn("document.body?.getBoundingClientRect?.()", script)
         self.assertIn("Math.max(bodyPan, viewportPan)", script)
