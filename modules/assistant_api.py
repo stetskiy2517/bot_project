@@ -25,6 +25,7 @@ from modules.email_api import email_api
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
 from modules.proactive import proactive_status, start_proactive_worker
+from modules.task_api import task_api
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -42,7 +43,6 @@ def _recent_login():
 
 
 def _journal_user_utterance(user_id: int, text: str, channel: str) -> None:
-    """Queue an AI-enabled user's natural statement for memory extraction without creating a note."""
     clean = str(text or "").strip()
     if not clean:
         return
@@ -253,5 +253,6 @@ def account_erase():
 
 assistant_api.register_blueprint(admin_api)
 assistant_api.register_blueprint(email_api)
+assistant_api.register_blueprint(task_api)
 start_memory_worker()
 start_proactive_worker()
