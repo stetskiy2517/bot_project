@@ -6,13 +6,13 @@ import logging
 import secrets
 import time
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlsplit
 
-from flask import Blueprint, jsonify, request, send_from_directory, session
+from flask import Blueprint, jsonify, redirect, request, send_from_directory, session
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from config import BASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI
+from config import BASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from core.email_store import (
     PROVIDERS,
     consume_email_oauth_state,
@@ -23,6 +23,7 @@ from core.email_store import (
 )
 from integrations.email_gmail import GMAIL_SCOPE
 from integrations.email_imap import test_connection
+from modules.email import answer_email_query, detect_email_intent
 
 logger = logging.getLogger(__name__)
 email_api = Blueprint("email", __name__)
@@ -35,12 +36,9 @@ def _user() -> int:
 
 
 def _redirect_uri() -> str:
-    value = (REDIRECT_URI or "").strip()
-    if value:
-        return value
     if BASE_URL:
-        return BASE_URL.rstrip("/") + "/oauth2callback"
-    raise RuntimeError("Google OAuth redirect URI is not configured")
+        return BASE_URL.rstrip("/") + "/api/email/google/callback"
+    raise RuntimeError("Public BASE_URL is required for Gmail OAuth")
 
 
 def _client_config() -> dict:
@@ -93,12 +91,39 @@ def complete_gmail_authorization(state: str, code: str) -> int | None:
 
 
 @email_api.after_app_request
-def load_email_ui(response):
+def email_response_hooks(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
         html = response.get_data(as_text=True)
         script = '<script src="/email.js"></script>'
         if script not in html and "</body>" in html:
             response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+        return response
+
+    if (
+        request.path in {"/api/chat", "/api/voice"}
+        and response.status_code == 200
+        and response.mimetype == "application/json"
+        and session.get("user_id")
+    ):
+        payload = response.get_json(silent=True)
+        if not isinstance(payload, dict) or payload.get("handled") is not False:
+            return response
+        if request.path == "/api/chat":
+            incoming = request.get_json(silent=True) or {}
+            text = incoming.get("message") if isinstance(incoming, dict) else None
+        else:
+            text = payload.get("transcript")
+        if isinstance(text, str) and detect_email_intent(text):
+            try:
+                answer = answer_email_query(_user(), text)
+                payload["handled"] = True
+                payload["replies"] = [answer]
+                response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+            except Exception:
+                logger.exception("Email query failed for user %s", _user())
+                payload["handled"] = True
+                payload["replies"] = ["Не удалось прочитать почту. Проверь подключение ящика в настройках."]
+                response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     return response
 
 
@@ -131,7 +156,13 @@ def connect_imap():
         return jsonify(error="invalid_email_credentials", message="Укажи email и пароль приложения."), 400
     try:
         test_connection(provider, address, password)
-        account = save_email_account(_user(), provider, address, {"app_password": password}, display_name=PROVIDERS[provider]["label"])
+        account = save_email_account(
+            _user(),
+            provider,
+            address,
+            {"app_password": password},
+            display_name=PROVIDERS[provider]["label"],
+        )
     except Exception:
         logger.exception("Failed to connect %s email for user %s", provider, _user())
         return jsonify(error="email_connection_failed", message="Не удалось войти в ящик. Проверь email и пароль приложения."), 400
@@ -142,7 +173,6 @@ def connect_imap():
 def connect_gmail():
     try:
         url = build_gmail_authorization_url(_user())
-        from urllib.parse import parse_qs, urlsplit
         states = parse_qs(urlsplit(url).query).get("state", [])
         if len(states) != 1 or not states[0]:
             raise RuntimeError("Missing OAuth state")
@@ -156,15 +186,32 @@ def connect_gmail():
         return jsonify(error="gmail_oauth_unavailable", message="Подключение Gmail временно недоступно."), 503
 
 
-def matches_email_oauth_session(state: str) -> bool:
+@email_api.get("/api/email/google/callback")
+def gmail_callback():
+    if request.args.get("error"):
+        return redirect("/?email=error")
+    state = str(request.args.get("state") or "")
+    code = str(request.args.get("code") or "")
     binding = session.get("email_oauth_binding")
-    return (
+    valid = (
         isinstance(binding, dict)
         and isinstance(binding.get("issued_at"), (int, float))
         and 0 <= time.time() - binding["issued_at"] <= 900
         and state
+        and code
         and secrets.compare_digest(str(binding.get("digest", "")), hashlib.sha256(state.encode()).hexdigest())
     )
+    if not valid:
+        return redirect("/?email=stale")
+    session.pop("email_oauth_binding", None)
+    try:
+        user_id = complete_gmail_authorization(state, code)
+        if user_id is None or user_id != _user():
+            raise ValueError("OAuth account mismatch")
+    except Exception:
+        logger.exception("Gmail OAuth callback failed")
+        return redirect("/?email=error")
+    return redirect("/?email=connected")
 
 
 @email_api.delete("/api/email/accounts/<int:account_id>")
