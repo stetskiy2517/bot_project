@@ -204,15 +204,6 @@
     this.disabled = true;
     try {await undoLatest(undo);} catch (error) {status.textContent = error.message;}
   };
-  async function showUndo() {
-    const data = await api("/api/assistant");
-    if (!data.undo) return;
-    app.classList.remove("library-active");
-    showChat();
-    const row = msg("Изменение заметки можно отменить в течение 10 минут.");
-    row.appendChild(button(data.undo.label, async () => {await undoLatest(data.undo); row.remove();}));
-  }
-  document.addEventListener("planner-note-changed", () => {showUndo().catch(error => {status.textContent = error.message;});});
 
   document.getElementById("exportAccount").onclick = async function () {
     this.disabled = true;
