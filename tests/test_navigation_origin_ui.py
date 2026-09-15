@@ -17,17 +17,21 @@ class NavigationOriginUiContractTests(unittest.TestCase):
     def test_polling_does_not_reset_address_input_while_editing(self):
         self.assertIn('let originEditing = false;', self.source)
         self.assertIn(
-            'if (originBusy || originEditing || optimizationBusy || activeOptimizationRequest || document.hidden) return;',
+            'if (!navigationEnabled || originBusy || originEditing || optimizationBusy || activeOptimizationRequest || document.hidden) return;',
             self.source,
         )
         self.assertIn(
-            'if (optimizationBusy || originBusy || originEditing || originDialogOpen() || document.hidden) return;',
+            'if (!navigationEnabled || optimizationBusy || originBusy || originEditing || originDialogOpen() || document.hidden) return;',
             self.source,
         )
         self.assertIn(
             'if (activeOriginRequest?.event_id === request.event_id && !card.hidden) return;',
             self.source,
         )
+
+    def test_polling_stops_when_navigation_is_disabled(self):
+        self.assertIn('let navigationEnabled = false;', self.source)
+        self.assertIn('if (!navigationEnabled) hideNavigationDialogs();', self.source)
 
     def test_repeated_render_preserves_typed_address(self):
         self.assertIn('const previousChoice = row.dataset.choice || "";', self.source)
