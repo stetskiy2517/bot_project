@@ -10,7 +10,14 @@ from integrations.email_imap import list_messages as list_imap_messages
 logger = logging.getLogger(__name__)
 EMAIL_INTENT_RE = re.compile(r"\b(?:почт\w*|письм\w*|email|e-mail|входящ\w*)\b", re.IGNORECASE)
 UNREAD_RE = re.compile(r"\b(?:непрочитан\w*|нов\w+\s+письм\w*)\b", re.IGNORECASE)
-SEARCH_RE = re.compile(r"(?:найди|покажи|есть ли)\s+(?:мне\s+)?(?:письм\w*\s+)?(?:от|про|по теме)\s+(.+)$", re.IGNORECASE)
+SEARCH_WITH_PREPOSITION_RE = re.compile(
+    r"(?:найди|поищи|покажи|есть ли)\s+(?:мне\s+)?(?:письм\w*\s+)?(?:от|про|по теме)\s+(.+)$",
+    re.IGNORECASE,
+)
+SEARCH_DIRECT_RE = re.compile(
+    r"(?:найди|поищи)\s+(?:мне\s+)?письм\w*\s+(.+)$",
+    re.IGNORECASE,
+)
 
 
 def detect_email_intent(text: str) -> bool:
@@ -18,7 +25,8 @@ def detect_email_intent(text: str) -> bool:
 
 
 def _query_from_text(text: str) -> str | None:
-    match = SEARCH_RE.search(text.strip())
+    clean = str(text or "").strip()
+    match = SEARCH_WITH_PREPOSITION_RE.search(clean) or SEARCH_DIRECT_RE.search(clean)
     if not match:
         return None
     value = " ".join(match.group(1).split()).strip(" .,!?:;\"'«»")
