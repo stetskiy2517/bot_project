@@ -4,6 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from core.location_context import save_current_location
+from integrations import navigation_2gis, navigation_ors
 from modules.navigation import RouteEstimate
 from modules import navigation_monitor
 
@@ -93,6 +94,8 @@ class NavigationMonitorTests(unittest.TestCase):
                     "smartPlannerSourceEventId": "source-1",
                     "smartPlannerRouteMinutes": "15",
                     "smartPlannerArrivalBufferMinutes": "15",
+                    "smartPlannerOrigin": "Москва, Гиляровского 53",
+                    "smartPlannerOriginSource": "user",
                 }
             },
         }
@@ -117,6 +120,7 @@ class NavigationMonitorTests(unittest.TestCase):
             patch("modules.navigation_monitor.get_user_timezone", return_value="Europe/Moscow"),
             patch("modules.navigation_monitor.get_navigation_preferences", return_value=preferences),
             patch("modules.navigation_monitor._get_calendar_service", return_value=service),
+            patch("modules.navigation_monitor._previous_event_context", return_value=None),
             patch("modules.navigation_monitor._fresh_live_origin", return_value=estimate.origin),
             patch("modules.navigation_monitor._resolved_event_destination", return_value="ВДНХ"),
             patch("modules.navigation_monitor.estimate_route", return_value=estimate),
