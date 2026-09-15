@@ -82,6 +82,48 @@ class ProactiveReminderTests(unittest.TestCase):
         self.assertEqual(decision["status"], "created")
         self.assertEqual(decision["reminder_id"], reminders[0]["reminder_id"])
 
+    def test_structured_habit_drives_title_and_schedule_without_language_rules(self):
+        save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})
+        self._habit(
+            evidence="Пользователь явно описал устойчивую рутину.",
+            value={
+                "statement": "Я каждый вечер в 22:00 принимаю таблетки",
+                "action_title": "Принять таблетку",
+                "schedule": {"repeat": "daily", "time": "22:00"},
+            },
+        )
+
+        result = evaluate_user_proactive(self.user_id, now=self.now)
+
+        self.assertEqual(result["created"], 1)
+        reminders = list_active_reminders(self.user_id)
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0]["text"], "Принять таблетку")
+        self.assertEqual(reminders[0]["repeat_rule"], "daily")
+        due = datetime.fromisoformat(reminders[0]["remind_at"]).astimezone(ZoneInfo("Europe/Moscow"))
+        self.assertEqual((due.hour, due.minute), (22, 0))
+
+    def test_structured_weekly_habit_uses_explicit_weekday(self):
+        save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})
+        self._habit(
+            evidence="Регулярная еженедельная рутина.",
+            value={
+                "statement": "По пятницам вечером звоню маме",
+                "action_title": "Позвонить маме",
+                "schedule": {"repeat": "weekly", "time": "20:30", "weekday": 4},
+            },
+        )
+
+        result = evaluate_user_proactive(self.user_id, now=self.now)
+
+        self.assertEqual(result["created"], 1)
+        reminders = list_active_reminders(self.user_id)
+        self.assertEqual(reminders[0]["text"], "Позвонить маме")
+        self.assertEqual(reminders[0]["repeat_rule"], "weekly:4")
+        due = datetime.fromisoformat(reminders[0]["remind_at"]).astimezone(ZoneInfo("Europe/Moscow"))
+        self.assertEqual(due.weekday(), 4)
+        self.assertEqual((due.hour, due.minute), (20, 30))
+
     def test_raw_habit_sentence_becomes_short_action_title(self):
         save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})
         self._habit(value="Я каждый вечер в 22:00 принимаю таблетки")

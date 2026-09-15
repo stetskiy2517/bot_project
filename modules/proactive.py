@@ -34,6 +34,7 @@ CLOCK_RE = re.compile(
     r"\b(?:в|к)\s+(?:[01]?\d|2[0-3])\b",
     re.IGNORECASE,
 )
+STRUCTURED_CLOCK_RE = re.compile(r"^(?P<hour>[01]\d|2[0-3]):(?P<minute>[0-5]\d)$")
 VAGUE_TIME_RE = re.compile(r"\b(?:около|примерно|приблизительно|после|до|ближе\s+к)\s*$", re.IGNORECASE)
 TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 STOP_WORDS = {
@@ -127,22 +128,41 @@ def _allowed_repeat_rule(text: str) -> str | None:
     return None
 
 
+def _habit_statement(memory: dict) -> str:
+    value = memory.get("value")
+    if isinstance(value, dict):
+        return " ".join(str(value.get("statement") or "").split()).strip()
+    return " ".join(str(value or "").split()).strip()
+
+
 def _memory_text(memory: dict) -> str:
-    value = str(memory.get("value") or "").strip()
+    statement = _habit_statement(memory)
     evidence = str(memory.get("evidence") or "").strip()
-    return " ".join(part for part in (value, evidence) if part)
+    return " ".join(part for part in (statement, evidence) if part)
 
 
 def _legacy_reminder_text(memory: dict) -> str:
-    text = " ".join(str(memory.get("value") or "").split()).strip()
+    text = _habit_statement(memory)
     if not text:
         text = "Не забудь о привычке"
     text = re.sub(r"^пользователь\s+", "", text, flags=re.IGNORECASE)
     return text[:300].strip(" .")
 
 
+def _structured_action_title(memory: dict) -> str | None:
+    value = memory.get("value")
+    if not isinstance(value, dict):
+        return None
+    title = " ".join(str(value.get("action_title") or "").split()).strip(" .,:;-")
+    return title[:300] if title else None
+
+
 def _reminder_text(memory: dict) -> str:
-    """Turn a stored habit sentence into a short action title for the reminder card."""
+    """Return structured AI title for new habits, with deterministic legacy fallback."""
+    structured = _structured_action_title(memory)
+    if structured:
+        return structured
+
     legacy = _legacy_reminder_text(memory)
     text = LEADING_SUBJECT_RE.sub("", legacy, count=1)
     text = LEADING_FILLER_RE.sub("", text, count=1)
@@ -257,11 +277,80 @@ def _find_coverage(user_id: int, text: str, due: datetime, rule: str, timezone_n
     return None, None
 
 
+def _structured_schedule(memory: dict) -> tuple[str, int, int] | None:
+    value = memory.get("value")
+    if not isinstance(value, dict):
+        return None
+    schedule = value.get("schedule")
+    if not isinstance(schedule, dict):
+        return None
+    repeat = str(schedule.get("repeat") or "").strip().lower()
+    match = STRUCTURED_CLOCK_RE.fullmatch(str(schedule.get("time") or "").strip())
+    if repeat not in {"daily", "weekdays", "weekends", "weekly"} or match is None:
+        return None
+    rule = repeat
+    if repeat == "weekly":
+        try:
+            weekday = int(schedule.get("weekday"))
+        except (TypeError, ValueError):
+            return None
+        if not 0 <= weekday <= 6:
+            return None
+        rule = f"weekly:{weekday}"
+    return rule, int(match.group("hour")), int(match.group("minute"))
+
+
+def _structured_due(rule: str, hour: int, minute: int, zone: ZoneInfo, now: datetime) -> datetime:
+    current = now.astimezone(zone) if now.tzinfo else now.replace(tzinfo=zone)
+    candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if rule == "daily":
+        if candidate <= current:
+            candidate += timedelta(days=1)
+        return candidate
+    if rule == "weekdays":
+        while candidate <= current or candidate.weekday() >= 5:
+            candidate += timedelta(days=1)
+        return candidate
+    if rule == "weekends":
+        while candidate <= current or candidate.weekday() < 5:
+            candidate += timedelta(days=1)
+        return candidate
+    target = int(WEEKLY_DAY_RE.fullmatch(rule).group(0).split(":", 1)[1])
+    days = (target - current.weekday()) % 7
+    candidate = (current + timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= current:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def _structured_candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
+    title = _structured_action_title(memory)
+    schedule = _structured_schedule(memory)
+    if not title or schedule is None:
+        return None
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("Europe/Moscow")
+    rule, hour, minute = schedule
+    return {
+        "text": title,
+        "due": _structured_due(rule, hour, minute, zone, now),
+        "repeat_rule": rule,
+        "timezone": timezone_name,
+    }
+
+
 def _candidate(memory: dict, timezone_name: str, now: datetime) -> dict | None:
     if memory.get("kind") != "habit" or float(memory.get("confidence") or 0) < MIN_AUTO_CONFIDENCE:
         return None
     if memory.get("source_type") not in AUTO_SOURCE_TYPES:
         return None
+
+    structured = _structured_candidate(memory, timezone_name, now)
+    if structured:
+        return structured
+
     combined = _memory_text(memory)
     if not combined or not _has_explicit_clock(combined):
         return None
