@@ -192,6 +192,7 @@ def analyze_file_bytes(
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     provider_file_id: str | None = None
+    provider_file_deleted = False
     try:
         provider_file_id = upload_file_bytes(content, filename, mimetype)
         raw = complete_with_file(
@@ -203,6 +204,7 @@ def analyze_file_bytes(
         if provider_file_id:
             try:
                 delete_file(provider_file_id)
+                provider_file_deleted = True
             except Exception:
                 logger.warning("Could not delete temporary AI provider file", exc_info=True)
 
@@ -223,5 +225,5 @@ def analyze_file_bytes(
         "summary": " ".join(str(parsed.get("summary") or "Файл разобран").split()).strip()[:500],
         "events": events,
         "warnings": warnings,
-        "temporary_file_deleted": True,
+        "temporary_file_deleted": provider_file_deleted,
     }
