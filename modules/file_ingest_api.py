@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import mimetypes
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -20,21 +19,30 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
-SUPPORTED_SUFFIXES = {
-    ".pdf": "application/pdf",
-    ".txt": "text/plain",
-    ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xls": "application/vnd.ms-excel",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".tif": "image/tiff",
-    ".tiff": "image/tiff",
-    ".bmp": "image/bmp",
+FILE_TYPES = {
+    ".pdf": ("application/pdf", {"application/pdf"}),
+    ".txt": ("text/plain", {"text/plain"}),
+    ".doc": ("application/msword", {"application/msword"}),
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+    ),
+    ".epub": ("application/epub", {"application/epub", "application/epub+zip"}),
+    ".ppt": ("application/ppt", {"application/ppt", "application/vnd.ms-powerpoint"}),
+    ".pptx": (
+        "application/pptx",
+        {"application/pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+    ),
+    ".xlsx": (
+        "application/vnd.ms-excel",
+        {"application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    ),
+    ".jpg": ("image/jpeg", {"image/jpeg"}),
+    ".jpeg": ("image/jpeg", {"image/jpeg"}),
+    ".png": ("image/png", {"image/png"}),
+    ".tif": ("image/tiff", {"image/tiff"}),
+    ".tiff": ("image/tiff", {"image/tiff"}),
+    ".bmp": ("image/bmp", {"image/bmp"}),
 }
 
 
@@ -45,19 +53,16 @@ def _user() -> int:
 def _file_type(upload) -> tuple[str, str, int]:
     raw_name = Path(str(upload.filename or "")).name
     suffix = Path(raw_name).suffix.lower()
-    if suffix not in SUPPORTED_SUFFIXES:
-        raise ValueError("Поддерживаются PDF, документы Office, TXT и изображения JPG/PNG/TIFF/BMP")
-    expected = SUPPORTED_SUFFIXES[suffix]
+    config = FILE_TYPES.get(suffix)
+    if config is None:
+        raise ValueError("Поддерживаются PDF, DOC/DOCX, PPT/PPTX, XLSX, EPUB, TXT и изображения JPG/PNG/TIFF/BMP")
+    provider_mimetype, accepted_mimetypes = config
     supplied = str(upload.mimetype or "").lower().strip()
-    guessed = (mimetypes.guess_type(raw_name)[0] or "").lower()
-    if supplied and supplied not in {"application/octet-stream", expected}:
-        compatible = supplied.startswith("image/") and expected.startswith("image/")
-        if not compatible:
-            raise ValueError("Тип файла не соответствует расширению")
-    mimetype = expected or guessed or supplied or "application/octet-stream"
-    limit = MAX_IMAGE_BYTES if mimetype.startswith("image/") else MAX_DOCUMENT_BYTES
+    if supplied and supplied != "application/octet-stream" and supplied not in accepted_mimetypes:
+        raise ValueError("Тип файла не соответствует расширению")
+    limit = MAX_IMAGE_BYTES if provider_mimetype.startswith("image/") else MAX_DOCUMENT_BYTES
     provider_name = f"document{suffix}"
-    return provider_name, mimetype, limit
+    return provider_name, provider_mimetype, limit
 
 
 def _aware_datetime(value: object, field: str) -> datetime:
