@@ -186,11 +186,12 @@
   }
 
   async function analyzeFile(file) {
-    const maxBytes = 20 * 1024 * 1024;
     if (!file || !file.name) return;
+    const isImage = String(file.type || "").startsWith("image/") || /\.(?:jpe?g|png|tiff?|bmp)$/i.test(file.name);
+    const maxBytes = (isImage ? 15 : 20) * 1024 * 1024;
     if (file.size > maxBytes) {
       openChat();
-      addMessage("Файл слишком большой. Для загрузки используй файл до 20 МБ.", "assistant");
+      addMessage(`Файл слишком большой. Максимум ${isImage ? 15 : 20} МБ.`, "assistant");
       return;
     }
     openChat();
