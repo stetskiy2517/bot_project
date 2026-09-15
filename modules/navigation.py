@@ -15,7 +15,9 @@ from core.db import get_category_colors
 from core.location_context import current_location_origin
 from core.navigation_store import (
     get_navigation_preferences,
+    queue_navigation_optimization_request,
     queue_navigation_origin_request,
+    remove_navigation_optimization_request,
     remove_navigation_origin_request,
 )
 from integrations.navigation_2gis import configured as dgis_configured, estimate as dgis_estimate
@@ -482,13 +484,12 @@ def create_travel_for_event(
 
     previous = _previous_event_context(user_id, source_event, timezone, prefs)
     origin_source = "user"
-    earliest_start = None
+    earliest_start = previous.end if previous is not None else None
     origin = _resolve_place(origin_override, prefs) if origin_override else None
     if not origin_override:
         if previous is not None and previous.end_location:
             origin = previous.end_location
             origin_source = "previous_event"
-            earliest_start = previous.end
         else:
             queue_navigation_origin_request(
                 user_id,
@@ -510,6 +511,7 @@ def create_travel_for_event(
         _navigation_status(source_event, "origin_required", destination=destination)
         return None
     if _places_equivalent(origin, destination):
+        remove_navigation_optimization_request(user_id, source_id)
         _navigation_status(source_event, "same_location", origin=origin, destination=destination)
         return None
 
@@ -520,27 +522,55 @@ def create_travel_for_event(
         departure_at=source_start,
     )
     if _route_is_effectively_same_place(estimate):
+        remove_navigation_optimization_request(user_id, source_id)
         _navigation_status(source_event, "same_location", origin=origin, destination=destination)
+        return None
+
+    arrival_buffer = int(prefs.get("arrival_buffer_minutes") or 0)
+    window = travel_window(source_start, estimate.duration_minutes + arrival_buffer, earliest_start)
+    if previous is not None and window.missing_minutes:
+        queue_navigation_optimization_request(
+            user_id,
+            event_id=source_id,
+            previous_event_id=str(previous.event.get("id") or ""),
+            timezone_name=timezone,
+            origin=origin,
+            destination=destination,
+            required_minutes=window.required_minutes,
+            available_minutes=window.available_minutes or 0,
+            missing_minutes=window.missing_minutes,
+            title=str(source_event.get("summary") or "Событие"),
+            previous_title=str(previous.event.get("summary") or "Предыдущее событие"),
+        )
+        _navigation_status(
+            source_event,
+            "optimization_required",
+            origin=origin,
+            destination=destination,
+            required_minutes=window.required_minutes,
+            available_minutes=window.available_minutes or 0,
+            missing_minutes=window.missing_minutes,
+            previous_event_id=previous.event.get("id"),
+        )
         return None
 
     travel = build_travel_event(
         source_event,
         estimate,
         timezone=timezone,
-        arrival_buffer_minutes=int(prefs.get("arrival_buffer_minutes") or 0),
+        arrival_buffer_minutes=arrival_buffer,
         color_id=get_category_colors(user_id).get("travel"),
         earliest_start=earliest_start,
         origin_source=origin_source,
     )
     inserted = _get_calendar_service(user_id).events().insert(calendarId="primary", body=travel).execute()
-    private = _private(travel)
-    missing = int(private.get("smartPlannerMissingMinutes") or 0)
+    remove_navigation_optimization_request(user_id, source_id)
     _navigation_status(
         source_event,
-        "route_conflict" if missing else "created",
+        "created",
         origin=origin,
         destination=destination,
-        missing_minutes=missing,
+        missing_minutes=0,
         travel_event_id=inserted.get("id"),
     )
     return inserted
@@ -570,5 +600,6 @@ def safe_delete_travel_for_event(user_id: int, source_event_id: str) -> None:
     try:
         delete_travel_for_event(user_id, source_event_id)
         remove_navigation_origin_request(user_id, source_event_id)
+        remove_navigation_optimization_request(user_id, source_event_id)
     except Exception:
         logger.exception("Travel block deletion failed for user %s event %s", user_id, source_event_id)
