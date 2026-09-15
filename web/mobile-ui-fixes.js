@@ -321,6 +321,14 @@
     } catch (_) {}
   }
 
+  function navigationExplicitlyDisabled() {
+    return root.dataset.navigationEnabled === "false";
+  }
+
+  document.addEventListener("planner-navigation-setting", event => {
+    if (event.detail?.enabled === false) rememberPendingLocation(null);
+  });
+
   function createdEventTitle(result) {
     const replies = Array.isArray(result?.replies) ? result.replies : [];
     for (let index = replies.length - 1; index >= 0; index -= 1) {
@@ -331,7 +339,7 @@
   }
 
   async function requestMissingLocation(result) {
-    if (pendingLocation || typeof window.api !== "function") return;
+    if (navigationExplicitlyDisabled() || pendingLocation || typeof window.api !== "function") return;
     const title = createdEventTitle(result);
     if (!title) return;
     try {
@@ -362,6 +370,7 @@
   ]);
 
   form.onsubmit = async event => {
+    if (pendingLocation && navigationExplicitlyDisabled()) rememberPendingLocation(null);
     if (!pendingLocation) {
       if (typeof originalSubmit === "function") return originalSubmit.call(form, event);
       event.preventDefault();
@@ -388,15 +397,21 @@
       }
       document.dispatchEvent(new Event("planner-library-changed"));
     } catch (error) {
-      appendChatMessage(error.message || "Не удалось сохранить место события.");
-      backing.value = text;
-      editor.focus();
+      if (error.data?.error === "navigation_disabled") {
+        rememberPendingLocation(null);
+        appendChatMessage("Навигация выключена. Место события не запрашиваю.");
+        if (text) backing.value = text;
+      } else {
+        appendChatMessage(error.message || "Не удалось сохранить место события.");
+        backing.value = text;
+        editor.focus();
+      }
     }
   };
 
   autosize();
   scheduleKeyboardSync();
-  if (pendingLocation) {
+  if (pendingLocation && !navigationExplicitlyDisabled()) {
     appendChatMessage(
       `Где будет «${pendingLocation.title || "событие"}»? Напиши адрес или место. Если дорога не нужна — «без трансфера».`,
     );

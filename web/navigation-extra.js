@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   let installed = false;
+  let navigationEnabled = false;
   let originBusy = false;
   let originEditing = false;
   let optimizationBusy = false;
@@ -12,8 +13,102 @@
     return window.api(path, options);
   }
 
+  function hideNavigationDialogs() {
+    activeOriginRequest = null;
+    activeOptimizationRequest = null;
+    originEditing = false;
+    document.getElementById("navigationOriginQuestion")?.setAttribute("hidden", "");
+    document.getElementById("navigationOptimizationQuestion")?.setAttribute("hidden", "");
+  }
+
+  function setFieldDisabled(id, disabled) {
+    const element = document.getElementById(id);
+    if (element) element.disabled = disabled;
+  }
+
+  function decorateMasterSwitch() {
+    const control = document.getElementById("navigationEnabled");
+    if (!control) return;
+    const label = control.closest("label");
+    const textNode = label && Array.from(label.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (textNode) textNode.textContent = "Навигация ";
+    const enabledOption = control.querySelector('option[value="true"]');
+    const disabledOption = control.querySelector('option[value="false"]');
+    if (enabledOption) enabledOption.textContent = "Включена";
+    if (disabledOption) disabledOption.textContent = "Выключена";
+    if (label && !document.getElementById("navigationMasterHelp")) {
+      const help = document.createElement("span");
+      help.id = "navigationMasterHelp";
+      help.className = "settings-help";
+      help.style.display = "block";
+      help.style.marginTop = "6px";
+      label.append(help);
+    }
+  }
+
+  function applyNavigationUiState(enabled) {
+    const selected = enabled === true;
+    decorateMasterSwitch();
+    for (const id of [
+      "homeAddress",
+      "officeAddress",
+      "defaultPlace",
+      "travelMode",
+      "arrivalBuffer",
+      "testNavigation",
+      "parkingBufferMinutes",
+      "walkingBufferMinutes",
+      "saveNavigationExtra",
+      "openNextRoute",
+    ]) setFieldDisabled(id, !selected);
+
+    const advanced = document.getElementById("navigationAdvancedGroup");
+    if (advanced) advanced.hidden = !selected;
+    const meta = document.getElementById("navigationMeta");
+    if (meta) meta.textContent = selected ? "включена" : "выключена";
+    const help = document.getElementById("navigationMasterHelp");
+    if (help) {
+      help.textContent = selected
+        ? "Используются места событий и, при разрешении браузера, текущая геопозиция. Дорога может добавляться в календарь автоматически."
+        : "Геопозиция не запрашивается, места не используются для маршрутов и автотрансферы не создаются.";
+    }
+    if (!selected) {
+      const status = document.getElementById("navigationStatus");
+      if (status) status.textContent = "Навигация выключена. Календарь работает без геолокации и автоматических трансферов.";
+    }
+  }
+
+  function setNavigationActive(enabled, {notify = true} = {}) {
+    navigationEnabled = enabled === true;
+    document.documentElement.dataset.navigationEnabled = String(navigationEnabled);
+    if (!navigationEnabled) hideNavigationDialogs();
+    if (notify) {
+      document.dispatchEvent(new CustomEvent("planner-navigation-setting", {
+        detail: {enabled: navigationEnabled},
+      }));
+    }
+  }
+
+  function syncMasterFromSavedSettings() {
+    const control = document.getElementById("navigationEnabled");
+    if (!control) return;
+    const enabled = control.value === "true";
+    applyNavigationUiState(enabled);
+    setNavigationActive(enabled);
+  }
+
+  function onMasterChange(event) {
+    const enabled = event.currentTarget.value === "true";
+    applyNavigationUiState(enabled);
+    if (!enabled) setNavigationActive(false);
+  }
+
   async function load() {
     const state = document.getElementById("navigationExtraState");
+    if (!navigationEnabled) {
+      if (state) state.textContent = "Навигация выключена.";
+      return;
+    }
     try {
       const data = await api("/api/navigation/buffers");
       document.getElementById("parkingBufferMinutes").value = data.parking_buffer_minutes ?? 0;
@@ -25,6 +120,7 @@
   }
 
   async function save() {
+    if (!navigationEnabled) return;
     const parking = Number(document.getElementById("parkingBufferMinutes").value);
     const walking = Number(document.getElementById("walkingBufferMinutes").value);
     const data = await api("/api/navigation/buffers", {
@@ -36,6 +132,7 @@
   }
 
   async function openNextRoute() {
+    if (!navigationEnabled) return;
     const data = await api("/api/navigation/next-route");
     window.open(data.url, "_blank", "noopener,noreferrer");
     document.getElementById("navigationExtraState").textContent = `Маршрут: ${data.title} → ${data.destination}`;
@@ -133,7 +230,7 @@
   }
 
   async function chooseOrigin(choice) {
-    if (!activeOriginRequest || originBusy) return;
+    if (!navigationEnabled || !activeOriginRequest || originBusy) return;
     if (choice === "none") {
       originEditing = false;
       await sendOrigin("other", activeOriginRequest.destination, true);
@@ -156,7 +253,7 @@
   }
 
   async function submitAddress() {
-    if (!activeOriginRequest || originBusy) return;
+    if (!navigationEnabled || !activeOriginRequest || originBusy) return;
     const card = ensureOriginCard();
     const row = card.querySelector("#navigationOriginAddressRow");
     const choice = row.dataset.choice || "other";
@@ -170,7 +267,7 @@
 
   async function sendOrigin(choice, address, skipTransfer = false) {
     const request = activeOriginRequest;
-    if (!request) return;
+    if (!navigationEnabled || !request) return;
     const card = ensureOriginCard();
     const state = card.querySelector("#navigationOriginState");
     originBusy = true;
@@ -234,7 +331,7 @@
   }
 
   async function sendOptimization(action) {
-    if (!activeOptimizationRequest || optimizationBusy) return;
+    if (!navigationEnabled || !activeOptimizationRequest || optimizationBusy) return;
     const card = ensureOptimizationCard();
     const state = card.querySelector("#navigationOptimizationState");
     optimizationBusy = true;
@@ -263,7 +360,7 @@
   }
 
   async function pollOptimizationRequest() {
-    if (optimizationBusy || originBusy || originEditing || originDialogOpen() || document.hidden) return;
+    if (!navigationEnabled || optimizationBusy || originBusy || originEditing || originDialogOpen() || document.hidden) return;
     try {
       const data = await api("/api/navigation/optimization-request");
       const request = data.request;
@@ -282,7 +379,7 @@
   }
 
   async function pollOriginRequest() {
-    if (originBusy || originEditing || optimizationBusy || activeOptimizationRequest || document.hidden) return;
+    if (!navigationEnabled || originBusy || originEditing || optimizationBusy || activeOptimizationRequest || document.hidden) return;
     try {
       const data = await api("/api/navigation/origin-request");
       const request = data.request;
@@ -311,7 +408,11 @@
     const root = document.getElementById("assistantSettings") || document.querySelector("#settingsPanel .sheet");
     if (!root) return;
     installed = true;
+    decorateMasterSwitch();
+    document.getElementById("navigationEnabled")?.addEventListener("change", onMasterChange);
+
     const section = document.createElement("details");
+    section.id = "navigationAdvancedGroup";
     section.className = "assistant-section settings-group";
     section.innerHTML = `
       <summary class="settings-group-summary-ready">
@@ -338,6 +439,7 @@
     });
     ensureOriginCard();
     ensureOptimizationCard();
+    applyNavigationUiState(document.getElementById("navigationEnabled")?.value === "true");
     pollOptimizationRequest();
     pollOriginRequest();
     setInterval(() => {
@@ -345,13 +447,27 @@
       pollOriginRequest();
     }, 5000);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
+      if (!document.hidden && navigationEnabled) {
         pollOptimizationRequest();
         pollOriginRequest();
       }
     });
   }
 
-  document.addEventListener("planner-ready", install);
-  if (document.readyState !== "loading") setTimeout(install, 0);
+  document.addEventListener("planner-ready", () => {
+    install();
+    syncMasterFromSavedSettings();
+  });
+  if (document.readyState !== "loading") {
+    setTimeout(() => {
+      install();
+      const control = document.getElementById("navigationEnabled");
+      if (control) {
+        applyNavigationUiState(control.value === "true");
+        if (document.documentElement.dataset.navigationEnabled === "true") {
+          setNavigationActive(true, {notify: false});
+        }
+      }
+    }, 0);
+  }
 })();

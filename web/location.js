@@ -5,11 +5,15 @@
 
   const minRefreshMs = 2 * 60 * 1000;
   const minMoveMeters = 100;
+  let navigationEnabled = false;
   let watchId = null;
   let lastSentAt = 0;
   let lastLatitude = null;
   let lastLongitude = null;
   let lastAccuracy = null;
+  let permissionStatus = null;
+  let permissionLoading = false;
+  let promptBound = false;
 
   function distanceMeters(lat1, lon1, lat2, lon2) {
     const toRad = (value) => value * Math.PI / 180;
@@ -23,6 +27,7 @@
   }
 
   function shouldSend(position) {
+    if (!navigationEnabled) return false;
     if (lastLatitude === null || lastLongitude === null) return true;
     const elapsed = Date.now() - lastSentAt;
     const moved = distanceMeters(
@@ -38,7 +43,7 @@
   }
 
   async function sendPosition(position) {
-    if (!shouldSend(position)) return;
+    if (!navigationEnabled || !shouldSend(position)) return;
     const sentAt = Date.now();
     try {
       await window.PlannerRequests.request("/api/location", {
@@ -49,6 +54,7 @@
           accuracy: position.coords.accuracy,
         }),
       });
+      if (!navigationEnabled) return;
       lastSentAt = sentAt;
       lastLatitude = position.coords.latitude;
       lastLongitude = position.coords.longitude;
@@ -57,13 +63,14 @@
   }
 
   function stopWatching() {
-    if (watchId === null) return;
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
   }
 
   function startWatching() {
-    if (watchId !== null || document.visibilityState !== "visible") return;
+    if (!navigationEnabled || watchId !== null || document.visibilityState !== "visible") return;
     watchId = navigator.geolocation.watchPosition(sendPosition, () => {}, {
       enableHighAccuracy: true,
       maximumAge: 60 * 1000,
@@ -71,27 +78,104 @@
     });
   }
 
-  async function start() {
-    if (!navigator.permissions?.query) {
-      document.addEventListener("pointerdown", startWatching, {once: true});
-      return;
-    }
-    try {
-      const permission = await navigator.permissions.query({name: "geolocation"});
-      if (permission.state === "granted") startWatching();
-      else if (permission.state === "prompt")
-        document.addEventListener("pointerdown", startWatching, {once: true});
-      permission.addEventListener?.("change", () => {
-        if (permission.state === "granted") startWatching();
-        else stopWatching();
-      });
-    } catch (_) {}
+  function removePromptStart() {
+    if (!promptBound) return;
+    document.removeEventListener("pointerdown", promptStart, true);
+    promptBound = false;
   }
 
+  function promptStart() {
+    removePromptStart();
+    if (navigationEnabled) startWatching();
+  }
+
+  function bindPromptStart() {
+    if (!navigationEnabled || promptBound) return;
+    promptBound = true;
+    document.addEventListener("pointerdown", promptStart, {once: true, capture: true});
+  }
+
+  function handlePermissionState() {
+    if (!navigationEnabled) {
+      stopWatching();
+      removePromptStart();
+      return;
+    }
+    if (!permissionStatus) {
+      bindPromptStart();
+      return;
+    }
+    if (permissionStatus.state === "granted") {
+      removePromptStart();
+      startWatching();
+    } else if (permissionStatus.state === "prompt") {
+      stopWatching();
+      bindPromptStart();
+    } else {
+      stopWatching();
+      removePromptStart();
+    }
+  }
+
+  async function preparePermission() {
+    if (!navigationEnabled || permissionLoading || permissionStatus) {
+      handlePermissionState();
+      return;
+    }
+    if (!navigator.permissions?.query) {
+      handlePermissionState();
+      return;
+    }
+    permissionLoading = true;
+    try {
+      permissionStatus = await navigator.permissions.query({name: "geolocation"});
+      permissionStatus.addEventListener?.("change", handlePermissionState);
+    } catch (_) {
+      permissionStatus = null;
+    } finally {
+      permissionLoading = false;
+    }
+    handlePermissionState();
+  }
+
+  function setNavigationEnabled(enabled) {
+    const next = enabled === true;
+    navigationEnabled = next;
+    document.documentElement.dataset.navigationEnabled = String(next);
+    if (!next) {
+      stopWatching();
+      removePromptStart();
+      return;
+    }
+    preparePermission();
+  }
+
+  async function loadNavigationState() {
+    try {
+      const status = await window.PlannerRequests.request("/api/status");
+      setNavigationEnabled(status?.navigation?.enabled === true);
+    } catch (_) {
+      setNavigationEnabled(false);
+    }
+  }
+
+  document.addEventListener("planner-navigation-setting", (event) => {
+    setNavigationEnabled(event.detail?.enabled === true);
+  });
+
+  document.addEventListener("planner-ready", () => {
+    const control = document.getElementById("navigationEnabled");
+    if (control) setNavigationEnabled(control.value === "true");
+  });
+
+  document.getElementById("navigationEnabled")?.addEventListener("change", (event) => {
+    if (event.currentTarget.value === "false") setNavigationEnabled(false);
+  });
+
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") startWatching();
+    if (document.visibilityState === "visible" && navigationEnabled) preparePermission();
     else stopWatching();
   });
 
-  start();
+  loadNavigationState();
 })();
