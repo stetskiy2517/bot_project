@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 NAVIGATION_KEY_FILE="${NAVIGATION_KEY_FILE:-}"
+AI_KEY_FILE="${AI_KEY_FILE:-}"
 PREVIOUS_SHA=""
 PREDEPLOY_BACKUP=""
 
@@ -17,6 +18,9 @@ fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 cleanup_temp_secrets() {
   if [ -n "$NAVIGATION_KEY_FILE" ]; then
     rm -f -- "$NAVIGATION_KEY_FILE" 2>/dev/null || true
+  fi
+  if [ -n "$AI_KEY_FILE" ]; then
+    rm -f -- "$AI_KEY_FILE" 2>/dev/null || true
   fi
 }
 trap cleanup_temp_secrets EXIT
@@ -34,6 +38,10 @@ fi
 
 navigation_secret_present() {
   [ -n "$NAVIGATION_KEY_FILE" ] && [ -s "$NAVIGATION_KEY_FILE" ]
+}
+
+ai_secret_present() {
+  [ -n "$AI_KEY_FILE" ] && [ -s "$AI_KEY_FILE" ]
 }
 
 sync_navigation_config() {
@@ -71,6 +79,74 @@ os.chmod(env_path, 0o600)
 PY
 }
 
+sync_ai_config() {
+  log "Updating AI configuration"
+  python3 - "$PROJECT_DIR/.env" "$AI_KEY_FILE" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+env_path = Path(sys.argv[1])
+key_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+updates = {
+    "AI_ENABLED": "1",
+    "AI_PROVIDER": "gigachat",
+    "GIGACHAT_SCOPE": "GIGACHAT_API_PERS",
+    "GIGACHAT_MODEL": "GigaChat-2",
+}
+if key_path and key_path.is_file() and key_path.stat().st_size:
+    key = key_path.read_text(encoding="utf-8").strip()
+    if not key:
+        raise SystemExit("GigaChat credential file is empty")
+    updates["GIGACHAT_CREDENTIALS"] = key
+
+lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+seen = set()
+out = []
+for line in lines:
+    if "=" in line and not line.lstrip().startswith("#"):
+        name = line.split("=", 1)[0].strip()
+        if name in updates:
+            out.append(f"{name}={updates[name]}")
+            seen.add(name)
+            continue
+    out.append(line)
+for name, value in updates.items():
+    if name not in seen:
+        out.append(f"{name}={value}")
+env_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+os.chmod(env_path, 0o600)
+PY
+}
+
+report_ai_status() {
+  log "Checking AI configuration"
+  .venv/bin/python - <<'PY'
+from integrations.ai import complete, get_ai_status
+
+status = get_ai_status()
+print(
+    "AI status: "
+    f"enabled={str(bool(status.get('enabled'))).lower()} "
+    f"configured={str(bool(status.get('configured'))).lower()} "
+    f"provider={status.get('provider')} model={status.get('model')}"
+)
+if not status.get("configured"):
+    print("AI provider check: skipped because credentials are not configured")
+    raise SystemExit(0)
+try:
+    answer = complete(
+        [{"role": "user", "content": "Ответь только словом OK"}],
+        max_tokens=8,
+        temperature=0.001,
+    )
+except Exception as exc:
+    print(f"AI provider check: FAILED ({type(exc).__name__}: {exc})")
+else:
+    print("AI provider check: OK" if answer.strip() else "AI provider check: FAILED (empty response)")
+PY
+}
+
 wait_for_health() {
   local attempts="${1:-30}"
   for _ in $(seq 1 "$attempts"); do
@@ -90,12 +166,14 @@ git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
 
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
-  if navigation_secret_present; then
+  if navigation_secret_present || ai_secret_present; then
     sync_navigation_config
+    sync_ai_config
     log "Restarting $SERVICE_NAME after secret update"
     sudo -n systemctl restart "$SERVICE_NAME"
-    wait_for_health 30 || fail "Application health-check failed after navigation secret update"
-    log "Navigation secret applied to already deployed commit $TARGET_SHA"
+    wait_for_health 30 || fail "Application health-check failed after secret update"
+    report_ai_status
+    log "Secrets applied to already deployed commit $TARGET_SHA"
   else
     log "Commit $TARGET_SHA is already deployed"
   fi
@@ -156,6 +234,7 @@ trap rollback ERR
 log "Deploying commit $TARGET_SHA"
 git reset --hard "$TARGET_SHA"
 sync_navigation_config
+sync_ai_config
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
 if [ ! -x .venv/bin/python ]; then
@@ -178,6 +257,8 @@ sudo -n systemctl restart "$SERVICE_NAME"
 
 log "Waiting for application health-check"
 wait_for_health 30 || false
+
+report_ai_status
 
 log "Verifying services survive a VM reboot"
 systemctl is-enabled --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME is not enabled"
