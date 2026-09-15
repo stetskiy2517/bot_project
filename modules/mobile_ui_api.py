@@ -1,0 +1,150 @@
+"""Compact mobile UI shell and structured Today data."""
+
+from __future__ import annotations
+
+from datetime import datetime, time as dt_time, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from flask import Blueprint, request, send_from_directory, session
+
+from core.db import get_user_timezone
+from core.task_planner_store import list_planner_tasks, task_summary
+from modules.calendar_user import _event_start, _list_events
+from modules.daily_review import build_day_review
+from modules.navigation import is_managed_travel_event
+
+mobile_ui_api = Blueprint("mobile_ui", __name__)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+
+def _user() -> int:
+    return int(session["user_id"])
+
+
+def _iso_due(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _task_payload(task: dict, *, now_utc: datetime) -> dict:
+    due = _iso_due(task.get("due_at"))
+    return {
+        "task_id": task["task_id"],
+        "title": task["title"],
+        "status": task["status"],
+        "priority": task.get("priority") or "normal",
+        "category": task.get("category") or "other",
+        "due_at": task.get("due_at"),
+        "estimate_minutes": task.get("estimate_minutes"),
+        "flexible": bool(task.get("flexible")),
+        "calendar_event_id": task.get("calendar_event_id"),
+        "scheduled_start": task.get("scheduled_start"),
+        "parent_task_id": task.get("parent_task_id"),
+        "repeat_rule": task.get("repeat_rule"),
+        "overdue": bool(due and due < now_utc),
+    }
+
+
+def _event_payload(event: dict, timezone_name: str) -> dict:
+    start, all_day = _event_start(event, timezone_name)
+    private = ((event.get("extendedProperties") or {}).get("private") or {})
+    return {
+        "id": event.get("id"),
+        "title": str(event.get("summary") or "Событие")[:160],
+        "starts_at": start.isoformat() if start else None,
+        "all_day": bool(all_day),
+        "location": str(event.get("location") or "")[:240],
+        "color_id": event.get("colorId"),
+        "managed_type": private.get("smartPlannerType"),
+        "is_travel": is_managed_travel_event(event),
+    }
+
+
+@mobile_ui_api.after_app_request
+def inject_mobile_ui(response):
+    if request.path != "/" or response.status_code != 200 or response.mimetype != "text/html":
+        return response
+    html = response.get_data(as_text=True)
+    stylesheet = '<link rel="stylesheet" href="/mobile-ui.css" />'
+    script = '<script src="/mobile-ui.js"></script>'
+    if stylesheet not in html and "</head>" in html:
+        html = html.replace("</head>", f"    {stylesheet}\n  </head>", 1)
+    if script not in html and "</body>" in html:
+        html = html.replace("</body>", f"    {script}\n  </body>", 1)
+    response.set_data(html)
+    return response
+
+
+@mobile_ui_api.get("/mobile-ui.css")
+def mobile_ui_css():
+    return send_from_directory(WEB_DIR, "mobile-ui.css", mimetype="text/css")
+
+
+@mobile_ui_api.get("/mobile-ui.js")
+def mobile_ui_js():
+    return send_from_directory(WEB_DIR, "mobile-ui.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/api/mobile/today")
+def mobile_today():
+    user_id = _user()
+    timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+    zone = ZoneInfo(timezone_name)
+    now_utc = datetime.now(timezone.utc)
+    local_now = now_utc.astimezone(zone)
+    day_start = datetime.combine(local_now.date(), dt_time.min, tzinfo=zone)
+    day_end = day_start + timedelta(days=1)
+
+    calendar_ok = True
+    events: list[dict] = []
+    try:
+        raw_events = _list_events(user_id, day_start, day_end)
+        events = [_event_payload(item, timezone_name) for item in raw_events]
+        events.sort(key=lambda item: item.get("starts_at") or "")
+    except Exception:
+        calendar_ok = False
+
+    tasks = list_planner_tasks(user_id, status="open", limit=500)
+    root_tasks = [task for task in tasks if task.get("parent_task_id") is None]
+    task_items = [_task_payload(task, now_utc=now_utc) for task in root_tasks]
+
+    def task_rank(item: dict) -> tuple:
+        priority = {"high": 0, "normal": 1, "low": 2}.get(item.get("priority"), 1)
+        due = _iso_due(item.get("due_at"))
+        return (
+            0 if item.get("overdue") else 1,
+            priority,
+            due or datetime.max.replace(tzinfo=timezone.utc),
+            int(item["task_id"]),
+        )
+
+    task_items.sort(key=task_rank)
+    try:
+        review = build_day_review(user_id, "morning", now=now_utc)
+    except Exception:
+        review = {
+            "kind": "morning",
+            "date": str(local_now.date()),
+            "calendar_ok": calendar_ok,
+            "text": "Не удалось собрать обзор целиком. Календарь и задачи доступны отдельно.",
+            "reminders": [],
+        }
+
+    return {
+        "date": str(local_now.date()),
+        "timezone": timezone_name,
+        "calendar_ok": calendar_ok,
+        "events": events[:20],
+        "tasks": task_items[:8],
+        "task_summary": task_summary(user_id, now=now_utc),
+        "review": review,
+    }
