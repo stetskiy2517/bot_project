@@ -3,11 +3,18 @@ from __future__ import annotations
 import imaplib
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.db import conn, db_lock, get_or_create_google_user
 from core.email_store import delete_email_account, get_email_account, list_email_accounts, save_email_account
-from integrations.email_imap import EmailAuthenticationError, _connect, _message_payload, list_messages
+from integrations.email_imap import (
+    EmailAuthenticationError,
+    _connect,
+    _fallback_header_search,
+    _message_payload,
+    _server_search,
+    list_messages,
+)
 from modules.email import _query_from_text, answer_email_query, detect_email_intent
 
 
@@ -103,6 +110,45 @@ class EmailAssistantTests(unittest.TestCase):
         self.assertIn("IMAP", message)
         self.assertIn("Пароли приложений", message)
 
+    def test_ascii_server_search_avoids_utf8_charset(self):
+        client = MagicMock()
+        client.search.return_value = ("OK", [b"1 7"])
+
+        result = _server_search(client, "Ozon", unread_only=False)
+
+        self.assertEqual(result, [b"1", b"7"])
+        search_args = client.search.call_args.args
+        self.assertIsNone(search_args[0])
+        self.assertIn("FROM", search_args)
+        self.assertIn("SUBJECT", search_args)
+        self.assertIn("BODY", search_args)
+
+    def test_cyrillic_search_skips_server_charset_command(self):
+        client = MagicMock()
+
+        result = _server_search(client, "ресо", unread_only=False)
+
+        self.assertIsNone(result)
+        client.search.assert_not_called()
+
+    def test_header_scan_falls_back_to_single_fetch_when_batch_is_rejected(self):
+        client = MagicMock()
+        reso_header = (
+            b"From: =?utf-8?b?0KDQldCh0J4=?= <mail@reso.ru>\r\n"
+            b"Subject: Policy\r\n\r\n"
+        )
+        other_header = b"From: Other <other@example.com>\r\nSubject: Other\r\n\r\n"
+        client.fetch.side_effect = [
+            imaplib.IMAP4.error("BAD message set"),
+            ("OK", [(b"2 (BODY[HEADER.FIELDS (FROM SUBJECT)] {50}", reso_header), b")"]),
+            ("OK", [(b"1 (BODY[HEADER.FIELDS (FROM SUBJECT)] {50}", other_header), b")"]),
+        ]
+
+        result = _fallback_header_search(client, [b"1", b"2"], "ресо", limit=10)
+
+        self.assertEqual(result, [b"2"])
+        self.assertEqual(client.fetch.call_count, 3)
+
     @patch("integrations.email_imap._connect")
     def test_imap_search_uses_server_search_instead_of_last_50_messages(self, connect):
         client = connect.return_value
@@ -122,7 +168,7 @@ class EmailAssistantTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn("Ozon", messages[0]["from"])
         search_args = client.search.call_args.args
-        self.assertEqual(search_args[0], "UTF-8")
+        self.assertIsNone(search_args[0])
         self.assertIn("FROM", search_args)
         self.assertIn("SUBJECT", search_args)
         self.assertIn("BODY", search_args)
