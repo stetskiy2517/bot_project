@@ -110,12 +110,26 @@ def main() -> None:
                 "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
             )
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-shell')")
+            page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-home')")
 
             expect(page.locator("#voiceBtn")).to_be_visible()
+            expect(page.locator("#mobileBottomNav")).to_be_visible()
             expect(page.locator(".composer-wrap")).to_be_visible()
             expect(page.locator("#message")).to_be_visible()
             expect(page.locator("#fileAttachBtn")).to_be_visible()
             expect(page.locator("#chatVoiceBtn")).not_to_be_visible()
+
+            # The home composer must be part of the core mobile layout, not depend on
+            # file-ingest.js injecting a late style override.
+            page.locator("#fileIngestStyles").evaluate("node => node.remove()")
+            expect(page.locator(".composer-wrap")).to_be_visible()
+            expect(page.locator("#message")).to_be_visible()
+
+            composer_box = page.locator(".composer-wrap").bounding_box()
+            nav_box = page.locator("#mobileBottomNav").bounding_box()
+            assert composer_box and nav_box
+            composer_bottom = composer_box["y"] + composer_box["height"]
+            assert composer_bottom <= nav_box["y"] + 1, (composer_box, nav_box)
 
             page.locator("#message").fill("встреча завтра в 15")
             expect(page.locator("#message")).to_have_value("встреча завтра в 15")
