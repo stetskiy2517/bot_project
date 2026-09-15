@@ -13,13 +13,14 @@ from core.command_store import user_operation
 from core.db import conn, db_lock, get_google_account
 from core.location_context import clear_current_location
 from core.memory_store import init_memory_store
+from core.proactive_store import init_proactive_store
 from scripts.backup_state import retention_days, MIN_SNAPSHOTS_TO_KEEP
 
 ERASE_CONFIRMATION = "УДАЛИТЬ МОИ ДАННЫЕ"
 USER_TABLES = (
     "command_effects", "command_requests", "conversation_state", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
-    "command_templates", "ai_memory_event_processing", "ai_calendar_sync",
+    "command_templates", "proactive_actions", "ai_memory_event_processing", "ai_calendar_sync",
     "user_memories", "ai_memory_events", "notes", "reminders", "tasks",
     "push_subscriptions", "navigation_preferences", "privacy_challenges",
     "oauth_states", "users", "google_accounts",
@@ -28,6 +29,7 @@ USER_TABLES = (
 
 def init_privacy():
     init_memory_store()
+    init_proactive_store()
     with db_lock:
         conn.execute("""CREATE TABLE IF NOT EXISTS privacy_challenges (
             user_id INTEGER PRIMARY KEY, digest TEXT NOT NULL, expires_at REAL NOT NULL
@@ -41,7 +43,7 @@ def privacy_policy() -> dict:
         "minimum_backups_kept": MIN_SNAPSHOTS_TO_KEEP,
         "notice": (
             "Стираются локальная учётная запись, заметки, напоминания, история, изученная ИИ-память, "
-            "настройки, push-подписки и токены доступа. События в Google Calendar остаются. "
+            "журнал проактивных действий, настройки, push-подписки и токены доступа. События в Google Calendar остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -83,6 +85,7 @@ def export_account(user_id: int) -> dict:
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
+                "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,reason,confidence,created_at,updated_at",
                 "reminder_push_policy": "reminder_id,interval_minutes,max_repeats,repeat_count,next_repeat_at",
             }
             for table, fields in selectors.items():
