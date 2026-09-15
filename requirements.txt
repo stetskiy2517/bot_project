@@ -8,3 +8,4 @@ hypercorn>=0.14.0
 requests>=2.31,<3.0
 certifi>=2024.2.2
 pywebpush==2.5.0
+cryptography>=42,<47
