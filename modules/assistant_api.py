@@ -36,13 +36,19 @@ def _recent_login():
 
 
 @assistant_api.after_app_request
-def load_life_wheel_ui(response):
+def load_assistant_ui(response):
     if request.path != "/" or response.status_code != 200 or response.mimetype != "text/html":
         return response
     html = response.get_data(as_text=True)
-    script = '<script src="/life-wheel.js"></script>'
-    if script not in html and "</body>" in html:
-        response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+    scripts = (
+        '<script src="/life-wheel.js"></script>',
+        '<script src="/proactive.js"></script>',
+    )
+    if "</body>" in html:
+        for script in scripts:
+            if script not in html:
+                html = html.replace("</body>", f"    {script}\n  </body>", 1)
+        response.set_data(html)
     return response
 
 
@@ -83,6 +89,11 @@ def use_ai_for_unhandled_chat(response):
 @assistant_api.get("/life-wheel.js")
 def life_wheel_js():
     return send_from_directory(WEB_DIR, "life-wheel.js", mimetype="application/javascript")
+
+
+@assistant_api.get("/proactive.js")
+def proactive_js():
+    return send_from_directory(WEB_DIR, "proactive.js", mimetype="application/javascript")
 
 
 @assistant_api.errorhandler(ValueError)
