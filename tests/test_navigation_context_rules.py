@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
-from modules import navigation, navigation_monitor
+from modules import navigation, navigation_extra_api, navigation_monitor
 from modules.navigation import PreviousEventContext, RouteEstimate
 
 
@@ -114,6 +114,7 @@ class NavigationContextRuleTests(unittest.TestCase):
         queue.assert_called_once()
         estimate.assert_not_called()
 
+    @patch("modules.navigation.remove_navigation_optimization_request")
     @patch("modules.navigation.infer_event_end_location")
     @patch("modules.navigation._event_end")
     @patch("modules.navigation._list_events")
@@ -123,7 +124,7 @@ class NavigationContextRuleTests(unittest.TestCase):
     @patch("modules.navigation.navigation_configured", return_value=True)
     @patch("modules.navigation.get_navigation_preferences")
     def test_same_place_after_ambiguous_previous_event_creates_no_transfer(
-        self, prefs, _configured, _remove, queue, estimate, list_events, event_end, infer
+        self, prefs, _configured, _remove_origin, queue, estimate, list_events, event_end, infer, _remove_optimization
     ):
         prefs.return_value = self.prefs
         walk = {
@@ -144,20 +145,20 @@ class NavigationContextRuleTests(unittest.TestCase):
         queue.assert_not_called()
 
     @patch("modules.navigation._get_calendar_service")
-    @patch("modules.navigation.get_category_colors", return_value={"travel": "7"})
+    @patch("modules.navigation.queue_navigation_optimization_request")
     @patch("modules.navigation.estimate_route")
     @patch("modules.navigation._previous_event_context")
     @patch("modules.navigation.remove_navigation_origin_request")
     @patch("modules.navigation.navigation_configured", return_value=True)
     @patch("modules.navigation.get_navigation_preferences")
-    def test_nearby_previous_event_route_never_overlaps_it(
-        self, prefs, _configured, _remove, previous, estimate, colors, get_service
+    def test_insufficient_gap_offers_optimization_instead_of_partial_transfer(
+        self, prefs, _configured, _remove, previous, estimate, queue_optimization, get_service
     ):
         prefs.return_value = self.prefs
         target = dict(self.target)
         target["location"] = "ВДНХ"
         previous.return_value = PreviousEventContext(
-            event={"id": "office"},
+            event={"id": "office", "summary": "Работа в офисе"},
             end=datetime(2099, 9, 14, 14, 30, tzinfo=self.zone),
             end_location=self.prefs["office_address"],
         )
@@ -169,16 +170,57 @@ class NavigationContextRuleTests(unittest.TestCase):
             distance_meters=15000,
         )
         service = MagicMock()
-        service.events().insert().execute.return_value = {"id": "travel-1"}
         get_service.return_value = service
 
-        navigation.create_travel_for_event(1, target, "Europe/Moscow")
+        result = navigation.create_travel_for_event(1, target, "Europe/Moscow")
 
-        body = service.events().insert.call_args.kwargs["body"]
-        self.assertEqual(body["start"]["dateTime"], "2099-09-14T14:30:00+03:00")
-        self.assertEqual(target["_smartPlannerNavigation"]["status"], "route_conflict")
+        self.assertIsNone(result)
+        service.events().insert.assert_not_called()
+        self.assertEqual(target["_smartPlannerNavigation"]["status"], "optimization_required")
         self.assertEqual(target["_smartPlannerNavigation"]["missing_minutes"], 25)
+        queue_optimization.assert_called_once()
+        kwargs = queue_optimization.call_args.kwargs
+        self.assertEqual(kwargs["required_minutes"], 55)
+        self.assertEqual(kwargs["available_minutes"], 30)
+        self.assertEqual(kwargs["missing_minutes"], 25)
 
+    @patch("modules.navigation._get_calendar_service")
+    @patch("modules.navigation.queue_navigation_optimization_request")
+    @patch("modules.navigation.estimate_route")
+    @patch("modules.navigation._previous_event_context")
+    @patch("modules.navigation.remove_navigation_origin_request")
+    @patch("modules.navigation.navigation_configured", return_value=True)
+    @patch("modules.navigation.get_navigation_preferences")
+    def test_zero_gap_never_creates_zero_length_transfer(
+        self, prefs, _configured, _remove, previous, estimate, queue_optimization, get_service
+    ):
+        prefs.return_value = self.prefs
+        target = dict(self.target)
+        target["location"] = "ВДНХ"
+        previous.return_value = PreviousEventContext(
+            event={"id": "office", "summary": "Работа в офисе"},
+            end=datetime(2099, 9, 14, 15, 0, tzinfo=self.zone),
+            end_location=self.prefs["office_address"],
+        )
+        estimate.return_value = RouteEstimate(
+            origin=self.prefs["office_address"],
+            destination="ВДНХ",
+            mode="driving",
+            duration_minutes=30,
+            distance_meters=12000,
+        )
+        service = MagicMock()
+        get_service.return_value = service
+
+        result = navigation.create_travel_for_event(1, target, "Europe/Moscow")
+
+        self.assertIsNone(result)
+        service.events().insert.assert_not_called()
+        self.assertEqual(target["_smartPlannerNavigation"]["status"], "optimization_required")
+        self.assertEqual(target["_smartPlannerNavigation"]["missing_minutes"], 45)
+        self.assertEqual(queue_optimization.call_args.kwargs["available_minutes"], 0)
+
+    @patch("modules.navigation.remove_navigation_optimization_request")
     @patch("modules.navigation._get_calendar_service")
     @patch("modules.navigation.get_category_colors", return_value={"travel": "7"})
     @patch("modules.navigation.estimate_route")
@@ -187,7 +229,7 @@ class NavigationContextRuleTests(unittest.TestCase):
     @patch("modules.navigation.navigation_configured", return_value=True)
     @patch("modules.navigation.get_navigation_preferences")
     def test_user_selected_origin_can_create_route_without_previous_event(
-        self, prefs, _configured, _remove, _previous, estimate, _colors, get_service
+        self, prefs, _configured, _remove_origin, _previous, estimate, _colors, get_service, _remove_optimization
     ):
         prefs.return_value = self.prefs
         target = dict(self.target)
@@ -212,6 +254,42 @@ class NavigationContextRuleTests(unittest.TestCase):
 
         self.assertEqual(result["id"], "travel-2")
         self.assertEqual(target["_smartPlannerNavigation"]["status"], "created")
+
+    @patch("modules.navigation_extra_api._interval_conflict", return_value=None)
+    def test_optimization_snapshot_builds_shorten_and_shift_options(self, _conflict):
+        previous = {
+            "id": "previous",
+            "summary": "Встреча",
+            "start": {"dateTime": "2099-09-14T14:00:00+03:00"},
+            "end": {"dateTime": "2099-09-14T15:00:00+03:00"},
+        }
+        target = {
+            "id": "target",
+            "summary": "Следующая встреча",
+            "start": {"dateTime": "2099-09-14T15:00:00+03:00"},
+            "end": {"dateTime": "2099-09-14T16:00:00+03:00"},
+        }
+        events = {"previous": previous, "target": target}
+        service = MagicMock()
+        service.events().get.side_effect = lambda **kwargs: MagicMock(execute=lambda: events[kwargs["eventId"]])
+        item = {
+            "event_id": "target",
+            "previous_event_id": "previous",
+            "timezone": "Europe/Moscow",
+            "origin": "Офис",
+            "destination": "ВДНХ",
+            "required_minutes": 45,
+            "available_minutes": 0,
+            "missing_minutes": 45,
+        }
+
+        snapshot = navigation_extra_api._optimization_snapshot(1, item, service)
+
+        self.assertEqual(snapshot["missing_minutes"], 45)
+        self.assertEqual(snapshot["shorten_end"].isoformat(), "2099-09-14T14:15:00+03:00")
+        self.assertTrue(snapshot["can_shorten"])
+        self.assertEqual(snapshot["shifted_start"].isoformat(), "2099-09-14T15:45:00+03:00")
+        self.assertEqual(snapshot["shifted_end"].isoformat(), "2099-09-14T16:45:00+03:00")
 
 
 class NavigationMonitorWindowTests(unittest.TestCase):
