@@ -11,6 +11,7 @@
   const DIRECTION_RATIO = 1.25;
   let gesture = null;
   let libraryDocumentOpen = false;
+  let suppressClickUntil = 0;
 
   function modalOpen() {
     return Boolean(
@@ -20,9 +21,9 @@
     );
   }
 
-  function interactiveTarget(target) {
+  function blockedGestureTarget(target) {
     return Boolean(target?.closest(
-      "input, textarea, select, button, a, .record-button, .composer-voice-button, .library-swipe-row, .reminder-action"
+      "input, textarea, select, #mobileBottomNav, .record-button, .composer-voice-button, .library-swipe-row, .reminder-action"
     ));
   }
 
@@ -50,6 +51,10 @@
     return true;
   }
 
+  function suppressNextClick() {
+    suppressClickUntil = performance.now() + 400;
+  }
+
   document.addEventListener("planner-library-open", () => {
     libraryDocumentOpen = true;
   });
@@ -58,8 +63,21 @@
     if (!app.classList.contains("chat-active")) libraryDocumentOpen = false;
   });
 
+  const appObserver = new MutationObserver(() => {
+    if (!app.classList.contains("chat-active") && !app.classList.contains("library-active")) {
+      libraryDocumentOpen = false;
+    }
+  });
+  appObserver.observe(app, {attributes: true, attributeFilter: ["class"]});
+
+  document.addEventListener("click", event => {
+    if (performance.now() >= suppressClickUntil) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
   document.addEventListener("touchstart", event => {
-    if (modalOpen() || event.touches.length !== 1 || interactiveTarget(event.target)) {
+    if (modalOpen() || event.touches.length !== 1 || blockedGestureTarget(event.target)) {
       gesture = null;
       return;
     }
@@ -85,6 +103,7 @@
 
     // Any nested mobile sheet behaves as a screen: swipe right goes one level back.
     if (dx > 0 && closeTopSheet()) {
+      suppressNextClick();
       event.stopPropagation();
       event.preventDefault();
       return;
@@ -96,6 +115,7 @@
     // On top-level screens, horizontal swipes follow the exact order of bottom navigation.
     const changed = dx < 0 ? switchView(1) : switchView(-1);
     if (changed) {
+      suppressNextClick();
       event.stopPropagation();
       event.preventDefault();
     }
