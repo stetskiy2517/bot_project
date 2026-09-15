@@ -32,8 +32,9 @@ class GmailAttachmentTests(unittest.TestCase):
     @patch("integrations.email_gmail._service")
     def test_fetch_attachment_decodes_gmail_attachment_api(self, service_factory):
         service = service_factory.return_value
+        attachment_get = service.users.return_value.messages.return_value.attachments.return_value.get
         encoded = base64.urlsafe_b64encode(b"%PDF-ticket").decode("ascii").rstrip("=")
-        service.users().messages().attachments().get().execute.return_value = {"data": encoded}
+        attachment_get.return_value.execute.return_value = {"data": encoded}
 
         data = email_gmail.fetch_attachment_bytes(
             {"token": "x"},
@@ -43,9 +44,7 @@ class GmailAttachmentTests(unittest.TestCase):
         )
 
         self.assertEqual(data, b"%PDF-ticket")
-        service.users().messages().attachments().get.assert_called_once_with(
-            userId="me", messageId="message-1", id="att-1"
-        )
+        attachment_get.assert_called_once_with(userId="me", messageId="message-1", id="att-1")
 
 
 class ImapAttachmentTests(unittest.TestCase):
