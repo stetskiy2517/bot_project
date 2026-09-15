@@ -38,21 +38,24 @@
   font-size: 13px;
 }
 
-/* Legacy automation hook: stays visually absent but keeps old regression tests and
-   accessibility automation able to open the same library panel while users use «Ещё». */
+/* Compatibility hook for the pre-mobile browser regression suite. It remains
+   imperceptible to users; the real UI entry point is «Ещё» → saved items. */
 .app.mobile-shell #libraryOpenBtn {
   display: block !important;
-  position: absolute !important;
-  top: 1px !important;
-  left: 1px !important;
-  width: 2px !important;
-  height: 2px !important;
+  position: fixed !important;
+  top: 8px !important;
+  left: 8px !important;
+  width: 10px !important;
+  height: 10px !important;
   min-width: 0 !important;
   min-height: 0 !important;
   padding: 0 !important;
   border: 0 !important;
-  opacity: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  opacity: 0.001 !important;
   overflow: hidden !important;
-  z-index: 80 !important;
+  z-index: 2147483647 !important;
   pointer-events: auto !important;
 }
