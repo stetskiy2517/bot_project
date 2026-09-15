@@ -58,14 +58,10 @@ def _format(messages: list[tuple[dict, dict]]) -> str:
     return "\n\n".join(lines)
 
 
-async def handle_email_text(update, context, text: str) -> bool:
-    user_id = getattr(update.effective_user, "id", None)
-    if user_id is None:
-        return False
+def answer_email_query(user_id: int, text: str) -> str:
     accounts = [account for account in list_email_accounts(user_id) if account.get("enabled")]
     if not accounts:
-        await update.message.reply_text("Почта ещё не подключена. Открой настройки и добавь Gmail, Яндекс или Mail.ru.")
-        return True
+        return "Почта ещё не подключена. Открой настройки и добавь Gmail, Яндекс или Mail.ru."
     unread_only = bool(UNREAD_RE.search(text))
     query = _query_from_text(text)
     collected: list[tuple[dict, dict]] = []
@@ -74,11 +70,17 @@ async def handle_email_text(update, context, text: str) -> bool:
         try:
             for message in _read_account(user_id, account, query=query, unread_only=unread_only, limit=10):
                 collected.append((account, message))
-        except Exception as exc:
+        except Exception:
             logger.exception("Failed to read email account %s for user %s", account.get("account_id"), user_id)
             errors.append(account.get("email") or account.get("provider"))
     if not collected and errors:
-        await update.message.reply_text("Не удалось прочитать почту. Проверь подключение ящика в настройках.")
-        return True
-    await update.message.reply_text(_format(collected))
+        return "Не удалось прочитать почту. Проверь подключение ящика в настройках."
+    return _format(collected)
+
+
+async def handle_email_text(update, context, text: str) -> bool:
+    user_id = getattr(update.effective_user, "id", None)
+    if user_id is None:
+        return False
+    await update.message.reply_text(answer_email_query(user_id, text))
     return True
