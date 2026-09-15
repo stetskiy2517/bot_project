@@ -13,7 +13,8 @@ from core.email_store import PROVIDERS
 MAX_FETCH = 50
 MAX_HEADER_SCAN = 5000
 HEADER_SCAN_BATCH = 50
-MAX_PREVIEW = 500
+MAX_PREVIEW = 700
+MAX_BODY = 6000
 
 
 class EmailAuthenticationError(RuntimeError):
@@ -33,28 +34,46 @@ def _decode(value: str | None) -> str:
         return str(value).strip()
 
 
-def _plain_text(message: Message) -> str:
-    chunks: list[str] = []
-    if message.is_multipart():
-        parts = message.walk()
-    else:
-        parts = [message]
+def _decoded_part(part: Message) -> str:
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
+def _html_text(value: str) -> str:
+    clean = re.sub(r"(?is)<(?:script|style).*?>.*?</(?:script|style)>", " ", value)
+    clean = re.sub(r"(?i)<br\s*/?>|</p\s*>|</div\s*>|</li\s*>", "\n", clean)
+    clean = re.sub(r"(?s)<[^>]+>", " ", clean)
+    return unescape(clean)
+
+
+def _message_text(message: Message) -> str:
+    plain: list[str] = []
+    html: list[str] = []
+    parts = message.walk() if message.is_multipart() else [message]
     for part in parts:
         if part.get_content_maintype() == "multipart" or part.get_filename():
             continue
-        if part.get_content_type() != "text/plain":
+        content_type = part.get_content_type()
+        if content_type not in {"text/plain", "text/html"}:
             continue
-        payload = part.get_payload(decode=True)
-        if not payload:
+        text = _decoded_part(part)
+        if not text:
             continue
-        charset = part.get_content_charset() or "utf-8"
-        try:
-            text = payload.decode(charset, errors="replace")
-        except LookupError:
-            text = payload.decode("utf-8", errors="replace")
-        chunks.append(text)
-    clean = re.sub(r"\s+", " ", unescape(" ".join(chunks))).strip()
-    return clean[:MAX_PREVIEW]
+        if content_type == "text/plain":
+            plain.append(text)
+        else:
+            html.append(_html_text(text))
+    source = "\n".join(plain) if plain else "\n".join(html)
+    clean = re.sub(r"[ \t]+", " ", unescape(source))
+    clean = re.sub(r"\n\s*\n+", "\n", clean)
+    clean = re.sub(r"\s*\n\s*", "\n", clean).strip()
+    return clean[:MAX_BODY]
 
 
 def _message_payload(raw: bytes) -> dict:
@@ -64,11 +83,13 @@ def _message_payload(raw: bytes) -> dict:
         parsed = parsedate_to_datetime(date_value).isoformat() if date_value else None
     except (TypeError, ValueError, OverflowError):
         parsed = None
+    body = _message_text(message)
     return {
         "from": _decode(message.get("From")),
         "subject": _decode(message.get("Subject")) or "Без темы",
         "date": parsed or date_value,
-        "preview": _plain_text(message),
+        "preview": body[:MAX_PREVIEW],
+        "body": body,
     }
 
 
@@ -132,10 +153,6 @@ def _quoted_search_value(query: str) -> str:
 
 
 def _server_search(client, query: str, *, unread_only: bool) -> list[bytes] | None:
-    # Several IMAP servers, including real-world Yandex accounts, reject
-    # SEARCH CHARSET UTF-8 even though regular IMAP access works. Use server-side
-    # search only for ASCII terms and fall back to decoded header scanning for
-    # Cyrillic/non-ASCII names.
     try:
         query.encode("ascii")
     except UnicodeEncodeError:
@@ -225,9 +242,6 @@ def _fallback_header_search(client, ids: list[bytes], query: str, *, limit: int)
         if batch_ok and parsed_any:
             matches.extend(sorted(batch_matches, key=int, reverse=True))
         else:
-            # Some servers reject a comma-separated message set for this FETCH
-            # form. Degrade to individual header reads instead of failing the
-            # whole mailbox query.
             for message_id in reversed(batch):
                 if _scan_header_one(client, message_id, query):
                     matches.append(message_id)
@@ -283,7 +297,7 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
                 continue
             item = _message_payload(bytes(raw))
             if query_normalized and not already_filtered:
-                haystack = " ".join((item["from"], item["subject"], item["preview"])).casefold()
+                haystack = " ".join((item["from"], item["subject"], item.get("body") or item["preview"])).casefold()
                 if query_normalized not in haystack:
                     continue
             results.append(item)
