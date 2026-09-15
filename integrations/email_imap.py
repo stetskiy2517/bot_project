@@ -14,6 +14,14 @@ MAX_FETCH = 50
 MAX_PREVIEW = 500
 
 
+class EmailAuthenticationError(RuntimeError):
+    pass
+
+
+class EmailTransportError(RuntimeError):
+    pass
+
+
 def _decode(value: str | None) -> str:
     if not value:
         return ""
@@ -62,12 +70,38 @@ def _message_payload(raw: bytes) -> dict:
     }
 
 
+def _auth_error_message(provider: str) -> str:
+    if provider == "yandex":
+        return (
+            "Яндекс отклонил вход. Если пароль приложения создан только что, подожди 2–3 часа. "
+            "Проверь в Яндекс Почте: Настройки → Почтовые программы → включены IMAP и "
+            "«Пароли приложений и OAuth-токены»."
+        )
+    if provider == "mailru":
+        return "Mail.ru отклонил вход. Проверь адрес ящика и пароль приложения для почты."
+    return "Почтовый сервер отклонил вход. Проверь адрес ящика и пароль приложения."
+
+
 def _connect(provider: str, address: str, password: str):
     config = PROVIDERS.get(provider)
     if not config or not config.get("imap_host"):
         raise ValueError("Для этого провайдера IMAP не поддерживается")
-    client = imaplib.IMAP4_SSL(config["imap_host"], int(config["imap_port"]), timeout=15)
-    client.login(address, password)
+    address = str(address or "").strip()
+    password = str(password or "").strip()
+    if not address or not password:
+        raise ValueError("Не указан email или пароль приложения")
+    try:
+        client = imaplib.IMAP4_SSL(config["imap_host"], int(config["imap_port"]), timeout=15)
+    except (OSError, TimeoutError) as exc:
+        raise EmailTransportError("Не удалось связаться с почтовым сервером. Попробуй ещё раз позже.") from exc
+    try:
+        client.login(address, password)
+    except imaplib.IMAP4.error as exc:
+        try:
+            client.logout()
+        except Exception:
+            pass
+        raise EmailAuthenticationError(_auth_error_message(provider)) from exc
     return client
 
 
