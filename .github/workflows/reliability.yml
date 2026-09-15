@@ -1,0 +1,60 @@
+name: Reliability checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WEB_PUSH_WORKER_ENABLED: "0"
+      WEB_SESSION_SECRET: "ci-only-random-looking-secret-at-least-32-characters"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Capture source
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/revision.txt
+          git archive HEAD -o evidence/source.tar
+          git archive c0492ef378ea5cdc70f56ed2ef73ef195fa55626 -o evidence/main-source.tar
+          git archive bf6f38d245ec8ef1f966000e38ad8c912ce8fc9a -o evidence/base-source.tar
+          git diff --binary bf6f38d245ec8ef1f966000e38ad8c912ce8fc9a c0492ef378ea5cdc70f56ed2ef73ef195fa55626 > evidence/main-changes.patch
+      - name: Install dependencies
+        run: pip install -r requirements.txt coverage ruff
+      - name: Run Python suite
+        run: |
+          set -o pipefail
+          coverage run --source=core,modules,integrations,web_app -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee evidence/tests.log
+      - name: Validate source
+        if: always()
+        run: |
+          python -m compileall -q core modules integrations web_app.py
+          ruff check --select E9,F63,F7,F82 .
+          find web -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          node tests/voice_gesture_test.js
+          bash -n deploy.sh scripts/deploy_update.sh
+      - name: Coverage report
+        if: always()
+        run: coverage report > evidence/coverage.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reliability-evidence
+          path: evidence/
+          retention-days: 7
