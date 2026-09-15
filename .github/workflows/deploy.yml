@@ -86,6 +86,28 @@ jobs:
             "$SECRET_FILE" \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-ors-key"
 
+      - name: Upload optional GigaChat secret
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
+        run: |
+          if [ -z "$GIGACHAT_CREDENTIALS" ]; then
+            echo "GIGACHAT_CREDENTIALS is not configured in GitHub Secrets; preserving any server-side credential"
+            exit 0
+          fi
+          SECRET_FILE="$(mktemp)"
+          trap 'rm -f "$SECRET_FILE"' EXIT
+          chmod 600 "$SECRET_FILE"
+          printf '%s' "$GIGACHAT_CREDENTIALS" > "$SECRET_FILE"
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SECRET_FILE" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-gigachat-credentials"
+
       - name: Deploy tested commit
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -98,4 +120,4 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "NAVIGATION_KEY_FILE=/tmp/personal-secretary-ors-key PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-deploy.sh '$TARGET_SHA'"
+            "NAVIGATION_KEY_FILE=/tmp/personal-secretary-ors-key AI_KEY_FILE=/tmp/personal-secretary-gigachat-credentials PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-deploy.sh '$TARGET_SHA'"
