@@ -28,6 +28,7 @@ from modules.life_balance_api import life_balance_api
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
 from modules.memory_controls_api import memory_controls_api
+from modules.mobile_ui_api import mobile_ui_api
 from modules.navigation_extra_api import navigation_extra_api
 from modules.navigation_recurring import start_navigation_recurring_worker
 from modules.note_tools_api import note_tools_api
@@ -269,6 +270,7 @@ assistant_api.register_blueprint(life_balance_api)
 assistant_api.register_blueprint(navigation_extra_api)
 assistant_api.register_blueprint(note_tools_api)
 assistant_api.register_blueprint(yandex_auth_api)
+assistant_api.register_blueprint(mobile_ui_api)
 start_memory_worker()
 start_proactive_worker()
 start_navigation_recurring_worker()
