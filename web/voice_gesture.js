@@ -8,6 +8,7 @@
           --stable-app-height: 100dvh;
           --keyboard-inset: 0px;
           --viewport-pan: 0px;
+          --voice-keyboard-lift: 0px;
         }
         .app,
         .panel,
@@ -25,6 +26,60 @@
         }
         .composer-wrap {
           bottom: var(--keyboard-inset, 0px) !important;
+        }
+        .record-button {
+          transition:
+            width .32s cubic-bezier(.22,.8,.24,1),
+            height .32s cubic-bezier(.22,.8,.24,1),
+            transform .18s ease,
+            box-shadow .2s ease,
+            background .2s ease;
+        }
+        .record-button svg {
+          transition:
+            width .32s cubic-bezier(.22,.8,.24,1),
+            height .32s cubic-bezier(.22,.8,.24,1);
+        }
+        .voice-title {
+          transition: margin-bottom .28s cubic-bezier(.22,.8,.24,1);
+        }
+        .voice-caption,
+        .voice-sub {
+          overflow: hidden;
+          transition:
+            opacity .16s ease,
+            transform .28s cubic-bezier(.22,.8,.24,1),
+            max-height .28s cubic-bezier(.22,.8,.24,1),
+            margin-top .28s cubic-bezier(.22,.8,.24,1);
+        }
+        .voice-caption {
+          max-height: 24px;
+        }
+        .voice-sub {
+          max-height: 20px;
+        }
+        :root.composer-keyboard-open .voice-shell {
+          transform: translateY(calc(-2vh - var(--voice-keyboard-lift, 96px)));
+        }
+        :root.composer-keyboard-open .voice-title {
+          margin-bottom: 16px;
+        }
+        :root.composer-keyboard-open .record-button {
+          width: 104px;
+          height: 104px;
+          box-shadow: 0 12px 34px rgba(0, 0, 0, 0.11);
+        }
+        :root.composer-keyboard-open .record-button svg {
+          width: 34px;
+          height: 34px;
+        }
+        :root.composer-keyboard-open .voice-caption,
+        :root.composer-keyboard-open .voice-sub {
+          max-height: 0;
+          margin-top: 0;
+          opacity: 0;
+          transform: translateY(-8px);
+          pointer-events: none;
         }
       }
     `;
@@ -67,10 +122,17 @@
         ? Math.max(0, stableHeight - viewportHeight)
         : 0;
       const panCompensation = keyboardOpen ? viewportPan : 0;
+      const composerKeyboardOpen =
+        keyboardOpen && document.activeElement?.id === "message";
+      const voiceKeyboardLift = composerKeyboardOpen
+        ? Math.min(128, Math.max(76, keyboardInset * 0.3))
+        : 0;
 
       root.style.setProperty("--stable-app-height", Math.round(stableHeight) + "px");
       root.style.setProperty("--keyboard-inset", Math.round(keyboardInset) + "px");
       root.style.setProperty("--viewport-pan", Math.round(panCompensation) + "px");
+      root.style.setProperty("--voice-keyboard-lift", Math.round(voiceKeyboardLift) + "px");
+      root.classList?.toggle?.("composer-keyboard-open", composerKeyboardOpen);
 
       if (keyboardInset && document.activeElement?.id === "message") {
         requestAnimationFrame(() => {

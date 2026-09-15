@@ -17,11 +17,39 @@ class FakeStyle {
   }
 }
 
+class FakeClassList {
+  constructor() {
+    this.values = new Set();
+  }
+
+  toggle(name, force) {
+    if (force === false) {
+      this.values.delete(name);
+      return false;
+    }
+    if (force === true) {
+      this.values.add(name);
+      return true;
+    }
+    if (this.values.has(name)) {
+      this.values.delete(name);
+      return false;
+    }
+    this.values.add(name);
+    return true;
+  }
+
+  contains(name) {
+    return this.values.has(name);
+  }
+}
+
 class FakeElement {
   constructor(rectTop = 0) {
     this.rectTop = rectTop;
     this.style = new FakeStyle();
     this.textContent = "";
+    this.id = "";
   }
 
   matches(selector) {
@@ -42,9 +70,14 @@ const markerIndex = source.indexOf(marker);
 assert.ok(markerIndex > 0, "viewport module boundary not found");
 const viewportSource = source.slice(0, markerIndex + "\n})();".length);
 
-const root = {clientHeight: 844, style: new FakeStyle()};
+const root = {
+  clientHeight: 844,
+  style: new FakeStyle(),
+  classList: new FakeClassList(),
+};
 const body = new FakeElement(-84);
 const activeInput = new FakeElement();
+activeInput.id = "message";
 const head = {appendChild() {}};
 const document = {
   documentElement: root,
@@ -89,5 +122,7 @@ vm.runInContext(viewportSource, context, {filename: "viewport-module.js"});
 assert.equal(root.style.getPropertyValue("--stable-app-height"), "844px");
 assert.equal(root.style.getPropertyValue("--keyboard-inset"), "344px");
 assert.equal(root.style.getPropertyValue("--viewport-pan"), "84px");
+assert.equal(root.style.getPropertyValue("--voice-keyboard-lift"), "103px");
+assert.equal(root.classList.contains("composer-keyboard-open"), true);
 
 console.log("viewport pan tests passed");
