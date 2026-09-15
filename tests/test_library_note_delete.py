@@ -66,6 +66,14 @@ class LibraryNoteDeleteTests(unittest.TestCase):
         self.assertIn('row.dataset.leftWidth = "0"', script)
         self.assertIn('else if (total > 44) setSwipeOffset(start.row, 88);', script)
 
+    def test_note_changes_do_not_auto_add_undo_message_to_chat(self):
+        response = self.client.get("/assistant.js")
+        script = response.get_data(as_text=True)
+        response.close()
+        self.assertNotIn("Изменение заметки можно отменить в течение 10 минут.", script)
+        self.assertNotIn("async function showUndo()", script)
+        self.assertIn('id="undoNoteAction"', script)
+
 
 if __name__ == "__main__":
     unittest.main()
