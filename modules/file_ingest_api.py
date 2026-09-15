@@ -89,6 +89,10 @@ def _valid_timezone(value: object) -> str | None:
     return raw
 
 
+def _clean_location(value: object) -> str:
+    return " ".join(str(value or "").split()).strip(" ,.;")[:500]
+
+
 @file_ingest_api.get("/file-ingest.js")
 def file_ingest_js():
     return send_from_directory(WEB_DIR, "file-ingest.js", mimetype="application/javascript")
@@ -150,14 +154,31 @@ def create_event_from_file():
     category = str(proposal.get("category") or "personal").strip().lower()
     if category not in ALLOWED_CATEGORIES:
         category = "personal"
-    location = " ".join(str(proposal.get("location") or "").split()).strip()[:500]
+
+    location = _clean_location(proposal.get("location"))
+    start_location = _clean_location(proposal.get("start_location"))
+    end_location = _clean_location(proposal.get("end_location"))
+    movement = bool(proposal.get("movement") and start_location and end_location)
+    calendar_location = start_location if movement else (location or start_location or end_location)
+
     details = str(proposal.get("description") or "").strip()[:1500]
     description = (
         f"AI Smart Planner category: {category}\n"
         "Создано из загруженного файла после подтверждения пользователя."
     )
+    if movement:
+        description += f"\nМаршрут: {start_location} → {end_location}"
     if details:
         description += f"\n\n{details}"
+
+    private = {
+        "smartPlannerType": "file_import",
+        "smartPlannerManaged": "1",
+    }
+    if movement:
+        private["smartPlannerMovement"] = "1"
+        private["smartPlannerStartLocation"] = start_location
+        private["smartPlannerEndLocation"] = end_location
 
     event = {
         "summary": title,
@@ -165,19 +186,14 @@ def create_event_from_file():
         "start": {"dateTime": start.isoformat()},
         "end": {"dateTime": end.isoformat()},
         "transparency": "opaque",
-        "extendedProperties": {
-            "private": {
-                "smartPlannerType": "file_import",
-                "smartPlannerManaged": "1",
-            }
-        },
+        "extendedProperties": {"private": private},
     }
     if start_timezone:
         event["start"]["timeZone"] = start_timezone
     if end_timezone:
         event["end"]["timeZone"] = end_timezone
-    if location:
-        event["location"] = location
+    if calendar_location:
+        event["location"] = calendar_location
     color = get_category_colors(_user()).get(category)
     if color:
         event["colorId"] = color
