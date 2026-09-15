@@ -24,6 +24,7 @@ from modules.email import detect_email_intent
 from modules.email_api import email_api
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
+from modules.memory_controls_api import memory_controls_api
 from modules.proactive import proactive_status, start_proactive_worker
 from modules.task_api import task_api
 
@@ -254,5 +255,6 @@ def account_erase():
 assistant_api.register_blueprint(admin_api)
 assistant_api.register_blueprint(email_api)
 assistant_api.register_blueprint(task_api)
+assistant_api.register_blueprint(memory_controls_api)
 start_memory_worker()
 start_proactive_worker()
