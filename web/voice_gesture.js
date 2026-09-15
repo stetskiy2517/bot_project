@@ -59,7 +59,7 @@
           max-height: 20px;
         }
         :root.composer-keyboard-open .voice-shell {
-          transform: translateY(calc(-2vh - var(--voice-keyboard-lift, 96px)));
+          transform: translateY(calc(-2vh - var(--voice-keyboard-lift, 144px)));
         }
         :root.composer-keyboard-open .voice-title {
           margin-bottom: 16px;
@@ -125,7 +125,7 @@
       const composerKeyboardOpen =
         keyboardOpen && document.activeElement?.id === "message";
       const voiceKeyboardLift = composerKeyboardOpen
-        ? Math.min(128, Math.max(76, keyboardInset * 0.3))
+        ? Math.min(176, Math.max(132, keyboardInset * 0.44))
         : 0;
 
       root.style.setProperty("--stable-app-height", Math.round(stableHeight) + "px");
