@@ -43,6 +43,9 @@ MEMORY_SCHEMA = {
                     "confidence": {"type": "number"},
                     "evidence": {"type": "string"},
                     "action_title": {"type": "string"},
+                    "action_type": {"type": "string", "enum": ["reminder", "calendar_event"]},
+                    "action_confidence": {"type": "number"},
+                    "duration_minutes": {"type": "integer", "minimum": 15, "maximum": 480},
                     "schedule": {
                         "type": "object",
                         "properties": {
@@ -68,7 +71,9 @@ MEMORY_SCHEMA = {
 
 MEMORY_SYSTEM_PROMPT = memory_system_prompt()
 HABIT_SCHEDULE_TYPES = {"daily", "weekdays", "weekends", "weekly"}
+HABIT_ACTION_TYPES = {"reminder", "calendar_event"}
 HABIT_CLOCK_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+MIN_ACTION_CONFIDENCE = 0.90
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -367,16 +372,41 @@ def _normalize_habit_schedule(value: Any) -> dict | None:
     return result
 
 
-def _habit_value(item: dict, statement: str) -> Any:
+def _habit_value(item: dict, statement: str) -> dict:
+    result: dict[str, Any] = {"statement": statement}
     action_title = _clean_string(item.get("action_title"), 160).strip(" .,:;-")
+    action_type = str(item.get("action_type") or "").strip().lower()
     schedule = _normalize_habit_schedule(item.get("schedule"))
-    if not action_title or schedule is None:
-        return statement
-    return {
-        "statement": statement,
-        "action_title": action_title,
-        "schedule": schedule,
-    }
+    try:
+        action_confidence = float(item.get("action_confidence"))
+    except (TypeError, ValueError):
+        return result
+    action_confidence = max(0.0, min(1.0, action_confidence))
+    if (
+        not action_title
+        or action_type not in HABIT_ACTION_TYPES
+        or schedule is None
+        or action_confidence < MIN_ACTION_CONFIDENCE
+    ):
+        return result
+    result.update(
+        {
+            "action_title": action_title,
+            "action_type": action_type,
+            "action_confidence": action_confidence,
+            "schedule": schedule,
+        }
+    )
+    if action_type == "calendar_event":
+        raw_duration = item.get("duration_minutes", 60)
+        try:
+            duration = int(raw_duration)
+        except (TypeError, ValueError):
+            return {"statement": statement}
+        if not 15 <= duration <= 480:
+            return {"statement": statement}
+        result["duration_minutes"] = duration
+    return result
 
 
 def _extract_memories(payload: dict) -> list[dict]:
