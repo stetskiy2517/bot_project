@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences
 from core.db import conn, db_lock, get_or_create_google_user, save_user_timezone
 from core.memory_store import upsert_memory
-from core.proactive_store import get_proactive_decision
+from core.proactive_store import get_proactive_decision, record_proactive_decision
 from core.reminder_store import create_reminder, list_active_reminders
 from modules.proactive import evaluate_user_proactive
 
@@ -35,12 +35,19 @@ class ProactiveReminderTests(unittest.TestCase):
                     conn.execute(f"DELETE FROM {table} WHERE user_id=?", (self.user_id,))
             conn.commit()
 
-    def _habit(self, *, confidence=0.97, evidence="Я каждый вечер в 22:00 принимаю таблетки", source_type="note"):
+    def _habit(
+        self,
+        *,
+        confidence=0.97,
+        evidence="Я каждый вечер в 22:00 принимаю таблетки",
+        source_type="note",
+        value="Принять таблетки",
+    ):
         return upsert_memory(
             self.user_id,
             "habit",
             "evening_medicine",
-            "Принять таблетки",
+            value,
             confidence,
             source_type=source_type,
             source_id="test-source",
@@ -74,6 +81,49 @@ class ProactiveReminderTests(unittest.TestCase):
         decision = get_proactive_decision(self.user_id, memory["memory_id"])
         self.assertEqual(decision["status"], "created")
         self.assertEqual(decision["reminder_id"], reminders[0]["reminder_id"])
+
+    def test_raw_habit_sentence_becomes_short_action_title(self):
+        save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})
+        self._habit(value="Я каждый вечер в 22:00 принимаю таблетки")
+
+        result = evaluate_user_proactive(self.user_id, now=self.now)
+
+        self.assertEqual(result["created"], 1)
+        reminders = list_active_reminders(self.user_id)
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0]["text"], "Принять таблетку")
+
+    def test_existing_proactive_raw_title_is_repaired_without_recreating_reminder(self):
+        save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})
+        memory = self._habit(value="каждый вечер в 22:00 принимать таблетки")
+        due = datetime(2026, 9, 15, 22, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+        existing = create_reminder(
+            self.user_id,
+            "каждый вечер в 22:00 принимать таблетки",
+            due,
+            repeat_rule="daily",
+            repeat_timezone="Europe/Moscow",
+        )
+        record_proactive_decision(
+            self.user_id,
+            memory["memory_id"],
+            memory.get("updated_at") or "",
+            status="created",
+            reminder_id=existing["reminder_id"],
+            reason="Создано по привычке.",
+            confidence=0.97,
+        )
+
+        result = evaluate_user_proactive(self.user_id, now=self.now)
+
+        self.assertEqual(result["created"], 0)
+        reminders = list_active_reminders(self.user_id)
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0]["reminder_id"], existing["reminder_id"])
+        self.assertEqual(reminders[0]["text"], "Принять таблетку")
+        decision = get_proactive_decision(self.user_id, memory["memory_id"])
+        self.assertEqual(decision["status"], "created")
+        self.assertIn("Нормализован", decision["reason"])
 
     def test_vague_habit_without_exact_time_is_not_actionable(self):
         save_assistant_preferences(self.user_id, {"proactive_reminders_enabled": True})

@@ -14,6 +14,7 @@ from core.assistant_preferences import get_assistant_preferences
 from core.db import conn, db_lock, get_user_timezone
 from core.memory_store import list_memories
 from core.proactive_store import (
+    get_proactive_decision,
     proactive_status,
     record_proactive_decision,
     should_evaluate_memory,
@@ -40,6 +41,53 @@ STOP_WORDS = {
     "будням", "выходным", "неделю", "недели", "пользователь", "обычно", "всегда", "нужно",
     "надо", "после", "перед", "около", "примерно", "напомнить", "напоминание",
 }
+
+LEADING_SUBJECT_RE = re.compile(r"^\s*(?:пользователь|я)\s+", re.IGNORECASE)
+LEADING_FILLER_RE = re.compile(r"^\s*(?:(?:обычно|всегда|регулярно|как\s+правило)\s+)+", re.IGNORECASE)
+HABIT_RECURRENCE_RE = re.compile(
+    r"\b(?:"
+    r"ежедневно|еженедельно|"
+    r"по\s+(?:будням|выходным)|"
+    r"кажд(?:ый|ая|ое|ую|ые)\s+(?:"
+    r"день|вечер|утро|ночь|недел\w*|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*"
+    r")"
+    r")\b",
+    re.IGNORECASE,
+)
+HABIT_CLOCK_RE = re.compile(
+    r"\b(?:в|к)\s+(?:[01]?\d|2[0-3])(?:(?::|\.)[0-5]\d)?\b",
+    re.IGNORECASE,
+)
+MEDICINE_TABLET_RE = re.compile(
+    r"^(?:принимаю|принимает|принимать)\s+таблетк(?:и|у)\b(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+VERB_REWRITES = (
+    (re.compile(r"^принимаю\b", re.IGNORECASE), "Принять"),
+    (re.compile(r"^принимает\b", re.IGNORECASE), "Принять"),
+    (re.compile(r"^принимать\b", re.IGNORECASE), "Принять"),
+    (re.compile(r"^пью\b", re.IGNORECASE), "Выпить"),
+    (re.compile(r"^выпиваю\b", re.IGNORECASE), "Выпить"),
+    (re.compile(r"^проверяю\b", re.IGNORECASE), "Проверить"),
+    (re.compile(r"^делаю\b", re.IGNORECASE), "Сделать"),
+    (re.compile(r"^гуляю\b", re.IGNORECASE), "Погулять"),
+    (re.compile(r"^тренируюсь\b", re.IGNORECASE), "Тренироваться"),
+    (re.compile(r"^занимаюсь\b", re.IGNORECASE), "Заняться"),
+    (re.compile(r"^читаю\b", re.IGNORECASE), "Читать"),
+    (re.compile(r"^звоню\b", re.IGNORECASE), "Позвонить"),
+    (re.compile(r"^пишу\b", re.IGNORECASE), "Написать"),
+    (re.compile(r"^ложусь\b", re.IGNORECASE), "Лечь"),
+    (re.compile(r"^встаю\b", re.IGNORECASE), "Встать"),
+    (re.compile(r"^завтракаю\b", re.IGNORECASE), "Позавтракать"),
+    (re.compile(r"^обедаю\b", re.IGNORECASE), "Пообедать"),
+    (re.compile(r"^ужинаю\b", re.IGNORECASE), "Поужинать"),
+    (re.compile(r"^медитирую\b", re.IGNORECASE), "Медитировать"),
+    (re.compile(r"^чищу\b", re.IGNORECASE), "Почистить"),
+    (re.compile(r"^кормлю\b", re.IGNORECASE), "Покормить"),
+    (re.compile(r"^поливаю\b", re.IGNORECASE), "Полить"),
+    (re.compile(r"^выгуливаю\b", re.IGNORECASE), "Выгулять"),
+)
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -85,12 +133,83 @@ def _memory_text(memory: dict) -> str:
     return " ".join(part for part in (value, evidence) if part)
 
 
-def _reminder_text(memory: dict) -> str:
+def _legacy_reminder_text(memory: dict) -> str:
     text = " ".join(str(memory.get("value") or "").split()).strip()
     if not text:
         text = "Не забудь о привычке"
     text = re.sub(r"^пользователь\s+", "", text, flags=re.IGNORECASE)
     return text[:300].strip(" .")
+
+
+def _reminder_text(memory: dict) -> str:
+    """Turn a stored habit sentence into a short action title for the reminder card."""
+    legacy = _legacy_reminder_text(memory)
+    text = LEADING_SUBJECT_RE.sub("", legacy, count=1)
+    text = LEADING_FILLER_RE.sub("", text, count=1)
+    text = HABIT_RECURRENCE_RE.sub(" ", text)
+    text = HABIT_CLOCK_RE.sub(" ", text)
+    text = LEADING_SUBJECT_RE.sub("", text, count=1)
+    text = LEADING_FILLER_RE.sub("", text, count=1)
+    text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
+
+    tablet = MEDICINE_TABLET_RE.match(text)
+    if tablet:
+        tail = re.sub(r"\s+", " ", tablet.group("tail") or "").strip(" ,.;:-")
+        text = "Принять таблетку" + (f" {tail}" if tail else "")
+    else:
+        for pattern, replacement in VERB_REWRITES:
+            if pattern.search(text):
+                text = pattern.sub(replacement, text, count=1)
+                break
+
+    text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
+    if not text:
+        return legacy
+    if text[:1].islower():
+        text = text[:1].upper() + text[1:]
+    return text[:300]
+
+
+def _repair_existing_proactive_title(user_id: int, memory: dict) -> bool:
+    """Fix titles created by the old raw-habit formatter without touching user edits."""
+    decision = get_proactive_decision(user_id, int(memory["memory_id"]))
+    if not decision or decision.get("status") != "created" or not decision.get("reminder_id"):
+        return False
+
+    legacy = _legacy_reminder_text(memory)
+    desired = _reminder_text(memory)
+    if not desired or desired == legacy:
+        return False
+
+    reminder_id = int(decision["reminder_id"])
+    with db_lock:
+        try:
+            row = conn.execute(
+                "SELECT text FROM reminders WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                (int(user_id), reminder_id),
+            ).fetchone()
+            if not row or str(row[0]) != legacy:
+                return False
+            conn.execute(
+                "UPDATE reminders SET text=? WHERE user_id=? AND reminder_id=? AND deleted_at IS NULL",
+                (desired, int(user_id), reminder_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    record_proactive_decision(
+        user_id,
+        int(memory["memory_id"]),
+        memory.get("updated_at") or "",
+        status="created",
+        reminder_id=reminder_id,
+        reason="Нормализован короткий заголовок автоматически созданного напоминания.",
+        confidence=float(memory.get("confidence") or 0),
+    )
+    logger.info("Normalized proactive reminder title user=%s reminder=%s", user_id, reminder_id)
+    return True
 
 
 def _stems(text: str) -> set[str]:
@@ -182,6 +301,10 @@ def evaluate_user_proactive(user_id: int, *, now: datetime | None = None) -> dic
             continue
         if memory.get("source_type") not in AUTO_SOURCE_TYPES:
             continue
+        try:
+            _repair_existing_proactive_title(user_id, memory)
+        except Exception:
+            logger.exception("Could not normalize proactive reminder title for user %s memory %s", user_id, memory.get("memory_id"))
         if not should_evaluate_memory(user_id, memory):
             continue
 
