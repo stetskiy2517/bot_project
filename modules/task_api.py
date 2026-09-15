@@ -17,6 +17,7 @@ from core.task_planner_store import (
     update_planner_task,
 )
 from modules.task_planner import apply_task_slot, preview_flexible_schedule, remove_future_task_block
+from modules.task_recurrence import create_next_recurring_task
 
 logger = logging.getLogger(__name__)
 task_api = Blueprint("tasks", __name__)
@@ -46,10 +47,38 @@ def tasks_js():
 def tasks_list():
     raw_status = request.args.get("status", "open")
     status = None if raw_status == "all" else raw_status
+    tasks = list_planner_tasks(_user(), status=status, limit=500)
+
+    query = " ".join(str(request.args.get("q") or "").split()).strip().lower()
+    category = str(request.args.get("category") or "").strip().lower()
+    priority = str(request.args.get("priority") or "").strip().lower()
+    parent_raw = request.args.get("parent_task_id")
+    if query:
+        tasks = [task for task in tasks if query in str(task.get("title") or "").lower()]
+    if category:
+        tasks = [task for task in tasks if str(task.get("category") or "") == category]
+    if priority:
+        tasks = [task for task in tasks if str(task.get("priority") or "") == priority]
+    if parent_raw not in {None, ""}:
+        try:
+            parent_id = int(parent_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Некорректный идентификатор родительской задачи") from exc
+        tasks = [task for task in tasks if task.get("parent_task_id") == parent_id]
+
     return {
-        "tasks": list_planner_tasks(_user(), status=status, limit=500),
+        "tasks": tasks,
         "summary": task_summary(_user()),
     }
+
+
+@task_api.get("/api/tasks/<int:task_id>")
+def tasks_get(task_id: int):
+    task = get_planner_task(_user(), task_id)
+    if not task:
+        return jsonify(error="task_not_found"), 404
+    subtasks = list_planner_tasks(_user(), status=None, limit=500, parent_task_id=task_id)
+    return {"task": task, "subtasks": subtasks}
 
 
 @task_api.post("/api/tasks")
@@ -72,23 +101,27 @@ def tasks_create():
 @task_api.patch("/api/tasks/<int:task_id>")
 def tasks_update(task_id: int):
     payload = request.get_json(silent=True) or {}
-    current = get_planner_task(_user(), task_id)
+    user_id = _user()
+    current = get_planner_task(user_id, task_id)
     if not current:
         return jsonify(error="task_not_found"), 404
     status = payload.get("status")
-    task = update_planner_task(_user(), task_id, payload)
-    if status == "done":
-        remove_future_task_block(_user(), current)
-    return {"task": task}
+    task = update_planner_task(user_id, task_id, payload)
+    next_task = None
+    if status == "done" and current.get("status") != "done":
+        remove_future_task_block(user_id, current)
+        next_task = create_next_recurring_task(user_id, current)
+    return {"task": task, "next_task": next_task}
 
 
 @task_api.delete("/api/tasks/<int:task_id>")
 def tasks_delete(task_id: int):
-    current = get_planner_task(_user(), task_id)
+    user_id = _user()
+    current = get_planner_task(user_id, task_id)
     if not current:
         return jsonify(error="task_not_found"), 404
-    remove_future_task_block(_user(), current)
-    if not delete_planner_task(_user(), task_id):
+    remove_future_task_block(user_id, current)
+    if not delete_planner_task(user_id, task_id):
         return jsonify(error="task_not_found"), 404
     return {"ok": True}
 
