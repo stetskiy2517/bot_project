@@ -5,11 +5,11 @@
 
 .app.mobile-shell.mobile-view-home .composer-wrap {
   z-index: 35;
-  bottom: calc(env(safe-area-inset-bottom) + var(--mobile-nav-height));
+  bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 .app.mobile-shell.mobile-view-home .voice-shell {
-  bottom: calc(env(safe-area-inset-bottom) + var(--mobile-nav-height) + 70px);
+  bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 70px) !important;
   padding-bottom: 10px;
 }
 
