@@ -21,6 +21,7 @@ from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhand
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
 from modules.email import detect_email_intent
+from modules.email_actions_api import email_actions_api
 from modules.email_api import email_api
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
@@ -254,6 +255,7 @@ def account_erase():
 
 assistant_api.register_blueprint(admin_api)
 assistant_api.register_blueprint(email_api)
+assistant_api.register_blueprint(email_actions_api)
 assistant_api.register_blueprint(task_api)
 assistant_api.register_blueprint(memory_controls_api)
 start_memory_worker()
