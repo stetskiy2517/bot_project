@@ -29,6 +29,22 @@ class AIAssistantTests(unittest.TestCase):
         self.assertIn("Не называй себя «ИИ-модулем»", system_prompt)
         self.assertNotIn("модули календаря, напоминаний, заметок и задач", system_prompt)
 
+    @patch("modules.ai_assistant.memory_prompt_context", return_value="")
+    @patch("modules.ai_assistant.get_assistant_preferences", return_value={"proactive_reminders_enabled": True})
+    @patch("modules.ai_assistant.navigation_configured", return_value=True)
+    @patch("modules.ai_assistant.complete", return_value="Готов.")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_enabled_runtime_capabilities_are_added_to_prompt(
+        self, _available, complete, navigation_configured, preferences, memory_context
+    ):
+        answer_unhandled("Что ты умеешь?", user_id=42)
+        prompt = complete.call_args.args[0][0]["content"]
+        self.assertIn("навигация и расчёт дороги", prompt)
+        self.assertIn("проактивные напоминания", prompt)
+        navigation_configured.assert_called_once_with()
+        preferences.assert_called_once_with(42)
+        memory_context.assert_called_once_with(42)
+
     @patch("modules.ai_assistant.memory_prompt_context", return_value='[{"kind":"preference","key":"meeting_time","value":"После 10:00","confidence":0.95}]')
     @patch("modules.ai_assistant.complete", return_value="Тебе лучше назначать встречи после 10 утра.")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
