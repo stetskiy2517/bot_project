@@ -82,6 +82,7 @@ def inject_mobile_ui(response):
     scripts = (
         '<script src="/mobile-ui.js"></script>',
         '<script src="/mobile-ui-fixes.js"></script>',
+        '<script src="/swipe-navigation.js"></script>',
         '<script src="/file-ingest.js"></script>',
     )
     if "</head>" in html:
@@ -114,6 +115,11 @@ def mobile_ui_js():
 @mobile_ui_api.get("/mobile-ui-fixes.js")
 def mobile_ui_fixes_js():
     return send_from_directory(WEB_DIR, "mobile-ui-fixes.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/swipe-navigation.js")
+def swipe_navigation_js():
+    return send_from_directory(WEB_DIR, "swipe-navigation.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/api/mobile/today")
