@@ -6,8 +6,8 @@
   const section = document.createElement("details");
   section.className = "assistant-section";
   section.innerHTML = `
-    <summary>Проактивный помощник</summary>
-    <p class="settings-help">Секретарь сам определяет, нужна ли по привычке точечная подсказка или блок времени. Напоминания и события календаря включаются отдельно. Автодействие выполняется только при точном расписании и высокой уверенности.</p>
+    <summary>Проактивный помощник · ИИ</summary>
+    <p class="settings-help">Дополнительная ИИ-функция. Базовые календарь и напоминания работают без неё. При доступном ИИ секретарь может анализировать привычки и сам выбирать между напоминанием и блоком времени.</p>
     <label class="field">Автоматические напоминания <input id="proactiveRemindersEnabled" type="checkbox"></label>
     <label class="field">Автоматические события календаря <input id="proactiveCalendarEnabled" type="checkbox"></label>
     <button class="action" type="button" id="saveProactiveActions">Сохранить</button>
@@ -19,6 +19,7 @@
   const save = document.getElementById("saveProactiveActions");
   const state = document.getElementById("proactiveState");
   let loading = false;
+  let aiAccess = true;
 
   function describe(action) {
     if (!action) return "Автоматических действий пока не было.";
@@ -32,11 +33,27 @@
     return `Последнее решение: ${labels[action.status] || action.status}. ${action.reason || ""}`.trim();
   }
 
+  function setAccess(enabled, requiresEntitlement) {
+    aiAccess = Boolean(enabled);
+    reminderToggle.disabled = !aiAccess;
+    calendarToggle.disabled = !aiAccess;
+    save.disabled = !aiAccess;
+    if (!aiAccess) {
+      reminderToggle.checked = false;
+      calendarToggle.checked = false;
+      state.textContent = requiresEntitlement
+        ? "ИИ-функции доступны дополнительно. Календарь, повторяющиеся события и обычные напоминания продолжают работать бесплатно."
+        : "ИИ-функции сейчас отключены. Календарь и обычные напоминания продолжают работать без ИИ.";
+    }
+  }
+
   async function load() {
     if (loading) return;
     loading = true;
     try {
       const data = await api("/api/assistant");
+      setAccess(data.access?.enabled !== false, Boolean(data.access?.requires_entitlement));
+      if (!aiAccess) return;
       reminderToggle.checked = Boolean(data.preferences?.proactive_reminders_enabled);
       calendarToggle.checked = Boolean(data.preferences?.proactive_calendar_events_enabled);
       state.textContent = describe(data.proactive?.last_action);
@@ -48,6 +65,7 @@
   }
 
   save.addEventListener("click", async () => {
+    if (!aiAccess) return;
     save.disabled = true;
     try {
       await api("/api/assistant/preferences", {
@@ -68,7 +86,7 @@
     } catch (error) {
       state.textContent = error.message;
     } finally {
-      save.disabled = false;
+      save.disabled = !aiAccess;
     }
   });
 
