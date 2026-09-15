@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
+from core.proactive_store import list_proactive_actions
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
@@ -18,6 +19,7 @@ from modules.command_templates import list_templates, save_template, delete_temp
 from modules.daily_review import build_day_review
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
+from modules.proactive import proactive_status, start_proactive_worker
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -34,13 +36,19 @@ def _recent_login():
 
 
 @assistant_api.after_app_request
-def load_life_wheel_ui(response):
+def load_assistant_ui(response):
     if request.path != "/" or response.status_code != 200 or response.mimetype != "text/html":
         return response
     html = response.get_data(as_text=True)
-    script = '<script src="/life-wheel.js"></script>'
-    if script not in html and "</body>" in html:
-        response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+    scripts = (
+        '<script src="/life-wheel.js"></script>',
+        '<script src="/proactive.js"></script>',
+    )
+    if "</body>" in html:
+        for script in scripts:
+            if script not in html:
+                html = html.replace("</body>", f"    {script}\n  </body>", 1)
+        response.set_data(html)
     return response
 
 
@@ -83,6 +91,11 @@ def life_wheel_js():
     return send_from_directory(WEB_DIR, "life-wheel.js", mimetype="application/javascript")
 
 
+@assistant_api.get("/proactive.js")
+def proactive_js():
+    return send_from_directory(WEB_DIR, "proactive.js", mimetype="application/javascript")
+
+
 @assistant_api.errorhandler(ValueError)
 def invalid_request(error):
     return jsonify(error="invalid_assistant_request", message=str(error)), 400
@@ -99,6 +112,7 @@ def assistant_status():
         "privacy": privacy_policy(),
         "ai": ai_status(),
         "memory": memory_status(user_id),
+        "proactive": proactive_status(user_id),
     }
 
 
@@ -112,6 +126,12 @@ def remove_assistant_memory(memory_id: int):
     if not suppress_memory(_user(), memory_id):
         return jsonify(error="memory_not_found"), 404
     return {"ok": True, "memory_id": memory_id}
+
+
+@assistant_api.get("/api/assistant/proactive")
+def assistant_proactive():
+    user_id = _user()
+    return {"status": proactive_status(user_id), "actions": list_proactive_actions(user_id, limit=50)}
 
 
 @assistant_api.post("/api/assistant/preferences")
@@ -189,3 +209,4 @@ def account_erase():
 
 
 start_memory_worker()
+start_proactive_worker()
