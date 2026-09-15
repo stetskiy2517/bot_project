@@ -8,6 +8,7 @@ import re
 from zoneinfo import ZoneInfo
 
 from core.db import conn, db_lock, get_user_timezone
+from core.feature_access import has_ai_access
 
 DEFAULTS = {
     "morning_enabled": False, "morning_time": "08:00",
@@ -33,7 +34,11 @@ def init_assistant_preferences():
 def get_assistant_preferences(user_id: int) -> dict:
     with db_lock:
         row = conn.execute("SELECT settings_json FROM assistant_preferences WHERE user_id=?", (user_id,)).fetchone()
-    return {**DEFAULTS, **(json.loads(row[0]) if row else {})}
+    values = {**DEFAULTS, **(json.loads(row[0]) if row else {})}
+    if not has_ai_access(user_id):
+        values["proactive_reminders_enabled"] = False
+        values["proactive_calendar_events_enabled"] = False
+    return values
 
 
 def save_assistant_preferences(user_id: int, changes: dict) -> dict:
@@ -53,7 +58,7 @@ def save_assistant_preferences(user_id: int, changes: dict) -> dict:
         conn.execute("INSERT INTO assistant_preferences VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json",
                      (user_id, json.dumps(values)))
         conn.commit()
-    return values
+    return get_assistant_preferences(user_id)
 
 
 def quiet_until(user_id: int, now: datetime) -> datetime | None:
