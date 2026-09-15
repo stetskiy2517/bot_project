@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
+from core.proactive_store import list_proactive_actions
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
@@ -18,6 +19,7 @@ from modules.command_templates import list_templates, save_template, delete_temp
 from modules.daily_review import build_day_review
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
+from modules.proactive import proactive_status, start_proactive_worker
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -99,6 +101,7 @@ def assistant_status():
         "privacy": privacy_policy(),
         "ai": ai_status(),
         "memory": memory_status(user_id),
+        "proactive": proactive_status(user_id),
     }
 
 
@@ -112,6 +115,12 @@ def remove_assistant_memory(memory_id: int):
     if not suppress_memory(_user(), memory_id):
         return jsonify(error="memory_not_found"), 404
     return {"ok": True, "memory_id": memory_id}
+
+
+@assistant_api.get("/api/assistant/proactive")
+def assistant_proactive():
+    user_id = _user()
+    return {"status": proactive_status(user_id), "actions": list_proactive_actions(user_id, limit=50)}
 
 
 @assistant_api.post("/api/assistant/preferences")
@@ -189,3 +198,4 @@ def account_erase():
 
 
 start_memory_worker()
+start_proactive_worker()
