@@ -21,7 +21,7 @@ def init_navigation_store() -> None:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS navigation_preferences (
                 user_id INTEGER PRIMARY KEY,
-                enabled INTEGER NOT NULL DEFAULT 1,
+                enabled INTEGER NOT NULL DEFAULT 0,
                 default_origin TEXT,
                 office_address TEXT,
                 home_address TEXT,
@@ -48,8 +48,8 @@ def init_navigation_store() -> None:
 def _ensure_row(user_id: int) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT OR IGNORE INTO navigation_preferences (user_id,updated_at) VALUES (?,?)",
-        (int(user_id), now),
+        "INSERT OR IGNORE INTO navigation_preferences (user_id,enabled,updated_at) VALUES (?,?,?)",
+        (int(user_id), 0, now),
     )
 
 
@@ -94,7 +94,7 @@ def get_navigation_preferences(user_id: int) -> dict:
         ).fetchone()
     if not row:
         return {
-            "enabled": True,
+            "enabled": False,
             "default_origin": None,
             "default_place": "home",
             "office_address": None,
@@ -136,7 +136,7 @@ def list_navigation_user_ids() -> list[int]:
             """SELECT u.user_id
                FROM users AS u
                LEFT JOIN navigation_preferences AS n ON n.user_id=u.user_id
-               WHERE u.google_token IS NOT NULL AND COALESCE(n.enabled, 1)=1
+               WHERE u.google_token IS NOT NULL AND COALESCE(n.enabled, 0)=1
                ORDER BY u.user_id"""
         ).fetchall()
     return [int(row[0]) for row in rows]
@@ -205,6 +205,13 @@ def save_navigation_settings(
                WHERE user_id=?""",
             (1 if enabled else 0, default_origin, office, home, mode, base_value, now, int(user_id)),
         )
+        if not enabled:
+            conn.execute(
+                """UPDATE navigation_preferences
+                   SET pending_origin_json='[]',pending_optimization_json='[]'
+                   WHERE user_id=?""",
+                (int(user_id),),
+            )
         if commit:
             conn.commit()
 
@@ -282,6 +289,13 @@ def set_navigation_enabled(user_id: int, enabled: bool) -> None:
     with db_lock:
         _ensure_row(user_id)
         conn.execute("UPDATE navigation_preferences SET enabled=?,updated_at=? WHERE user_id=?", (1 if enabled else 0, now, int(user_id)))
+        if not enabled:
+            conn.execute(
+                """UPDATE navigation_preferences
+                   SET pending_origin_json='[]',pending_optimization_json='[]'
+                   WHERE user_id=?""",
+                (int(user_id),),
+            )
         conn.commit()
 
 
