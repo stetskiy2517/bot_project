@@ -58,8 +58,14 @@
     const grid = document.createElement("div");
     grid.className = "admin-health-grid";
     const ai = health.ai || {};
+    const aiAvailable = typeof ai.available === "boolean"
+      ? ai.available
+      : Boolean(ai.enabled && ai.configured);
+    const aiLabel = aiAvailable
+      ? [ai.provider || "включён", ai.model].filter(Boolean).join(" · ")
+      : "недоступен";
     grid.append(
-      healthRow("ИИ", ai.available ? (ai.provider || "включён") : "недоступен", Boolean(ai.available)),
+      healthRow("ИИ", aiLabel, aiAvailable),
       healthRow("Speech · AssemblyAI", health.speech?.providers?.assemblyai ? "настроен" : "нет", Boolean(health.speech?.providers?.assemblyai)),
       healthRow("Speech · Yandex", health.speech?.providers?.yandex ? "настроен" : "нет", Boolean(health.speech?.providers?.yandex)),
       healthRow("Навигация", health.navigation?.configured ? (health.navigation?.provider || "настроена") : "нет", Boolean(health.navigation?.configured)),
