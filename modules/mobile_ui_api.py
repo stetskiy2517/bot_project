@@ -113,6 +113,7 @@ def mobile_today():
     local_now = now_utc.astimezone(zone)
     day_start = datetime.combine(local_now.date(), dt_time.min, tzinfo=zone)
     day_end = day_start + timedelta(days=1)
+    review_kind = "evening" if local_now.hour >= 18 else "morning"
 
     calendar_ok = True
     events: list[dict] = []
@@ -139,10 +140,10 @@ def mobile_today():
 
     task_items.sort(key=task_rank)
     try:
-        review = build_day_review(user_id, "morning", now=now_utc)
+        review = build_day_review(user_id, review_kind, now=now_utc)
     except Exception:
         review = {
-            "kind": "morning",
+            "kind": review_kind,
             "date": str(local_now.date()),
             "calendar_ok": calendar_ok,
             "text": "Не удалось собрать обзор целиком. Календарь и задачи доступны отдельно.",
