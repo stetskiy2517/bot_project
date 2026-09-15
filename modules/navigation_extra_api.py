@@ -1,8 +1,9 @@
-"""Extra navigation controls and origin questions for automatic routes."""
+"""Extra navigation controls, origin questions and schedule optimization."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 from urllib.parse import quote
 
@@ -11,21 +12,27 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.db import get_user_timezone
 from core.navigation_store import (
     get_navigation_preferences,
+    list_pending_navigation_optimizations,
     list_pending_navigation_origins,
+    remove_navigation_optimization_request,
     remove_navigation_origin_request,
     save_navigation_buffers,
     save_navigation_place,
 )
+from modules.calendar_availability import _event_end
 from modules.calendar_user import _event_start, _get_calendar_service, _list_events
 from modules.navigation import (
     _resolved_event_destination,
     create_travel_for_event,
+    delete_travel_for_event,
     is_managed_travel_event,
     resolve_origin,
 )
 
 navigation_extra_api = Blueprint("navigation_extra", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+MIN_EVENT_DURATION_MINUTES = 5
+logger = logging.getLogger(__name__)
 
 
 def _user() -> int:
@@ -166,6 +173,258 @@ def answer_navigation_origin():
         "destination": status.get("destination") or item.get("destination"),
         "missing_minutes": int(status.get("missing_minutes") or 0),
     }
+
+
+def _load_event(service, event_id: str) -> dict | None:
+    try:
+        return service.events().get(calendarId="primary", eventId=event_id).execute()
+    except Exception:
+        return None
+
+
+def _interval_conflict(
+    user_id: int,
+    timezone_name: str,
+    start: datetime,
+    end: datetime,
+    *,
+    exclude_ids: set[str],
+) -> dict | None:
+    for event in _list_events(user_id, start, end):
+        event_id = str(event.get("id") or "")
+        if event_id in exclude_ids or is_managed_travel_event(event) or event.get("transparency") == "transparent":
+            continue
+        event_start, all_day = _event_start(event, timezone_name)
+        event_end = _event_end(event, timezone_name)
+        if all_day or not event_start or not event_end:
+            continue
+        if event_start < end and event_end > start:
+            return event
+    return None
+
+
+def _optimization_snapshot(user_id: int, item: dict, service) -> dict | None:
+    timezone_name = item.get("timezone") or get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+    target = _load_event(service, item["event_id"])
+    previous = _load_event(service, item["previous_event_id"])
+    if target is None or previous is None:
+        return None
+
+    target_start, target_all_day = _event_start(target, timezone_name)
+    target_end = _event_end(target, timezone_name)
+    previous_start, previous_all_day = _event_start(previous, timezone_name)
+    previous_end = _event_end(previous, timezone_name)
+    if target_all_day or previous_all_day or not target_start or not target_end or not previous_start or not previous_end:
+        return None
+    if target_end <= target_start or previous_end <= previous_start:
+        return None
+
+    required = max(0, int(item.get("required_minutes") or 0))
+    available = max(0, int((target_start - previous_end).total_seconds() // 60)) if previous_end <= target_start else 0
+    missing = max(0, required - available)
+    shorten_end = previous_end - timedelta(minutes=missing)
+    minimum_previous_end = previous_start + timedelta(minutes=MIN_EVENT_DURATION_MINUTES)
+    can_shorten = missing > 0 and shorten_end >= minimum_previous_end
+
+    shifted_start = target_start + timedelta(minutes=missing)
+    shifted_end = target_end + timedelta(minutes=missing)
+    shift_conflict = None
+    if missing > 0:
+        shift_conflict = _interval_conflict(
+            user_id,
+            timezone_name,
+            shifted_start,
+            shifted_end,
+            exclude_ids={str(target.get("id") or ""), str(previous.get("id") or "")},
+        )
+
+    return {
+        "item": item,
+        "target": target,
+        "previous": previous,
+        "timezone": timezone_name,
+        "target_start": target_start,
+        "target_end": target_end,
+        "previous_start": previous_start,
+        "previous_end": previous_end,
+        "required_minutes": required,
+        "available_minutes": available,
+        "missing_minutes": missing,
+        "shorten_end": shorten_end,
+        "can_shorten": can_shorten,
+        "shifted_start": shifted_start,
+        "shifted_end": shifted_end,
+        "shift_conflict": shift_conflict,
+    }
+
+
+def _optimization_payload(snapshot: dict) -> dict:
+    target = snapshot["target"]
+    previous = snapshot["previous"]
+    conflict = snapshot.get("shift_conflict")
+    return {
+        "event_id": target.get("id"),
+        "previous_event_id": previous.get("id"),
+        "title": target.get("summary") or snapshot["item"].get("title") or "Событие",
+        "previous_title": previous.get("summary") or snapshot["item"].get("previous_title") or "Предыдущее событие",
+        "required_minutes": snapshot["required_minutes"],
+        "available_minutes": snapshot["available_minutes"],
+        "missing_minutes": snapshot["missing_minutes"],
+        "previous_end": snapshot["previous_end"].isoformat(),
+        "target_start": snapshot["target_start"].isoformat(),
+        "shorten": {
+            "available": bool(snapshot["can_shorten"]),
+            "minutes": snapshot["missing_minutes"],
+            "new_end": snapshot["shorten_end"].isoformat() if snapshot["can_shorten"] else None,
+        },
+        "shift": {
+            "available": conflict is None and snapshot["missing_minutes"] > 0,
+            "minutes": snapshot["missing_minutes"],
+            "new_start": snapshot["shifted_start"].isoformat(),
+            "new_end": snapshot["shifted_end"].isoformat(),
+            "conflict_title": (conflict.get("summary") or "Другое событие") if conflict else None,
+        },
+    }
+
+
+@navigation_extra_api.get("/api/navigation/optimization-request")
+def pending_navigation_optimization():
+    user_id = _user()
+    service = _get_calendar_service(user_id)
+    now = datetime.now(timezone.utc)
+    for item in list_pending_navigation_optimizations(user_id):
+        snapshot = _optimization_snapshot(user_id, item, service)
+        if snapshot is None:
+            remove_navigation_optimization_request(user_id, item["event_id"])
+            continue
+        if snapshot["target_start"].astimezone(timezone.utc) <= now:
+            remove_navigation_optimization_request(user_id, item["event_id"])
+            continue
+        if snapshot["missing_minutes"] <= 0:
+            try:
+                delete_travel_for_event(user_id, item["event_id"])
+                create_travel_for_event(
+                    user_id,
+                    snapshot["target"],
+                    snapshot["timezone"],
+                    origin_override=item.get("origin"),
+                )
+            except Exception:
+                logger.exception("Failed to reconcile resolved navigation conflict for user %s", user_id)
+            remove_navigation_optimization_request(user_id, item["event_id"])
+            continue
+        return {"request": _optimization_payload(snapshot)}
+    return {"request": None}
+
+
+@navigation_extra_api.post("/api/navigation/optimization-request")
+def answer_navigation_optimization():
+    user_id = _user()
+    payload = request.get_json(silent=True) or {}
+    event_id = str(payload.get("event_id") or "").strip()
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in {"shorten_previous", "shift_target", "ignore_transfer"}:
+        raise ValueError("Выбери один из вариантов оптимизации")
+
+    pending = {item["event_id"]: item for item in list_pending_navigation_optimizations(user_id)}
+    item = pending.get(event_id)
+    if item is None:
+        return jsonify(error="optimization_request_not_found", message="Это предложение уже неактуально."), 404
+
+    service = _get_calendar_service(user_id)
+    snapshot = _optimization_snapshot(user_id, item, service)
+    if snapshot is None:
+        remove_navigation_optimization_request(user_id, event_id)
+        return jsonify(error="calendar_event_not_found", message="Одно из событий больше не найдено в календаре."), 404
+
+    if action == "ignore_transfer":
+        try:
+            delete_travel_for_event(user_id, event_id)
+        except Exception:
+            logger.exception("Failed to delete ignored transfer for user %s event %s", user_id, event_id)
+        remove_navigation_optimization_request(user_id, event_id)
+        return {
+            "ok": True,
+            "status": "ignored",
+            "message": "Оставил события как есть. Трансфер не создаю.",
+        }
+
+    if snapshot["missing_minutes"] <= 0:
+        try:
+            delete_travel_for_event(user_id, event_id)
+            create_travel_for_event(
+                user_id,
+                snapshot["target"],
+                snapshot["timezone"],
+                origin_override=item.get("origin"),
+            )
+            remove_navigation_optimization_request(user_id, event_id)
+            return {"ok": True, "status": "resolved", "message": "Конфликт уже устранён. Трансфер добавлен."}
+        except Exception:
+            logger.exception("Failed to create transfer after resolved conflict for user %s", user_id)
+            return jsonify(error="navigation_optimization_failed", message="Не удалось создать трансфер."), 502
+
+    try:
+        if action == "shorten_previous":
+            if not snapshot["can_shorten"]:
+                return jsonify(
+                    error="previous_event_too_short",
+                    message="Предыдущее событие нельзя сократить настолько безопасно. Выбери другой вариант.",
+                ), 409
+            previous = snapshot["previous"]
+            end_timezone = str(((previous.get("end") or {}).get("timeZone") or snapshot["timezone"]))
+            service.events().patch(
+                calendarId="primary",
+                eventId=previous["id"],
+                body={"end": {"dateTime": snapshot["shorten_end"].isoformat(), "timeZone": end_timezone}},
+            ).execute()
+            target = _load_event(service, event_id) or snapshot["target"]
+            delete_travel_for_event(user_id, event_id)
+            create_travel_for_event(
+                user_id,
+                target,
+                snapshot["timezone"],
+                origin_override=item.get("origin"),
+            )
+            remove_navigation_optimization_request(user_id, event_id)
+            return {
+                "ok": True,
+                "status": "previous_shortened",
+                "message": f"Сократил предыдущее событие до {snapshot['shorten_end'].strftime('%H:%M')}. Трансфер добавлен.",
+            }
+
+        if snapshot["shift_conflict"] is not None:
+            return jsonify(
+                error="shift_creates_conflict",
+                message=f"Сдвиг создаст конфликт с «{snapshot['shift_conflict'].get('summary') or 'другим событием'}». Выбери другой вариант.",
+            ), 409
+        target = snapshot["target"]
+        start_timezone = str(((target.get("start") or {}).get("timeZone") or snapshot["timezone"]))
+        end_timezone = str(((target.get("end") or {}).get("timeZone") or snapshot["timezone"]))
+        updated = service.events().patch(
+            calendarId="primary",
+            eventId=target["id"],
+            body={
+                "start": {"dateTime": snapshot["shifted_start"].isoformat(), "timeZone": start_timezone},
+                "end": {"dateTime": snapshot["shifted_end"].isoformat(), "timeZone": end_timezone},
+            },
+        ).execute()
+        delete_travel_for_event(user_id, event_id)
+        create_travel_for_event(
+            user_id,
+            updated,
+            snapshot["timezone"],
+            origin_override=item.get("origin"),
+        )
+        remove_navigation_optimization_request(user_id, event_id)
+        return {
+            "ok": True,
+            "status": "target_shifted",
+            "message": f"Сдвинул начало события на {snapshot['shifted_start'].strftime('%H:%M')}. Трансфер добавлен.",
+        }
+    except Exception:
+        logger.exception("Navigation optimization failed for user %s event %s", user_id, event_id)
+        return jsonify(error="navigation_optimization_failed", message="Не удалось применить оптимизацию календаря."), 502
 
 
 @navigation_extra_api.get("/api/navigation/next-route")

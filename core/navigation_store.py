@@ -13,6 +13,7 @@ VALID_MODES = {"driving", "transit", "walking"}
 VALID_PLACES = {"office", "home"}
 MAX_BUFFER_MINUTES = 180
 MAX_PENDING_ORIGIN_REQUESTS = 20
+MAX_PENDING_OPTIMIZATION_REQUESTS = 20
 
 
 def init_navigation_store() -> None:
@@ -29,6 +30,7 @@ def init_navigation_store() -> None:
                 parking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
                 walking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
                 pending_origin_json TEXT NOT NULL DEFAULT '[]',
+                pending_optimization_json TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL
             )"""
         )
@@ -38,6 +40,8 @@ def init_navigation_store() -> None:
                 conn.execute(f"ALTER TABLE navigation_preferences ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         if "pending_origin_json" not in columns:
             conn.execute("ALTER TABLE navigation_preferences ADD COLUMN pending_origin_json TEXT NOT NULL DEFAULT '[]'")
+        if "pending_optimization_json" not in columns:
+            conn.execute("ALTER TABLE navigation_preferences ADD COLUMN pending_optimization_json TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
 
 
@@ -365,6 +369,130 @@ def remove_navigation_origin_request(user_id: int, event_id: str) -> None:
         requests = [item for item in _pending_origin_requests(row[0] if row else "[]") if item["event_id"] != target]
         conn.execute(
             "UPDATE navigation_preferences SET pending_origin_json=?,updated_at=? WHERE user_id=?",
+            (json.dumps(requests, ensure_ascii=False), now, int(user_id)),
+        )
+        conn.commit()
+
+
+def _pending_optimization_requests(raw: object) -> list[dict]:
+    try:
+        value = json.loads(str(raw or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        event_id = str(item.get("event_id") or "").strip()
+        previous_event_id = str(item.get("previous_event_id") or "").strip()
+        origin = _clean_address(item.get("origin"))
+        destination = _clean_address(item.get("destination"))
+        if not event_id or not previous_event_id or not origin or not destination:
+            continue
+        try:
+            required_minutes = max(0, int(item.get("required_minutes") or 0))
+            available_minutes = max(0, int(item.get("available_minutes") or 0))
+            missing_minutes = max(0, int(item.get("missing_minutes") or 0))
+        except (TypeError, ValueError):
+            continue
+        result.append({
+            "event_id": event_id[:300],
+            "previous_event_id": previous_event_id[:300],
+            "timezone": str(item.get("timezone") or "Europe/Moscow")[:100],
+            "origin": origin,
+            "destination": destination,
+            "required_minutes": required_minutes,
+            "available_minutes": available_minutes,
+            "missing_minutes": missing_minutes,
+            "title": " ".join(str(item.get("title") or "Событие").split())[:200],
+            "previous_title": " ".join(str(item.get("previous_title") or "Предыдущее событие").split())[:200],
+            "created_at": str(item.get("created_at") or "")[:80],
+        })
+    return result[-MAX_PENDING_OPTIMIZATION_REQUESTS:]
+
+
+def list_pending_navigation_optimizations(user_id: int) -> list[dict]:
+    init_navigation_store()
+    with db_lock:
+        row = conn.execute(
+            "SELECT pending_optimization_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+    return _pending_optimization_requests(row[0] if row else "[]")
+
+
+def queue_navigation_optimization_request(
+    user_id: int,
+    *,
+    event_id: str,
+    previous_event_id: str,
+    timezone_name: str,
+    origin: str,
+    destination: str,
+    required_minutes: int,
+    available_minutes: int,
+    missing_minutes: int,
+    title: str,
+    previous_title: str,
+) -> None:
+    event_id = str(event_id or "").strip()
+    previous_event_id = str(previous_event_id or "").strip()
+    origin = _clean_address(origin)
+    destination = _clean_address(destination)
+    required = max(0, int(required_minutes))
+    available = max(0, int(available_minutes))
+    missing = max(0, int(missing_minutes))
+    if not event_id or not previous_event_id or not origin or not destination or missing <= 0:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        row = conn.execute(
+            "SELECT pending_optimization_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+        requests = _pending_optimization_requests(row[0] if row else "[]")
+        requests = [item for item in requests if item["event_id"] != event_id]
+        requests.append({
+            "event_id": event_id[:300],
+            "previous_event_id": previous_event_id[:300],
+            "timezone": str(timezone_name or "Europe/Moscow")[:100],
+            "origin": origin,
+            "destination": destination,
+            "required_minutes": required,
+            "available_minutes": available,
+            "missing_minutes": missing,
+            "title": " ".join(str(title or "Событие").split())[:200],
+            "previous_title": " ".join(str(previous_title or "Предыдущее событие").split())[:200],
+            "created_at": now,
+        })
+        requests = requests[-MAX_PENDING_OPTIMIZATION_REQUESTS:]
+        conn.execute(
+            "UPDATE navigation_preferences SET pending_optimization_json=?,updated_at=? WHERE user_id=?",
+            (json.dumps(requests, ensure_ascii=False), now, int(user_id)),
+        )
+        conn.commit()
+
+
+def remove_navigation_optimization_request(user_id: int, event_id: str) -> None:
+    target = str(event_id or "").strip()
+    if not target:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        row = conn.execute(
+            "SELECT pending_optimization_json FROM navigation_preferences WHERE user_id=?",
+            (int(user_id),),
+        ).fetchone()
+        requests = [
+            item for item in _pending_optimization_requests(row[0] if row else "[]")
+            if item["event_id"] != target
+        ]
+        conn.execute(
+            "UPDATE navigation_preferences SET pending_optimization_json=?,updated_at=? WHERE user_id=?",
             (json.dumps(requests, ensure_ascii=False), now, int(user_id)),
         )
         conn.commit()

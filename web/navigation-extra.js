@@ -2,7 +2,9 @@
   "use strict";
   let installed = false;
   let originBusy = false;
+  let optimizationBusy = false;
   let activeOriginRequest = null;
+  let activeOptimizationRequest = null;
 
   function api(path, options) {
     if (typeof window.api !== "function") throw new Error("API недоступен");
@@ -76,6 +78,36 @@
     return card;
   }
 
+  function ensureOptimizationCard() {
+    let card = document.getElementById("navigationOptimizationQuestion");
+    if (card) return card;
+    card = document.createElement("div");
+    card.id = "navigationOptimizationQuestion";
+    card.hidden = true;
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-live", "assertive");
+    card.style.cssText = [
+      "position:fixed", "left:50%", "bottom:max(18px, env(safe-area-inset-bottom))",
+      "transform:translateX(-50%)", "z-index:1210", "width:min(92vw,520px)",
+      "padding:16px", "border-radius:18px", "background:var(--surface,#fff)",
+      "box-shadow:0 14px 46px rgba(0,0,0,.22)", "border:1px solid rgba(0,0,0,.14)"
+    ].join(";");
+    card.innerHTML = `
+      <div style="font-weight:700;margin-bottom:6px">Не хватает времени на дорогу</div>
+      <div id="navigationOptimizationText" style="font-size:14px;line-height:1.45;opacity:.78;margin-bottom:12px"></div>
+      <div style="display:grid;gap:8px">
+        <button id="navigationShortenPrevious" type="button" class="action"></button>
+        <button id="navigationShiftTarget" type="button" class="action"></button>
+        <button id="navigationIgnoreTransfer" type="button" class="action">Оставить как есть — без трансфера</button>
+      </div>
+      <div id="navigationOptimizationState" style="font-size:13px;opacity:.72;margin-top:9px"></div>`;
+    document.body.append(card);
+    card.querySelector("#navigationShortenPrevious").addEventListener("click", () => sendOptimization("shorten_previous"));
+    card.querySelector("#navigationShiftTarget").addEventListener("click", () => sendOptimization("shift_target"));
+    card.querySelector("#navigationIgnoreTransfer").addEventListener("click", () => sendOptimization("ignore_transfer"));
+    return card;
+  }
+
   function showAddressInput(choice) {
     const card = ensureOriginCard();
     const row = card.querySelector("#navigationOriginAddressRow");
@@ -130,8 +162,8 @@
       });
       if (data.status === "same_location") {
         state.textContent = "Трансфер не нужен: место отправления и событие совпадают.";
-      } else if (data.status === "route_conflict") {
-        state.textContent = `Маршрут добавлен без наложения на прошлое событие, но не хватает ${data.missing_minutes || 0} мин.`;
+      } else if (data.status === "optimization_required") {
+        state.textContent = `Не хватает ${data.missing_minutes || 0} мин. Предлагаю оптимизацию расписания.`;
       } else if (data.status === "created") {
         state.textContent = "Маршрут добавлен.";
       } else {
@@ -141,8 +173,9 @@
       setTimeout(() => {
         card.hidden = true;
         state.textContent = "";
+        pollOptimizationRequest();
         pollOriginRequest();
-      }, 1800);
+      }, data.status === "optimization_required" ? 600 : 1800);
     } catch (error) {
       state.textContent = error.message;
     } finally {
@@ -150,8 +183,78 @@
     }
   }
 
+  function renderOptimizationRequest(request) {
+    const card = ensureOptimizationCard();
+    const missing = request.missing_minutes || 0;
+    const available = request.available_minutes || 0;
+    card.querySelector("#navigationOptimizationText").textContent =
+      `После «${request.previous_title}» доступно ${available} мин, а дорога до «${request.title}» с запасом требует ${request.required_minutes || 0} мин. Не хватает ${missing} мин.`;
+
+    const shorten = card.querySelector("#navigationShortenPrevious");
+    shorten.textContent = `Сократить «${request.previous_title}» на ${missing} мин`;
+    shorten.disabled = !request.shorten?.available;
+    shorten.title = request.shorten?.available ? "" : "Предыдущее событие станет слишком коротким";
+
+    const shift = card.querySelector("#navigationShiftTarget");
+    shift.textContent = `Сдвинуть «${request.title}» на ${missing} мин`;
+    shift.disabled = !request.shift?.available;
+    shift.title = request.shift?.available ? "" :
+      (request.shift?.conflict_title ? `Сдвиг конфликтует с «${request.shift.conflict_title}»` : "Сдвиг сейчас недоступен");
+
+    card.querySelector("#navigationOptimizationState").textContent = "";
+    card.hidden = false;
+  }
+
+  async function sendOptimization(action) {
+    if (!activeOptimizationRequest || optimizationBusy) return;
+    const card = ensureOptimizationCard();
+    const state = card.querySelector("#navigationOptimizationState");
+    optimizationBusy = true;
+    state.textContent = "Применяю…";
+    card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      const data = await api("/api/navigation/optimization-request", {
+        method: "POST",
+        body: JSON.stringify({event_id: activeOptimizationRequest.event_id, action}),
+      });
+      state.textContent = data.message || "Готово.";
+      activeOptimizationRequest = null;
+      setTimeout(() => {
+        card.hidden = true;
+        state.textContent = "";
+        pollOptimizationRequest();
+        pollOriginRequest();
+      }, 1600);
+    } catch (error) {
+      state.textContent = error.message;
+      renderOptimizationRequest(activeOptimizationRequest);
+      state.textContent = error.message;
+    } finally {
+      optimizationBusy = false;
+    }
+  }
+
+  async function pollOptimizationRequest() {
+    if (optimizationBusy || document.hidden) return;
+    try {
+      const data = await api("/api/navigation/optimization-request");
+      const request = data.request;
+      const card = ensureOptimizationCard();
+      if (!request) {
+        if (!activeOptimizationRequest) card.hidden = true;
+        return;
+      }
+      activeOptimizationRequest = request;
+      const originCard = ensureOriginCard();
+      originCard.hidden = true;
+      renderOptimizationRequest(request);
+    } catch (_error) {
+      // Navigation optimization must never disturb the main planner UI.
+    }
+  }
+
   async function pollOriginRequest() {
-    if (originBusy || document.hidden) return;
+    if (originBusy || optimizationBusy || activeOptimizationRequest || document.hidden) return;
     try {
       const data = await api("/api/navigation/origin-request");
       const request = data.request;
@@ -203,9 +306,19 @@
       document.getElementById("navigationExtraState").textContent = error.message;
     });
     ensureOriginCard();
+    ensureOptimizationCard();
+    pollOptimizationRequest();
     pollOriginRequest();
-    setInterval(pollOriginRequest, 5000);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) pollOriginRequest(); });
+    setInterval(() => {
+      pollOptimizationRequest();
+      pollOriginRequest();
+    }, 5000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        pollOptimizationRequest();
+        pollOriginRequest();
+      }
+    });
   }
 
   document.addEventListener("planner-ready", install);
