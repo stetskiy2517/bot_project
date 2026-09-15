@@ -12,7 +12,7 @@ from core.email_store import PROVIDERS
 
 MAX_FETCH = 50
 MAX_HEADER_SCAN = 5000
-HEADER_SCAN_BATCH = 100
+HEADER_SCAN_BATCH = 50
 MAX_PREVIEW = 500
 
 
@@ -126,20 +126,29 @@ def test_connection(provider: str, address: str, password: str) -> None:
             pass
 
 
-def _quoted_search_value(query: str) -> bytes:
+def _quoted_search_value(query: str) -> str:
     escaped = query.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'.encode("utf-8")
+    return f'"{escaped}"'
 
 
 def _server_search(client, query: str, *, unread_only: bool) -> list[bytes] | None:
+    # Several IMAP servers, including real-world Yandex accounts, reject
+    # SEARCH CHARSET UTF-8 even though regular IMAP access works. Use server-side
+    # search only for ASCII terms and fall back to decoded header scanning for
+    # Cyrillic/non-ASCII names.
+    try:
+        query.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+
     value = _quoted_search_value(query)
-    criteria: list[str | bytes] = []
+    criteria: list[str] = []
     if unread_only:
         criteria.append("UNSEEN")
     criteria.extend(("OR", "OR", "FROM", value, "SUBJECT", value, "BODY", value))
     try:
-        status, data = client.search("UTF-8", *criteria)
-    except (imaplib.IMAP4.error, UnicodeError, ValueError):
+        status, data = client.search(None, *criteria)
+    except (imaplib.IMAP4.error, UnicodeError, ValueError, OSError):
         return None
     if status != "OK":
         return None
@@ -150,10 +159,36 @@ def _server_search(client, query: str, *, unread_only: bool) -> list[bytes] | No
 
 def _base_ids(client, *, unread_only: bool) -> list[bytes]:
     criteria = "UNSEEN" if unread_only else "ALL"
-    status, data = client.search(None, criteria)
+    try:
+        status, data = client.search(None, criteria)
+    except (imaplib.IMAP4.error, OSError) as exc:
+        raise EmailTransportError("Почтовый сервер не смог выполнить поиск во входящих.") from exc
     if status != "OK" or not data or not data[0]:
         return []
     return data[0].split()
+
+
+def _header_raw_from_payload(payload) -> bytes | None:
+    if not payload:
+        return None
+    for entry in payload:
+        if not isinstance(entry, tuple) or len(entry) < 2:
+            continue
+        raw = entry[1]
+        if isinstance(raw, (bytes, bytearray)):
+            return bytes(raw)
+    return None
+
+
+def _scan_header_one(client, message_id: bytes, query: str) -> bool:
+    try:
+        status, payload = client.fetch(message_id, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+    except (imaplib.IMAP4.error, OSError, ValueError):
+        return False
+    if status != "OK":
+        return False
+    raw = _header_raw_from_payload(payload)
+    return bool(raw and _header_matches(raw, query))
 
 
 def _fallback_header_search(client, ids: list[bytes], query: str, *, limit: int) -> list[bytes]:
@@ -164,9 +199,16 @@ def _fallback_header_search(client, ids: list[bytes], query: str, *, limit: int)
         start = max(0, end - HEADER_SCAN_BATCH)
         batch = candidates[start:end]
         message_set = ",".join(item.decode("ascii") for item in batch)
-        status, payload = client.fetch(message_set, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
-        if status == "OK" and payload:
-            batch_matches: list[bytes] = []
+        batch_matches: list[bytes] = []
+        parsed_any = False
+        batch_ok = False
+        try:
+            status, payload = client.fetch(message_set, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+            batch_ok = status == "OK"
+        except (imaplib.IMAP4.error, OSError, ValueError):
+            payload = None
+
+        if batch_ok and payload:
             for entry in payload:
                 if not isinstance(entry, tuple) or len(entry) < 2:
                     continue
@@ -174,10 +216,25 @@ def _fallback_header_search(client, ids: list[bytes], query: str, *, limit: int)
                 if not isinstance(meta, (bytes, bytearray)) or not isinstance(raw, (bytes, bytearray)):
                     continue
                 match = re.match(rb"^(\d+)", bytes(meta))
-                if match and _header_matches(bytes(raw), query):
+                if not match:
+                    continue
+                parsed_any = True
+                if _header_matches(bytes(raw), query):
                     batch_matches.append(match.group(1))
+
+        if batch_ok and parsed_any:
             matches.extend(sorted(batch_matches, key=int, reverse=True))
+        else:
+            # Some servers reject a comma-separated message set for this FETCH
+            # form. Degrade to individual header reads instead of failing the
+            # whole mailbox query.
+            for message_id in reversed(batch):
+                if _scan_header_one(client, message_id, query):
+                    matches.append(message_id)
+                    if len(matches) >= limit:
+                        break
         end = start
+
     return sorted(matches[:limit], key=int)
 
 
@@ -196,7 +253,7 @@ def _search_ids(client, query: str, *, unread_only: bool, limit: int) -> tuple[l
     header_ids = _fallback_header_search(client, ids, query, limit=limit)
     if header_ids:
         return header_ids, True
-    return ids[-MAX_FETCH:], False
+    return [], True
 
 
 def list_messages(provider: str, address: str, password: str, *, limit: int = 10, query: str | None = None, unread_only: bool = False) -> list[dict]:
@@ -206,7 +263,7 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
     try:
         status, _ = client.select("INBOX", readonly=True)
         if status != "OK":
-            raise RuntimeError("Не удалось открыть входящие")
+            raise EmailTransportError("Не удалось открыть входящие")
         ids, already_filtered = _search_ids(
             client,
             query_normalized,
@@ -215,7 +272,10 @@ def list_messages(provider: str, address: str, password: str, *, limit: int = 10
         )
         results: list[dict] = []
         for message_id in reversed(ids):
-            status, payload = client.fetch(message_id, "(RFC822)")
+            try:
+                status, payload = client.fetch(message_id, "(RFC822)")
+            except (imaplib.IMAP4.error, OSError, ValueError):
+                continue
             if status != "OK" or not payload:
                 continue
             raw = next((item[1] for item in payload if isinstance(item, tuple) and len(item) > 1), None)
