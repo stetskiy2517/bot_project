@@ -5,8 +5,13 @@
     family: "Семья", personal: "Личное", other: "Прочее",
   };
   const priorityLabels = {high: "Высокий", normal: "Обычный", low: "Низкий"};
+  const repeatLabels = {daily: "ежедневно", weekly: "еженедельно", monthly: "ежемесячно"};
   let installed = false;
   let taskMode = false;
+  let taskQuery = "";
+  let taskCategory = "";
+  let taskPriority = "";
+  let searchTimer = null;
 
   function api(path, options) {
     if (typeof window.api !== "function") throw new Error("API недоступен");
@@ -25,9 +30,26 @@
     else console.info(text);
   }
 
-  function taskCard(task) {
+  async function createSubtask(parent) {
+    const title = prompt(`Подзадача для «${parent.title}»`);
+    if (!title?.trim()) return;
+    await api("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        title: title.trim(),
+        parent_task_id: parent.task_id,
+        priority: parent.priority || "normal",
+        category: parent.category || "other",
+        flexible: false,
+      }),
+    });
+    await renderTasks();
+  }
+
+  function taskCard(task, depth = 0) {
     const card = document.createElement("div");
-    card.className = "planner-task-card" + (task.status === "done" ? " completed" : "");
+    card.className = "planner-task-card" + (task.status === "done" ? " completed" : "") + (depth ? " subtask" : "");
+    card.style.setProperty("--task-depth", String(Math.min(depth, 3)));
     const title = document.createElement("div");
     title.className = "planner-task-title";
     title.textContent = task.title;
@@ -39,6 +61,7 @@
       formatDate(task.due_at),
     ];
     if (task.estimate_minutes) parts.push(`${task.estimate_minutes} мин`);
+    if (task.repeat_rule && repeatLabels[task.repeat_rule]) parts.push(repeatLabels[task.repeat_rule]);
     if (task.calendar_event_id) parts.push("в календаре");
     meta.textContent = parts.join(" · ");
     const actions = document.createElement("div");
@@ -52,17 +75,19 @@
       button.onclick = async (event) => {
         event.stopPropagation();
         button.disabled = true;
-        try { await handler(); } finally { button.disabled = false; }
+        try { await handler(); } catch (error) { notify(error.message || String(error)); } finally { button.disabled = false; }
       };
       return button;
     };
 
     if (task.status !== "done") {
       actions.append(action("Выполнено", async () => {
-        await api(`/api/tasks/${task.task_id}`, {method: "PATCH", body: JSON.stringify({status: "done"})});
+        const result = await api(`/api/tasks/${task.task_id}`, {method: "PATCH", body: JSON.stringify({status: "done"})});
+        if (result.next_task) notify("Следующая повторяющаяся задача создана.");
         await renderTasks();
       }));
       actions.append(action("Изменить", async () => editTask(task)));
+      if (!depth) actions.append(action("+ Подзадача", async () => createSubtask(task)));
     } else {
       actions.append(action("Вернуть", async () => {
         await api(`/api/tasks/${task.task_id}`, {method: "PATCH", body: JSON.stringify({status: "open"})});
@@ -71,7 +96,8 @@
     }
     actions.append(action("Удалить", async () => {
       if (!confirm(`Удалить задачу «${task.title}»?`)) return;
-      await api(`/api/tasks/${task.task_id}`, {method: "DELETE"});
+      const result = await api(`/api/tasks/${task.task_id}`, {method: "DELETE"});
+      if (result.detached_subtasks) notify(`Подзадачи сохранены отдельно: ${result.detached_subtasks}.`);
       await renderTasks();
     }, "danger"));
     card.append(title, meta, actions);
@@ -90,9 +116,17 @@
       if (!Number.isFinite(local.getTime())) throw new Error("Некорректный срок задачи");
       dueAt = local.toISOString();
     }
+    const repeatRaw = (prompt("Повтор: daily / weekly / monthly. Пусто — без повтора.", "") || "").trim().toLowerCase();
+    if (repeatRaw && !repeatLabels[repeatRaw]) throw new Error("Повтор может быть daily, weekly или monthly");
     await api("/api/tasks", {
       method: "POST",
-      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, due_at: dueAt, flexible: true}),
+      body: JSON.stringify({
+        title: title.trim(),
+        estimate_minutes: estimate,
+        due_at: dueAt,
+        flexible: true,
+        repeat_rule: repeatRaw || null,
+      }),
     });
     await renderTasks();
   }
@@ -102,11 +136,15 @@
     if (!title?.trim()) return;
     const estimateRaw = prompt("Длительность, минут", task.estimate_minutes || "");
     const estimate = estimateRaw?.trim() ? Number(estimateRaw) : null;
-    const priority = prompt("Приоритет: high / normal / low", task.priority || "normal") || task.priority;
-    const category = prompt("Категория: work / health / rest / travel / family / personal / other", task.category || "other") || task.category;
+    const priority = (prompt("Приоритет: high / normal / low", task.priority || "normal") || task.priority || "normal").trim().toLowerCase();
+    const category = (prompt("Категория: work / health / rest / travel / family / personal / other", task.category || "other") || task.category || "other").trim().toLowerCase();
+    const repeatRule = (prompt("Повтор: daily / weekly / monthly. Пусто — без повтора.", task.repeat_rule || "") || "").trim().toLowerCase();
+    if (!priorityLabels[priority]) throw new Error("Некорректный приоритет");
+    if (!categoryLabels[category]) throw new Error("Некорректная категория");
+    if (repeatRule && !repeatLabels[repeatRule]) throw new Error("Повтор может быть daily, weekly или monthly");
     await api(`/api/tasks/${task.task_id}`, {
       method: "PATCH",
-      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, priority, category}),
+      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, priority, category, repeat_rule: repeatRule || null}),
     });
     await renderTasks();
   }
@@ -136,13 +174,65 @@
     await renderTasks();
   }
 
+  function appendTaskTree(list, tasks) {
+    const byParent = new Map();
+    const ids = new Set(tasks.map(task => Number(task.task_id)));
+    for (const task of tasks) {
+      const parent = Number(task.parent_task_id || 0);
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(task);
+    }
+    const renderBranch = (task, depth, visited) => {
+      const id = Number(task.task_id);
+      if (visited.has(id)) return;
+      visited.add(id);
+      list.append(taskCard(task, depth));
+      for (const child of byParent.get(id) || []) renderBranch(child, depth + 1, visited);
+    };
+    const roots = tasks.filter(task => !task.parent_task_id || !ids.has(Number(task.parent_task_id)));
+    const visited = new Set();
+    for (const root of roots) renderBranch(root, 0, visited);
+    for (const task of tasks) renderBranch(task, task.parent_task_id ? 1 : 0, visited);
+  }
+
+  function filterRow() {
+    const filters = document.createElement("div");
+    filters.className = "planner-task-filters";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "Поиск задач";
+    search.value = taskQuery;
+    search.className = "planner-task-filter";
+    search.oninput = () => {
+      taskQuery = search.value.trim();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => renderTasks(), 350);
+    };
+    const category = document.createElement("select");
+    category.className = "planner-task-filter";
+    category.innerHTML = '<option value="">Все категории</option>' + Object.entries(categoryLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+    category.value = taskCategory;
+    category.onchange = () => { taskCategory = category.value; renderTasks(); };
+    const priority = document.createElement("select");
+    priority.className = "planner-task-filter";
+    priority.innerHTML = '<option value="">Все приоритеты</option>' + Object.entries(priorityLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+    priority.value = taskPriority;
+    priority.onchange = () => { taskPriority = priority.value; renderTasks(); };
+    filters.append(search, category, priority);
+    return filters;
+  }
+
   async function renderTasks() {
     if (!taskMode) return;
     const list = document.getElementById("libraryList");
     if (!list) return;
     list.innerHTML = '<div class="library-loading">Загружаю задачи…</div>';
     try {
-      const data = await api("/api/tasks?status=all");
+      const params = new URLSearchParams({status: "all"});
+      if (taskQuery) params.set("q", taskQuery);
+      if (taskCategory) params.set("category", taskCategory);
+      if (taskPriority) params.set("priority", taskPriority);
+      const data = await api(`/api/tasks?${params.toString()}`);
       const tasks = data.tasks || [];
       list.replaceChildren();
       const toolbar = document.createElement("div");
@@ -161,15 +251,15 @@
       summary.className = "planner-task-summary";
       summary.textContent = `Открыто ${data.summary?.open || 0} · просрочено ${data.summary?.overdue || 0}`;
       toolbar.append(create, plan, summary);
-      list.append(toolbar);
+      list.append(toolbar, filterRow());
       if (!tasks.length) {
         const empty = document.createElement("div");
         empty.className = "library-empty";
-        empty.textContent = "Задач пока нет.";
+        empty.textContent = taskQuery || taskCategory || taskPriority ? "По фильтрам задач не найдено." : "Задач пока нет.";
         list.append(empty);
         return;
       }
-      for (const task of tasks) list.append(taskCard(task));
+      appendTaskTree(list, tasks);
     } catch (error) {
       list.innerHTML = `<div class="library-error">${String(error.message || error)}</div>`;
     }
@@ -212,18 +302,21 @@
 
     const style = document.createElement("style");
     style.textContent = `
-      .planner-task-toolbar{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:center;margin:0 0 12px}
-      .planner-task-primary{min-height:40px;padding:0 12px;border-radius:12px;background:#111;color:#fff;font-weight:650;cursor:pointer}
+      .planner-task-toolbar{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:center;margin:0 0 10px}
+      .planner-task-primary{min-height:40px;padding:0 12px;border-radius:12px;background:#2d2d2c;color:#fff;font-weight:650;cursor:pointer}
       .planner-task-primary.secondary{background:#ececea;color:#222}
       .planner-task-summary{text-align:right;color:#888883;font-size:12px}
+      .planner-task-filters{display:grid;grid-template-columns:minmax(0,1.4fr) 1fr 1fr;gap:7px;margin:0 0 12px}
+      .planner-task-filter{min-width:0;min-height:38px;padding:0 9px;border:1px solid #dededb;border-radius:11px;background:#fff;color:#333;font:inherit;font-size:12px;outline:0}
       .planner-task-card{padding:15px 16px;margin:0 0 10px;border:1px solid #e5e5e2;border-radius:18px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.035)}
+      .planner-task-card.subtask{margin-left:calc(min(var(--task-depth),3) * 18px);padding:12px 14px;border-radius:15px;background:#fafaf8}
       .planner-task-card.completed .planner-task-title{text-decoration:line-through;color:#777773}
       .planner-task-title{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}
       .planner-task-meta{margin-top:7px;color:#8d8d88;font-size:12px;line-height:1.35}
       .planner-task-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
       .planner-task-action{min-height:34px;padding:0 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}
       .planner-task-action.danger{background:#f2dddd;color:#8a2d2d}
-      @media(max-width:520px){.planner-task-toolbar{grid-template-columns:1fr 1fr}.planner-task-summary{grid-column:1/-1;text-align:left}}
+      @media(max-width:520px){.planner-task-toolbar{grid-template-columns:1fr 1fr}.planner-task-summary{grid-column:1/-1;text-align:left}.planner-task-filters{grid-template-columns:1fr 1fr}.planner-task-filter:first-child{grid-column:1/-1}}
     `;
     document.head.append(style);
   }
