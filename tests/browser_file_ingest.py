@@ -126,9 +126,11 @@ def main() -> None:
                 "mimeType": "application/pdf",
                 "buffer": b"%PDF-1.4 test ticket",
             })
-            expect(page.locator(".file-analysis-card")).to_be_visible()
-            expect(page.locator(".file-analysis-card")).to_contain_text("AY101")
-            add_button = page.get_by_role("button", name="Добавить в календарь", exact=True)
+            card = page.locator(".file-analysis-card")
+            expect(card).to_be_visible()
+            expect(card).to_contain_text("AY101")
+            add_button = card.locator("button")
+            expect(add_button).to_have_text("Добавить в календарь")
             expect(add_button).to_be_enabled()
             add_button.click()
             expect(add_button).to_have_text("Добавлено ✓")
