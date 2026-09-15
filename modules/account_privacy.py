@@ -24,6 +24,7 @@ USER_TABLES = (
     "command_templates", "proactive_actions", "ai_memory_event_processing", "ai_calendar_sync",
     "user_memories", "ai_memory_events", "feature_entitlements", "notes", "reminders", "tasks",
     "push_subscriptions", "navigation_preferences", "privacy_challenges",
+    "email_accounts", "email_oauth_states",
     "oauth_states", "users", "google_accounts",
 )
 
@@ -45,7 +46,7 @@ def privacy_policy() -> dict:
         "minimum_backups_kept": MIN_SNAPSHOTS_TO_KEEP,
         "notice": (
             "Стираются локальная учётная запись, заметки, напоминания, история, изученная ИИ-память, "
-            "журнал проактивных действий, настройки, доступ к ИИ, push-подписки и токены доступа. События в Google Calendar остаются. "
+            "журнал проактивных действий, настройки, доступ к ИИ, почтовые подключения, push-подписки и токены доступа. События в Google Calendar и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -85,6 +86,7 @@ def export_account(user_id: int) -> dict:
                 "assistant_preferences": "settings_json",
                 "command_templates": "template_id,name,spec_json",
                 "feature_entitlements": "feature,enabled,source,updated_at",
+                "email_accounts": "account_id,provider,email,display_name,enabled,created_at,updated_at",
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
