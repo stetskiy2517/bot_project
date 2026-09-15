@@ -10,6 +10,7 @@ DEFAULT_MODE = "driving"
 DEFAULT_ARRIVAL_BUFFER_MINUTES = 15
 VALID_MODES = {"driving", "transit", "walking"}
 VALID_PLACES = {"office", "home"}
+MAX_BUFFER_MINUTES = 180
 
 
 def init_navigation_store() -> None:
@@ -23,9 +24,15 @@ def init_navigation_store() -> None:
                 home_address TEXT,
                 mode TEXT NOT NULL DEFAULT 'driving',
                 arrival_buffer_minutes INTEGER NOT NULL DEFAULT 15,
+                parking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
+                walking_buffer_minutes INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             )"""
         )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(navigation_preferences)").fetchall()}
+        for column in ("parking_buffer_minutes", "walking_buffer_minutes"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE navigation_preferences ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
 
@@ -46,6 +53,14 @@ def _clean_address(value: str | None) -> str | None:
     return cleaned
 
 
+def _buffer(value: object, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0, min(parsed, MAX_BUFFER_MINUTES))
+
+
 def _default_place(default_origin: str | None, home_address: str | None, office_address: str | None) -> str:
     origin = (default_origin or "").casefold()
     if office_address and origin == office_address.casefold():
@@ -63,7 +78,8 @@ def get_navigation_preferences(user_id: int) -> dict:
     init_navigation_store()
     with db_lock:
         row = conn.execute(
-            """SELECT enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes
+            """SELECT enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes,
+                      parking_buffer_minutes,walking_buffer_minutes
                FROM navigation_preferences WHERE user_id=?""",
             (int(user_id),),
         ).fetchone()
@@ -75,15 +91,18 @@ def get_navigation_preferences(user_id: int) -> dict:
             "office_address": None,
             "home_address": None,
             "mode": DEFAULT_MODE,
+            "base_arrival_buffer_minutes": DEFAULT_ARRIVAL_BUFFER_MINUTES,
+            "parking_buffer_minutes": 0,
+            "walking_buffer_minutes": 0,
             "arrival_buffer_minutes": DEFAULT_ARRIVAL_BUFFER_MINUTES,
         }
     mode = str(row[4] or DEFAULT_MODE)
     if mode not in VALID_MODES:
         mode = DEFAULT_MODE
-    try:
-        arrival_buffer = int(row[5])
-    except (TypeError, ValueError):
-        arrival_buffer = DEFAULT_ARRIVAL_BUFFER_MINUTES
+    base = _buffer(row[5], DEFAULT_ARRIVAL_BUFFER_MINUTES)
+    parking = _buffer(row[6])
+    walking = _buffer(row[7])
+    total = min(MAX_BUFFER_MINUTES, base + parking + walking)
     default_origin = row[1]
     office_address = row[2]
     home_address = row[3]
@@ -94,12 +113,15 @@ def get_navigation_preferences(user_id: int) -> dict:
         "office_address": office_address,
         "home_address": home_address,
         "mode": mode,
-        "arrival_buffer_minutes": max(0, min(arrival_buffer, 180)),
+        "base_arrival_buffer_minutes": base,
+        "parking_buffer_minutes": parking,
+        "walking_buffer_minutes": walking,
+        # Compatibility: existing navigation logic consumes this value and now gets the full door-to-door buffer.
+        "arrival_buffer_minutes": total,
     }
 
 
 def list_navigation_user_ids() -> list[int]:
-    """Return Google-connected users whose navigation is not explicitly disabled."""
     init_navigation_store()
     with db_lock:
         rows = conn.execute(
@@ -110,6 +132,7 @@ def list_navigation_user_ids() -> list[int]:
                ORDER BY u.user_id"""
         ).fetchall()
     return [int(row[0]) for row in rows]
+
 
 def validate_navigation_settings(
     *, enabled: bool, home_address: str | None, office_address: str | None,
@@ -126,15 +149,13 @@ def validate_navigation_settings(
     if default_place not in VALID_PLACES:
         raise ValueError("Unknown default navigation place")
     buffer_value = int(arrival_buffer_minutes)
-    if not 0 <= buffer_value <= 180:
+    if not 0 <= buffer_value <= MAX_BUFFER_MINUTES:
         raise ValueError("Arrival buffer must be between 0 and 180 minutes")
-
     home = _clean_address(home_address)
     office = _clean_address(office_address)
     default_origin = home if default_place == "home" else office
     if not default_origin:
         default_origin = office if default_place == "home" else home
-
     return {
         "enabled": enabled, "home_address": home, "office_address": office,
         "default_place": default_place, "mode": mode, "arrival_buffer_minutes": buffer_value,
@@ -156,16 +177,17 @@ def save_navigation_settings(
         raise ValueError("Unknown navigation mode")
     if default_place not in VALID_PLACES:
         raise ValueError("Unknown default navigation place")
-    buffer_value = int(arrival_buffer_minutes)
-    if not 0 <= buffer_value <= 180:
+    total_value = int(arrival_buffer_minutes)
+    if not 0 <= total_value <= MAX_BUFFER_MINUTES:
         raise ValueError("Arrival buffer must be between 0 and 180 minutes")
-
     home = _clean_address(home_address)
     office = _clean_address(office_address)
     default_origin = home if default_place == "home" else office
     if not default_origin:
         default_origin = office if default_place == "home" else home
-
+    current = get_navigation_preferences(user_id)
+    extras = int(current.get("parking_buffer_minutes") or 0) + int(current.get("walking_buffer_minutes") or 0)
+    base_value = max(0, total_value - extras)
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)
@@ -173,19 +195,28 @@ def save_navigation_settings(
             """UPDATE navigation_preferences
                SET enabled=?,default_origin=?,office_address=?,home_address=?,mode=?,arrival_buffer_minutes=?,updated_at=?
                WHERE user_id=?""",
-            (
-                1 if enabled else 0,
-                default_origin,
-                office,
-                home,
-                mode,
-                buffer_value,
-                now,
-                int(user_id),
-            ),
+            (1 if enabled else 0, default_origin, office, home, mode, base_value, now, int(user_id)),
         )
         if commit:
             conn.commit()
+
+
+def save_navigation_buffers(user_id: int, *, parking_minutes: int, walking_minutes: int) -> dict:
+    if any(isinstance(value, bool) for value in (parking_minutes, walking_minutes)):
+        raise ValueError("Буферы должны быть целым числом минут")
+    parking = _buffer(parking_minutes)
+    walking = _buffer(walking_minutes)
+    if parking + walking > MAX_BUFFER_MINUTES:
+        raise ValueError("Суммарный дополнительный буфер не может превышать 180 минут")
+    now = datetime.now(timezone.utc).isoformat()
+    with db_lock:
+        _ensure_row(user_id)
+        conn.execute(
+            "UPDATE navigation_preferences SET parking_buffer_minutes=?,walking_buffer_minutes=?,updated_at=? WHERE user_id=?",
+            (parking, walking, now, int(user_id)),
+        )
+        conn.commit()
+    return get_navigation_preferences(user_id)
 
 
 def save_navigation_place(user_id: int, place: str, address: str, *, make_default: bool = True) -> None:
@@ -199,15 +230,9 @@ def save_navigation_place(user_id: int, place: str, address: str, *, make_defaul
     with db_lock:
         _ensure_row(user_id)
         if make_default:
-            conn.execute(
-                f"UPDATE navigation_preferences SET {column}=?,default_origin=?,updated_at=? WHERE user_id=?",
-                (value, value, now, int(user_id)),
-            )
+            conn.execute(f"UPDATE navigation_preferences SET {column}=?,default_origin=?,updated_at=? WHERE user_id=?", (value, value, now, int(user_id)))
         else:
-            conn.execute(
-                f"UPDATE navigation_preferences SET {column}=?,updated_at=? WHERE user_id=?",
-                (value, now, int(user_id)),
-            )
+            conn.execute(f"UPDATE navigation_preferences SET {column}=?,updated_at=? WHERE user_id=?", (value, now, int(user_id)))
         conn.commit()
 
 
@@ -216,10 +241,7 @@ def save_default_origin(user_id: int, address: str | None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)
-        conn.execute(
-            "UPDATE navigation_preferences SET default_origin=?,updated_at=? WHERE user_id=?",
-            (value, now, int(user_id)),
-        )
+        conn.execute("UPDATE navigation_preferences SET default_origin=?,updated_at=? WHERE user_id=?", (value, now, int(user_id)))
         conn.commit()
 
 
@@ -229,24 +251,21 @@ def save_navigation_mode(user_id: int, mode: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)
-        conn.execute(
-            "UPDATE navigation_preferences SET mode=?,updated_at=? WHERE user_id=?",
-            (mode, now, int(user_id)),
-        )
+        conn.execute("UPDATE navigation_preferences SET mode=?,updated_at=? WHERE user_id=?", (mode, now, int(user_id)))
         conn.commit()
 
 
 def save_arrival_buffer(user_id: int, minutes: int) -> None:
     value = int(minutes)
-    if not 0 <= value <= 180:
+    if not 0 <= value <= MAX_BUFFER_MINUTES:
         raise ValueError("Arrival buffer must be between 0 and 180 minutes")
+    prefs = get_navigation_preferences(user_id)
+    extras = int(prefs.get("parking_buffer_minutes") or 0) + int(prefs.get("walking_buffer_minutes") or 0)
+    base = max(0, value - extras)
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)
-        conn.execute(
-            "UPDATE navigation_preferences SET arrival_buffer_minutes=?,updated_at=? WHERE user_id=?",
-            (value, now, int(user_id)),
-        )
+        conn.execute("UPDATE navigation_preferences SET arrival_buffer_minutes=?,updated_at=? WHERE user_id=?", (base, now, int(user_id)))
         conn.commit()
 
 
@@ -254,10 +273,7 @@ def set_navigation_enabled(user_id: int, enabled: bool) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with db_lock:
         _ensure_row(user_id)
-        conn.execute(
-            "UPDATE navigation_preferences SET enabled=?,updated_at=? WHERE user_id=?",
-            (1 if enabled else 0, now, int(user_id)),
-        )
+        conn.execute("UPDATE navigation_preferences SET enabled=?,updated_at=? WHERE user_id=?", (1 if enabled else 0, now, int(user_id)))
         conn.commit()
 
 

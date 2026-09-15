@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 import logging
 import os
 import re
@@ -11,6 +12,8 @@ from typing import BinaryIO
 
 import requests
 from dotenv import load_dotenv
+
+from integrations.speech_yandex import YandexSpeechError, configured as yandex_configured, recognize_oggopus
 
 load_dotenv()
 
@@ -31,18 +34,14 @@ VOICE_MEETING_CLIENT_ASR_RE = re.compile(
 
 
 def _normalize_meeting_client_asr(text: str) -> str:
-    """Fix the short-command ASR ambiguity 'встреча' -> 'встречи'."""
-
     def replace(match: re.Match) -> str:
         word = match.group("word")
         replacement = "Встреча" if word[:1].isupper() else "встреча"
         return f"{match.group('prefix')}{replacement}"
-
     return VOICE_MEETING_CLIENT_ASR_RE.sub(replace, text, count=1)
 
 
 def normalize_time_format(text: str) -> str:
-    # Bare dotted numbers may be dates, prices or version numbers.
     normalized = EXPLICIT_DOTTED_TIME_RE.sub(r"\g<prefix>\g<hour>:\g<minute>", text)
     return _normalize_meeting_client_asr(normalized)
 
@@ -52,7 +51,6 @@ def _upload_audio(audio: BinaryIO) -> str:
         audio.seek(0)
     except (AttributeError, OSError):
         pass
-
     response = requests.post(
         f"{BASE_URL}/v2/upload",
         headers={"authorization": ASSEMBLYAI_API_KEY},
@@ -98,12 +96,10 @@ def _wait_for_transcript(transcript_id: str) -> str:
         if status == "error":
             raise RuntimeError(result.get("error") or "Ошибка распознавания речи")
         time.sleep(POLL_INTERVAL_SECONDS)
-
     raise TimeoutError("Распознавание речи превысило допустимое время")
 
 
 def _delete_remote_transcript(transcript_id: str) -> None:
-    """Delete transcript data and its uploaded audio from AssemblyAI."""
     response = requests.delete(
         f"{BASE_URL}/v2/transcript/{transcript_id}",
         headers={"authorization": ASSEMBLYAI_API_KEY},
@@ -113,7 +109,6 @@ def _delete_remote_transcript(transcript_id: str) -> None:
 
 
 def _store_web_transcript(text: str) -> None:
-    """Persist recognized text for an authenticated web request, never raw audio."""
     if not text:
         return
     try:
@@ -125,9 +120,7 @@ def _store_web_transcript(text: str) -> None:
     user_id = session.get("user_id")
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
         return
-
     from core.ai_memory_store import record_ai_memory_event
-
     record_ai_memory_event(
         user_id,
         "voice_transcript",
@@ -137,24 +130,88 @@ def _store_web_transcript(text: str) -> None:
     )
 
 
-def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
-    """Transcribe audio, persist web text, and remove provider-side raw artifacts."""
-    if not ASSEMBLYAI_API_KEY:
-        raise RuntimeError("ASSEMBLYAI_API_KEY not set")
-
+def _read_audio_bytes(source: str | os.PathLike[str] | BinaryIO) -> bytes:
     if isinstance(source, (str, os.PathLike, Path)):
         with open(source, "rb") as audio:
-            audio_url = _upload_audio(audio)
-    else:
-        audio_url = _upload_audio(source)
+            return audio.read()
+    try:
+        source.seek(0)
+    except (AttributeError, OSError):
+        pass
+    data = source.read()
+    if not isinstance(data, (bytes, bytearray)):
+        raise ValueError("Audio source must return bytes")
+    return bytes(data)
 
+
+def _provider_order() -> list[str]:
+    raw = os.environ.get("SPEECH_PROVIDER_ORDER", "assemblyai,yandex")
+    result = []
+    for item in raw.split(","):
+        name = item.strip().lower()
+        if name in {"assemblyai", "yandex"} and name not in result:
+            result.append(name)
+    return result or ["assemblyai", "yandex"]
+
+
+def speech_status() -> dict:
+    return {
+        "providers": {
+            "assemblyai": bool(ASSEMBLYAI_API_KEY),
+            "yandex": yandex_configured(),
+        },
+        "order": _provider_order(),
+    }
+
+
+def _transcribe_assembly(data: bytes) -> str:
+    if not ASSEMBLYAI_API_KEY:
+        raise RuntimeError("AssemblyAI is not configured")
+    audio_url = _upload_audio(BytesIO(data))
     transcript_id = _start_transcription(audio_url)
     try:
-        text = _wait_for_transcript(transcript_id)
-        _store_web_transcript(text)
-        return text
+        return _wait_for_transcript(transcript_id)
     finally:
         try:
             _delete_remote_transcript(transcript_id)
         except requests.RequestException:
             logger.exception("Failed to delete AssemblyAI transcript %s", transcript_id)
+
+
+def transcribe_audio(source: str | os.PathLike[str] | BinaryIO) -> str:
+    """Transcribe once, falling back between configured providers without retaining raw audio."""
+    data = _read_audio_bytes(source)
+    if not data:
+        return ""
+    errors: list[str] = []
+    attempted = 0
+    for provider in _provider_order():
+        if provider == "assemblyai":
+            if not ASSEMBLYAI_API_KEY:
+                continue
+            attempted += 1
+            try:
+                text = _transcribe_assembly(data)
+            except Exception as exc:
+                logger.warning("AssemblyAI speech recognition failed: %s", type(exc).__name__)
+                errors.append(f"assemblyai:{type(exc).__name__}")
+                continue
+        elif provider == "yandex":
+            if not yandex_configured():
+                continue
+            attempted += 1
+            try:
+                text = recognize_oggopus(data)
+            except YandexSpeechError as exc:
+                logger.warning("Yandex SpeechKit fallback unavailable: %s", exc)
+                errors.append(f"yandex:{type(exc).__name__}")
+                continue
+        else:
+            continue
+        if text:
+            _store_web_transcript(text)
+            return text
+        errors.append(f"{provider}:empty")
+    if attempted == 0:
+        raise RuntimeError("No speech recognition provider is configured")
+    raise RuntimeError("Speech recognition failed for configured providers: " + ", ".join(errors))

@@ -17,14 +17,23 @@ from core.proactive_store import list_proactive_actions
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.admin_api import admin_api
+from modules.admin_metrics_api import admin_metrics_api
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
 from modules.email import detect_email_intent
+from modules.email_actions_api import email_actions_api
 from modules.email_api import email_api
+from modules.life_balance_api import life_balance_api
 from modules.life_wheel import build_life_wheel_snapshot
 from modules.memory import start_memory_worker
+from modules.memory_controls_api import memory_controls_api
+from modules.navigation_extra_api import navigation_extra_api
+from modules.navigation_recurring import start_navigation_recurring_worker
+from modules.note_tools_api import note_tools_api
 from modules.proactive import proactive_status, start_proactive_worker
+from modules.task_api import task_api
+from modules.yandex_auth import yandex_auth_api
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -42,7 +51,6 @@ def _recent_login():
 
 
 def _journal_user_utterance(user_id: int, text: str, channel: str) -> None:
-    """Queue an AI-enabled user's natural statement for memory extraction without creating a note."""
     clean = str(text or "").strip()
     if not clean:
         return
@@ -237,14 +245,14 @@ def account_export():
 @assistant_api.post("/api/privacy/challenge")
 def erase_challenge():
     if not _recent_login():
-        return jsonify(error="reauth_required", message="Для удаления нужно заново войти через Google."), 403
+        return jsonify(error="reauth_required", message="Для удаления нужно заново войти в аккаунт."), 403
     return {"challenge": create_erase_challenge(_user()), "expires_in": 300, "policy": privacy_policy()}
 
 
 @assistant_api.post("/api/privacy/erase")
 def account_erase():
     if not _recent_login():
-        return jsonify(error="reauth_required", message="Для удаления нужно заново войти через Google."), 403
+        return jsonify(error="reauth_required", message="Для удаления нужно заново войти в аккаунт."), 403
     payload = request.get_json(silent=True) or {}
     erase_account(_user(), payload.get("challenge"), payload.get("confirmation"))
     session.clear()
@@ -252,6 +260,15 @@ def account_erase():
 
 
 assistant_api.register_blueprint(admin_api)
+assistant_api.register_blueprint(admin_metrics_api)
 assistant_api.register_blueprint(email_api)
+assistant_api.register_blueprint(email_actions_api)
+assistant_api.register_blueprint(task_api)
+assistant_api.register_blueprint(memory_controls_api)
+assistant_api.register_blueprint(life_balance_api)
+assistant_api.register_blueprint(navigation_extra_api)
+assistant_api.register_blueprint(note_tools_api)
+assistant_api.register_blueprint(yandex_auth_api)
 start_memory_worker()
 start_proactive_worker()
+start_navigation_recurring_worker()

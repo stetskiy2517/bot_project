@@ -1,4 +1,4 @@
-"""Deterministic day reviews and opt-in delivery receipts."""
+"""Deterministic day reviews with tasks, travel and safe email planning signals."""
 
 from __future__ import annotations
 
@@ -9,10 +9,73 @@ from zoneinfo import ZoneInfo
 from core.assistant_preferences import get_assistant_preferences, quiet_until
 from core.db import conn, db_lock, get_calendar_preferences, get_user_timezone
 from core.library_store import list_saved_reminders
+from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_availability import find_free_slots, _parse_hhmm
 from modules.calendar_user import _list_events, _event_start
+from modules.email_actions import build_email_plan
 
 logger = logging.getLogger(__name__)
+
+
+def _is_travel_event(event: dict) -> bool:
+    private = ((event.get("extendedProperties") or {}).get("private") or {})
+    return private.get("smartPlannerType") == "travel"
+
+
+def _parse_task_due(value: object, zone: ZoneInfo) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=zone)
+    return parsed.astimezone(zone)
+
+
+def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *, kind: str) -> list[str]:
+    summary = task_summary(user_id, now=start)
+    tasks = list_planner_tasks(user_id, status="open", limit=200)
+    relevant = []
+    for task in tasks:
+        due = _parse_task_due(task.get("due_at"), zone)
+        if due is None:
+            if kind == "morning" and task.get("priority") == "high":
+                relevant.append((datetime.max.replace(tzinfo=zone), task))
+            continue
+        if due < end or (kind == "evening" and due < start + timedelta(days=1)):
+            relevant.append((due, task))
+    relevant.sort(key=lambda item: (0 if item[1].get("priority") == "high" else 1, item[0]))
+    lines = [
+        f"Задачи: {summary['open']} открыто, {summary['overdue']} просрочено, {summary['scheduled']} уже в календаре."
+    ]
+    for due, task in relevant[:3]:
+        suffix = ""
+        if due.year < 9999:
+            suffix = f" · до {due:%H:%M}" if due.date() == start.date() else f" · до {due:%d.%m %H:%M}"
+        estimate = f" · {task['estimate_minutes']} мин" if task.get("estimate_minutes") else ""
+        lines.append(f"• {task['title']}{suffix}{estimate}")
+    return lines
+
+
+def _email_lines(user_id: int) -> list[str]:
+    try:
+        plan = build_email_plan(user_id, "Что из последних писем влияет на мои ближайшие планы и требует действия?")
+    except Exception:
+        logger.exception("Review email planning unavailable for user %s", user_id)
+        return ["Почта: временно не удалось проверить планировочные сигналы."]
+    summary = " ".join(str(plan.get("summary") or "").split()).strip()
+    actions = plan.get("actions") or []
+    if not plan.get("ai_used") and not actions:
+        return []
+    lines = [f"Почта: {summary[:350]}" if summary else "Почта: есть сигналы для планирования."]
+    for action in actions[:2]:
+        lines.append(f"• Предложение: {action['title']}")
+    if actions:
+        lines.append("Открой почту в приложении, чтобы подтвердить действие. Ничего из писем автоматически не создано.")
+    return lines
 
 
 def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | None = None) -> dict:
@@ -37,34 +100,58 @@ def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | Non
     except Exception as exc:
         calendar_ok = False
         logger.warning("Review calendar unavailable for user %s (%s)", user_id, type(exc).__name__)
+
+    travel_events = [event for event in events if _is_travel_event(event)]
+    regular_events = [event for event in events if not _is_travel_event(event)]
     saved_reminders = list_saved_reminders(user_id)
-    reminders = [item for item in saved_reminders
-                 if item["status"] != "completed" and datetime.fromisoformat(item["remind_at"]) < end]
+    reminders = [
+        item for item in saved_reminders
+        if item["status"] != "completed" and datetime.fromisoformat(item["remind_at"]) < end
+    ]
     lines = [("Обзор дня" if kind == "morning" else "Вечерний обзор") + f" · {local:%d.%m}"]
     if not calendar_ok:
         lines.append("Календарь временно недоступен. Занятость не проверена.")
-    elif not events:
+    elif not regular_events:
         lines.append("В календаре на этот день встреч нет.")
     else:
-        lines.append(f"Событий в календаре: {len(events)}.")
-        selected = events if kind == "evening" else [
-            event for event in events if (_event_start(event, zone_name)[0] or local) >= local
+        lines.append(f"Событий в календаре: {len(regular_events)}.")
+        selected = regular_events if kind == "evening" else [
+            event for event in regular_events if (_event_start(event, zone_name)[0] or local) >= local
         ]
         for event in selected[:3]:
             when, all_day = _event_start(event, zone_name)
             label = "весь день" if all_day else (when.strftime("%H:%M") if when else "время не указано")
             lines.append(f"{label} · {str(event.get('summary', 'Событие'))[:100]}")
+    if calendar_ok and travel_events:
+        upcoming_travel = [event for event in travel_events if (_event_start(event, zone_name)[0] or local) >= local]
+        for event in upcoming_travel[:1]:
+            when, _ = _event_start(event, zone_name)
+            lines.append(f"Дорога: выезд {when:%H:%M} · {str(event.get('location') or event.get('summary') or '')[:120]}")
     if calendar_ok and kind == "morning" and slots:
         lines.append("Окна по 30 минут: " + ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in slots))
+
+    try:
+        lines.extend(_task_lines(user_id, zone, start, end, kind=kind))
+    except Exception:
+        logger.exception("Review tasks unavailable for user %s", user_id)
+        lines.append("Задачи: временно не удалось проверить.")
+
     lines.append(f"Незавершённых напоминаний до конца дня: {len(reminders)}" + (" (первые 500 записей)." if len(saved_reminders) >= 500 else "."))
     for reminder in reminders[:3]:
         lines.append("• " + reminder["text"][:100])
     if kind == "evening" and reminders:
         lines.append("Отметь выполненное, перенеси или оставь как есть.")
+    if kind == "morning":
+        lines.extend(_email_lines(user_id))
     return {
-        "kind": kind, "date": str(local.date()), "calendar_ok": calendar_ok,
+        "kind": kind,
+        "date": str(local.date()),
+        "calendar_ok": calendar_ok,
         "text": "\n".join(lines),
-        "reminders": [{"id": item["reminder_id"], "text": item["text"], "remind_at": item["remind_at"]} for item in reminders[:20]],
+        "reminders": [
+            {"id": item["reminder_id"], "text": item["text"], "remind_at": item["remind_at"]}
+            for item in reminders[:20]
+        ],
     }
 
 

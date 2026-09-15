@@ -21,10 +21,10 @@ ERASE_CONFIRMATION = "УДАЛИТЬ МОИ ДАННЫЕ"
 USER_TABLES = (
     "command_effects", "command_requests", "conversation_state", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
-    "command_templates", "proactive_actions", "ai_memory_event_processing", "ai_calendar_sync",
-    "user_memories", "ai_memory_events", "feature_entitlements", "notes", "reminders", "tasks",
-    "push_subscriptions", "navigation_preferences", "privacy_challenges",
-    "email_accounts", "email_oauth_states",
+    "command_templates", "proactive_actions", "proactive_feedback", "ai_memory_event_processing", "ai_calendar_sync",
+    "user_memories", "ai_memory_events", "feature_entitlements", "notes", "note_metadata", "reminders", "tasks",
+    "life_balance_ratings", "push_subscriptions", "navigation_preferences", "privacy_challenges",
+    "email_accounts", "email_oauth_states", "identity_accounts",
     "oauth_states", "users", "google_accounts",
 )
 
@@ -45,8 +45,10 @@ def privacy_policy() -> dict:
         "backup_retention_days": retention_days(),
         "minimum_backups_kept": MIN_SNAPSHOTS_TO_KEEP,
         "notice": (
-            "Стираются локальная учётная запись, заметки, напоминания, история, изученная ИИ-память, "
-            "журнал проактивных действий, настройки, доступ к ИИ, почтовые подключения, push-подписки и токены доступа. События в Google Calendar и письма в почтовых ящиках остаются. "
+            "Стираются локальная учётная запись, заметки, задачи, напоминания, история, изученная ИИ-память, "
+            "журнал и оценки проактивных действий, настройки, оценки жизненного баланса, доступ к ИИ, "
+            "почтовые подключения, push-подписки и локальные данные входа. "
+            "События во внешнем календаре и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -73,27 +75,35 @@ def export_account(user_id: int) -> dict:
         conn.execute("BEGIN")
         try:
             result = {
-                "format_version": 1, "exported_at": datetime.now(timezone.utc).isoformat(),
+                "format_version": 3, "exported_at": datetime.now(timezone.utc).isoformat(),
                 "profile": {key: account[key] for key in ("user_id", "email", "name")},
                 "privacy": privacy_policy(),
             }
             selectors = {
+                "identity_accounts": "provider,subject,email,name,created_at,updated_at",
                 "notes": "note_id,title,text,created_at,updated_at,deleted_at",
+                "note_metadata": "note_id,pinned,tags_json,checklist_json,updated_at",
                 "reminders": "reminder_id,text,remind_at,status,created_at,delivered_at,completed_at,deleted_at,repeat_rule,repeat_timezone,next_remind_at",
-                "tasks": "task_id,title,due_at,status,priority,created_at,completed_at",
+                "tasks": "task_id,title,due_at,status,priority,created_at,completed_at,category,estimate_minutes,flexible,calendar_event_id,scheduled_start,parent_task_id,repeat_rule,updated_at",
                 "users": "timezone,work_start,work_end,work_days,buffer_minutes,category_colors",
-                "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes",
+                "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes,parking_buffer_minutes,walking_buffer_minutes",
                 "assistant_preferences": "settings_json",
+                "life_balance_ratings": "category,rating,target,updated_at",
                 "command_templates": "template_id,name,spec_json",
                 "feature_entitlements": "feature,enabled,source,updated_at",
                 "email_accounts": "account_id,provider,email,display_name,enabled,created_at,updated_at",
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
-                "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,reason,confidence,created_at,updated_at",
+                "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,calendar_event_id,reason,confidence,created_at,updated_at",
+                "proactive_feedback": "action_id,memory_id,feedback,created_at,updated_at",
                 "reminder_push_policy": "reminder_id,interval_minutes,max_repeats,repeat_count,next_repeat_at",
             }
+            existing = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table, fields in selectors.items():
+                if table not in existing:
+                    result[table] = []
+                    continue
                 cursor = conn.execute(f"SELECT {fields} FROM {table} WHERE user_id=? LIMIT 10001", (user_id,))
                 rows = cursor.fetchall()
                 if len(rows) > 10000:
