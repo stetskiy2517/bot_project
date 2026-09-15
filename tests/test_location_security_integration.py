@@ -8,6 +8,7 @@ from core.db import get_or_create_google_user
 from core.location_context import (
     clear_current_location, get_current_location, save_current_location,
 )
+from core.navigation_store import set_navigation_enabled
 from modules.account_privacy import create_erase_challenge, erase_account, ERASE_CONFIRMATION
 from tests.web_test_support import web_test_app
 
@@ -16,6 +17,7 @@ class LocationSecurityIntegrationTests(unittest.TestCase):
     def setUp(self):
         label = uuid.uuid4().hex
         self.user = get_or_create_google_user(label, label + '@example.test', 'Location test')
+        set_navigation_enabled(self.user, True)
         self.app = web_test_app()
         self.client = self.app.test_client()
         with self.client.session_transaction() as stored:
@@ -30,6 +32,16 @@ class LocationSecurityIntegrationTests(unittest.TestCase):
         })
         self.assertEqual(result.status_code, 200)
         self.assertEqual(get_current_location(self.user).latitude, 55.78)
+
+    def test_location_is_rejected_and_cleared_when_navigation_is_disabled(self):
+        save_current_location(self.user, 55.78, 37.63, 25)
+        set_navigation_enabled(self.user, False)
+        result = self.client.post('/api/location', json={
+            'latitude': 55.79, 'longitude': 37.64, 'accuracy': 20,
+        })
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual(result.get_json()['error'], 'navigation_disabled')
+        self.assertIsNone(get_current_location(self.user))
 
     def test_logout_clears_live_location(self):
         save_current_location(self.user, 55.78, 37.63)
