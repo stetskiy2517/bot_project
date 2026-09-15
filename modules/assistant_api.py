@@ -16,6 +16,7 @@ from core.notification_policy import get_policy, save_policy
 from core.proactive_store import list_proactive_actions
 from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
+from modules.admin_api import admin_api
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
@@ -246,5 +247,6 @@ def account_erase():
     return {"ok": True, "local_data_erased": True, "google_calendar_unchanged": True}
 
 
+assistant_api.register_blueprint(admin_api)
 start_memory_worker()
 start_proactive_worker()

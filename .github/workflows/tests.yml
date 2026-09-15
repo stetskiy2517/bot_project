@@ -27,7 +27,7 @@ jobs:
       - name: Validate deploy scripts
         run: bash -n deploy.sh scripts/deploy_update.sh
       - name: Validate web JavaScript
-        run: node --check web/library.js && node --check web/reminders.js && node --check web/voice_gesture.js && node --check web/sw.js && node --check web/location.js && node --check web/reliability.js && node --check web/assistant.js && node --check web/life-wheel.js
+        run: node --check web/library.js && node --check web/reminders.js && node --check web/voice_gesture.js && node --check web/sw.js && node --check web/location.js && node --check web/reliability.js && node --check web/assistant.js && node --check web/life-wheel.js && node --check web/admin.js
       - name: Test voice gestures
         run: node tests/voice_gesture_test.js
       - name: Test iOS viewport pan
