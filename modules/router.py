@@ -94,6 +94,13 @@ BARE_EVENT_STATEMENT_RE = re.compile(
     r"прошел|прошёл|прошла|закончил\w*|состоял\w*|тяжел\w*|тяжёл\w*)\b",
     re.IGNORECASE,
 )
+RECURRENCE_DECLARATION_RE = re.compile(
+    r"\b(?:ежедневно|еженедельно|раз\s+в\s+недел\w*|"
+    r"по\s+(?:будням|выходным|понедельникам|вторникам|средам|четвергам|пятницам|субботам|воскресеньям)|"
+    r"кажд\w*\s+(?:будн\w*\s+день|день|утр\w*|вечер\w*|ноч\w*|недел\w*|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*))\b",
+    re.IGNORECASE,
+)
 INFO_CREATE_QUESTION_RE = re.compile(
     r"^\s*(?:можно\s+ли|как\b|умеешь\s+ли(?:\s+ты)?|можешь\s+ли(?:\s+ты)?)",
     re.IGNORECASE,
@@ -215,6 +222,8 @@ def _looks_like_bare_event(text: str) -> bool:
     if re.match(r"^(?:после|перед)\b", normal) and any(word in normal for word in BARE_CREATE_EVENT_WORDS):
         return True
     return False
+
+
 def _creation_text(text: str) -> str:
     result = text
     if REMIND_ME_AS_COMMAND_RE.search(result):
@@ -284,6 +293,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_CREATE, 0.97)
     if any(word in lower for word in CREATE_WORDS):
         return IntentResult(INTENT_CREATE, 0.99)
+    if RECURRENCE_DECLARATION_RE.search(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
     if NON_EVENT_STATEMENT_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)
     if BARE_EVENT_STATEMENT_RE.search(lower):

@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
+from core.ai_memory_store import record_ai_memory_event
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
@@ -33,6 +34,21 @@ def _user():
 def _recent_login():
     stamp = session.get("auth_time")
     return isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and 0 <= time.time() - stamp <= 600
+
+
+def _journal_user_utterance(user_id: int, text: str, channel: str) -> None:
+    """Queue a natural user statement for memory extraction without creating a note."""
+    clean = str(text or "").strip()
+    if not clean:
+        return
+    entity_id = time.time_ns() & ((1 << 63) - 1)
+    record_ai_memory_event(
+        user_id,
+        "voice_transcript",
+        entity_id or 1,
+        "recognized" if channel == "voice" else "created",
+        {"text": clean, "channel": channel},
+    )
 
 
 @assistant_api.after_app_request
@@ -70,10 +86,16 @@ def use_ai_for_unhandled_chat(response):
         if request.path == "/api/chat":
             request_payload = request.get_json(silent=True) or {}
             text = request_payload.get("message") if isinstance(request_payload, dict) else None
+            channel = "chat"
         else:
             text = payload.get("transcript")
+            channel = "voice"
         if not isinstance(text, str) or not text.strip():
             return response
+        try:
+            _journal_user_utterance(_user(), text, channel)
+        except Exception:
+            logger.exception("Failed to journal user utterance for AI memory")
         answer = answer_unhandled(text, user_id=_user())
         if not answer:
             return response
