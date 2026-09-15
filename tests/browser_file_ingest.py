@@ -4,9 +4,12 @@ import json
 import os
 from pathlib import Path
 import secrets
+import sys
 import tempfile
 import threading
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ["WEB_PUSH_WORKER_ENABLED"] = "0"
 os.environ["BASE_URL"] = ""
