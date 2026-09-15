@@ -23,14 +23,8 @@ jobs:
           from pathlib import Path
           path = Path('modules/router.py')
           text = path.read_text(encoding='utf-8')
-          old = '''    if RECURRENCE_DECLARATION_RE.search(lower):
-              return IntentResult(INTENT_UNKNOWN, 0.0)
-          '''
-          new = '''    if RECURRENCE_DECLARATION_RE.search(lower) and (
-              lower.startswith("я ") or not _contains_event_marker(lower)
-          ):
-              return IntentResult(INTENT_UNKNOWN, 0.0)
-          '''
+          old = "    if RECURRENCE_DECLARATION_RE.search(lower):\n        return IntentResult(INTENT_UNKNOWN, 0.0)\n"
+          new = "    if RECURRENCE_DECLARATION_RE.search(lower) and (\n        lower.startswith(\"я \") or not _contains_event_marker(lower)\n    ):\n        return IntentResult(INTENT_UNKNOWN, 0.0)\n"
           if text.count(old) != 1:
               raise SystemExit('expected recurrence declaration guard not found exactly once')
           path.write_text(text.replace(old, new), encoding='utf-8')
