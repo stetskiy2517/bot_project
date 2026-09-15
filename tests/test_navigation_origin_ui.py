@@ -30,8 +30,9 @@ class NavigationOriginUiContractTests(unittest.TestCase):
         )
 
     def test_repeated_render_preserves_typed_address(self):
+        self.assertIn('const previousChoice = row.dataset.choice || "";', self.source)
+        self.assertIn('const wasHidden = row.hidden;', self.source)
         self.assertIn('if (wasHidden || previousChoice !== choice) input.value = "";', self.source)
-        self.assertNotIn('input.value = "";\n    input.focus();', self.source)
 
 
 if __name__ == "__main__":
