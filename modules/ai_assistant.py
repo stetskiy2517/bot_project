@@ -34,8 +34,11 @@ def _runtime_capabilities(user_id: int | None) -> list[str]:
         logger.exception("Failed to resolve navigation capability")
     if user_id is not None:
         try:
-            if get_assistant_preferences(user_id).get("proactive_reminders_enabled", False):
+            prefs = get_assistant_preferences(user_id)
+            if prefs.get("proactive_reminders_enabled", False):
                 capabilities.append("проактивные напоминания")
+            if prefs.get("proactive_calendar_events_enabled", False):
+                capabilities.append("проактивные события календаря")
         except Exception:
             logger.exception("Failed to resolve proactive capability for user %s", user_id)
     return capabilities
