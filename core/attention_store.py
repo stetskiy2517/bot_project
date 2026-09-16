@@ -11,6 +11,7 @@ PRIORITIES = {"high", "normal", "info"}
 ACTION_TYPES = {"none", "email_action", "task", "navigation", "proactive"}
 RETENTION_DAYS = 60
 PUSH_FRESHNESS_HOURS = 6
+PUSH_BATCH_INTERVAL_MINUTES = 5
 
 
 def _now() -> str:
@@ -166,16 +167,25 @@ def list_attention_items(user_id: int, *, limit: int = 20) -> list[dict]:
 
 def pending_attention_pushes(user_id: int, *, limit: int = 3) -> list[dict]:
     safe_limit = max(1, min(int(limit), 10))
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=PUSH_FRESHNESS_HOURS)).isoformat()
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=PUSH_FRESHNESS_HOURS)).isoformat()
+    batch_cutoff = (now - timedelta(minutes=PUSH_BATCH_INTERVAL_MINUTES)).isoformat()
     with db_lock:
+        recently_pushed = conn.execute(
+            "SELECT 1 FROM attention_items WHERE user_id=? AND pushed_at>=? LIMIT 1",
+            (int(user_id), batch_cutoff),
+        ).fetchone()
+        if recently_pushed:
+            return []
         rows = conn.execute(
             """SELECT attention_id,user_id,source_type,source_key,category,priority,title,body,action_type,
                       action_json,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error
                FROM attention_items
                WHERE user_id=? AND dismissed_at IS NULL AND pushed_at IS NULL
                  AND priority IN ('high','normal') AND push_attempts<2 AND created_at>=?
+                 AND (push_attempts=0 OR updated_at<=?)
                ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END,created_at ASC,attention_id ASC LIMIT ?""",
-            (int(user_id), cutoff, safe_limit),
+            (int(user_id), cutoff, batch_cutoff, safe_limit),
         ).fetchall()
     return [_row_payload(row) for row in rows]
 
