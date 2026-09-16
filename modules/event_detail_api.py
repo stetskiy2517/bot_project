@@ -258,13 +258,22 @@ def _alternatives(user_id: int, timezone_name: str, start: datetime, end: dateti
     ]
 
 
+def _is_linked_managed_travel(event: dict, source_ids: set[str]) -> bool:
+    if not is_managed_travel_event(event):
+        return False
+    private = ((event.get("extendedProperties") or {}).get("private") or {})
+    return str(private.get("smartPlannerSourceEventId") or "") in source_ids
+
+
 def _filtered_conflicts(user_id: int, start: datetime, end: datetime, event: dict) -> list[dict]:
     own_ids = {str(event.get("id") or ""), str(event.get("recurringEventId") or "")}
+    own_ids.discard("")
     conflicts = _find_conflicts(user_id, start, end, exclude_event_id=event.get("id"))
     return [
         item for item in conflicts
         if str(item.get("id") or "") not in own_ids
         and str(item.get("recurringEventId") or "") not in own_ids
+        and not _is_linked_managed_travel(item, own_ids)
     ]
 
 
