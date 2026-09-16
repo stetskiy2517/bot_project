@@ -360,8 +360,8 @@ def _clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _sync_active_reminder_reference(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Make a reminder opened from the web library the current chat reference."""
-    active = context.user_data.get("smart_planner_active_reminder")
+    """Consume a reminder opened from the web library as the current chat reference."""
+    active = context.user_data.pop("smart_planner_active_reminder", None)
     if not isinstance(active, dict) or not active.get("reminder_id"):
         return
     context.user_data["smart_planner_last_reminder"] = {
