@@ -8,6 +8,8 @@ jobs:
   browser-features:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      EMAIL_AUTO_WORKER_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
