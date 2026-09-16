@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 ACTION_TYPES = {"task", "reminder", "calendar_event"}
 MAX_ACTIONS = 5
 MAX_COMBINED_ACTIONS = 12
+ATTACHMENT_SCAN_MESSAGES = 20
 
 EMAIL_PLAN_SCHEMA = {
     "type": "object",
@@ -75,17 +76,18 @@ def _parse_json_object(raw: str) -> dict:
 
 
 def _collect(user_id: int, *, query: str | None = None, limit: int = MAX_ANALYSIS_MESSAGES) -> list[tuple[dict, dict]]:
+    effective_limit = max(1, min(int(limit), 30))
     accounts = [item for item in list_email_accounts(user_id) if item.get("enabled")]
     collected: list[tuple[dict, dict]] = []
     for account in accounts:
         try:
-            messages = _read_account(user_id, account, query=query, unread_only=False, limit=limit)
+            messages = _read_account(user_id, account, query=query, unread_only=False, limit=effective_limit)
         except Exception:
             logger.exception("Email plan could not read account %s for user %s", account.get("account_id"), user_id)
             continue
         collected.extend((account, message) for message in messages)
     collected.sort(key=_date_sort_key, reverse=True)
-    return collected[:MAX_ANALYSIS_MESSAGES]
+    return collected[:effective_limit]
 
 
 def _prompt(user_id: int, request_text: str, messages: list[tuple[dict, dict]]) -> str:
@@ -195,8 +197,6 @@ def _same_calendar_proposal(left: dict, right: dict) -> bool:
 
 
 def _merge_actions(body_actions: list[dict], attachment_actions: list[dict]) -> list[dict]:
-    # Attachment-derived calendar data wins when the same email body also mentions
-    # the trip: the file pipeline verifies local places/timezones independently.
     merged = list(attachment_actions)
     for action in body_actions:
         if any(_same_calendar_proposal(action, attachment) for attachment in attachment_actions):
@@ -217,16 +217,19 @@ def build_email_plan(user_id: int, request_text: str = "", *, include_attachment
             "draft_reply": None,
             "ai_used": False,
         }
-    messages = _collect(user_id)
-    if not messages:
-        return {"summary": "Подходящих писем не нашёл.", "actions": [], "draft_reply": None, "ai_used": False}
 
-    attachment_result = {"actions": [], "warnings": [], "analyzed": 0, "supported_found": 0}
+    collect_limit = ATTACHMENT_SCAN_MESSAGES if include_attachments else MAX_ANALYSIS_MESSAGES
+    collected = _collect(user_id, limit=collect_limit)
+    if not collected:
+        return {"summary": "Подходящих писем не нашёл.", "actions": [], "draft_reply": None, "ai_used": False}
+    messages = collected[:MAX_ANALYSIS_MESSAGES]
+
+    attachment_result = {"actions": [], "warnings": [], "analyzed": 0, "detected": 0, "supported_found": 0}
     if include_attachments:
         try:
             attachment_result = analyze_email_attachments(
                 user_id,
-                messages,
+                collected,
                 user_timezone=get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow",
             )
         except Exception:
@@ -263,10 +266,15 @@ def build_email_plan(user_id: int, request_text: str = "", *, include_attachment
     summary = str(text_plan.get("summary") or "").strip()
     if text_error:
         summary = "Текст писем не удалось надёжно разобрать в действия."
-    if attachment_result.get("analyzed"):
+
+    detected = int(attachment_result.get("detected") or 0)
+    supported = int(attachment_result.get("supported_found") or 0)
+    analyzed = int(attachment_result.get("analyzed") or 0)
+    if include_attachments and detected:
         found = len(attachment_actions)
         summary = (summary + " " if summary else "") + (
-            f"Проверено вложений: {attachment_result['analyzed']}; календарных событий найдено: {found}."
+            f"Вложений найдено: {detected}; поддерживаемых: {supported}; проверено: {analyzed}; "
+            f"календарных событий найдено: {found}."
         )
     attachment_warnings = [str(item)[:300] for item in (attachment_result.get("warnings") or [])]
     if not summary:
@@ -279,8 +287,9 @@ def build_email_plan(user_id: int, request_text: str = "", *, include_attachment
         "ai_used": True,
         "attachment_analysis": {
             "enabled": bool(include_attachments),
-            "analyzed": int(attachment_result.get("analyzed") or 0),
-            "supported_found": int(attachment_result.get("supported_found") or 0),
+            "detected": detected,
+            "analyzed": analyzed,
+            "supported_found": supported,
             "warnings": attachment_warnings,
         },
     }
