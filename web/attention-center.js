@@ -118,7 +118,6 @@
   }
 
   function openNavigation() {
-    // Existing navigation overlays own the decision flow; do not duplicate their state machine here.
     document.dispatchEvent(new Event("planner-navigation-refresh"));
     return true;
   }
@@ -179,11 +178,16 @@
 
   function install() {
     if (initialized) return;
+    const nav = document.getElementById("mobileBottomNav");
+    const today = document.getElementById("mobileTodayScreen");
+    if (!nav || !today) {
+      setTimeout(install, 50);
+      return;
+    }
     initialized = true;
     document.addEventListener("click", onClick);
     observer = new MutationObserver(() => {
       if (app.classList.contains("mobile-view-today")) {
-        openTodayFromDeepLink();
         setTimeout(() => load(), 0);
       }
     });
@@ -194,13 +198,13 @@
         setTimeout(() => load(), 0);
       }
     });
-    const today = document.getElementById("mobileTodayScreen");
-    if (today) contentObserver.observe(today, {childList: true, subtree: true});
+    contentObserver.observe(today, {childList: true, subtree: true});
 
     openTodayFromDeepLink();
     if (app.classList.contains("mobile-view-today")) load({force: true});
   }
 
   document.addEventListener("planner-ready", install, {once: true});
+  document.addEventListener("DOMContentLoaded", install, {once: true});
   if (document.readyState !== "loading") setTimeout(install, 0);
 })();
