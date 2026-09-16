@@ -20,6 +20,8 @@ from core.navigation_store import (
 from core.proactive_store import list_proactive_actions
 from core.task_planner_store import list_planner_tasks
 
+ATTENTION_FRESH_HOURS = 6
+
 
 def _parse_time(value: object) -> datetime | None:
     raw = str(value or "").strip()
@@ -81,6 +83,9 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
     """Persist useful results of automatic email analysis without another AI call."""
     if not isinstance(plan, dict):
         return 0
+    created_at = _parse_time(plan.get("created_at"))
+    if created_at is not None and created_at < datetime.now(timezone.utc) - timedelta(hours=ATTENTION_FRESH_HOURS):
+        return 0
     created = 0
     for action in plan.get("actions") or []:
         if not isinstance(action, dict):
@@ -139,7 +144,7 @@ def sync_proactive_action_attention(user_id: int, *, now: datetime | None = None
         current = current.replace(tzinfo=timezone.utc)
     else:
         current = current.astimezone(timezone.utc)
-    cutoff = current - timedelta(hours=72)
+    cutoff = current - timedelta(hours=ATTENTION_FRESH_HOURS)
     count = 0
     for action in list_proactive_actions(user_id, limit=30):
         if action.get("status") != "created":
@@ -252,7 +257,7 @@ def sync_navigation_attention(user_id: int) -> int:
 
 
 def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None:
-    for plan in recent_auto_plans(user_id, hours=72, limit=12):
+    for plan in recent_auto_plans(user_id, hours=ATTENTION_FRESH_HOURS, limit=12):
         capture_email_plan_attention(user_id, plan)
     sync_proactive_action_attention(user_id, now=now)
     sync_overdue_task_attention(user_id, now=now)
