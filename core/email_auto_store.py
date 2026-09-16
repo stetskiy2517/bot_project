@@ -77,6 +77,13 @@ def set_email_auto_enabled(user_id: int, enabled: bool) -> bool:
         raise ValueError("enabled must be boolean")
     stamp = _now()
     with db_lock:
+        row = conn.execute("SELECT enabled FROM email_auto_preferences WHERE user_id=?", (int(user_id),)).fetchone()
+        was_enabled = bool(row and row[0])
+        if enabled and not was_enabled:
+            # Re-enabling must never backfill mail accumulated while the feature was off.
+            # The next worker pass will baseline the current inbox without calling AI.
+            conn.execute("DELETE FROM email_auto_accounts WHERE user_id=?", (int(user_id),))
+            conn.execute("DELETE FROM email_auto_messages WHERE user_id=?", (int(user_id),))
         conn.execute(
             """INSERT INTO email_auto_preferences(user_id,enabled,updated_at) VALUES (?,?,?)
                ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at""",
