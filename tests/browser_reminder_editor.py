@@ -37,7 +37,8 @@ def main() -> None:
 
     try:
         label = secrets.token_hex(8)
-        user_id = get_or_create_google_user(label, label + "@example.test", "Reminder Editor Test")
+        email = label + "@example.test"
+        user_id = get_or_create_google_user(label, email, "Reminder Editor Test")
         save_user_timezone(user_id, "Europe/Moscow")
         reminder = create_reminder(
             user_id,
@@ -74,13 +75,23 @@ def main() -> None:
             page.wait_for_function(
                 "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
             )
+            page.wait_for_function(
+                "expected => document.getElementById('accountEmail')?.textContent === expected",
+                arg=email,
+            )
+            page.wait_for_function(
+                "!document.getElementById('mobileBottomNav').hidden && "
+                "document.getElementById('mobileBottomNav').getBoundingClientRect().height > 0"
+            )
+
             page.locator('#mobileBottomNav [data-view="more"]').click()
+            expect(page.locator("#mobileMoreScreen")).to_be_visible()
             page.locator('[data-more="saved"]').click()
             expect(page.locator("#libraryScreen")).to_be_visible()
             page.locator("#libraryRemindersTab").click()
             expect(page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')).to_be_visible()
 
-            page.wait_for_selector(f'[data-reminder-edit="{reminder_id}"]')
+            page.wait_for_selector(f'[data-reminder-edit="{reminder_id}"]', state="attached")
             row = page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')
             expect(row.locator(".reminder-category-chip")).to_have_text("Работа")
             page.locator(f'[data-reminder-edit="{reminder_id}"]').click(force=True)
