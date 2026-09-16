@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from modules import email_actions_api
 
@@ -82,9 +82,75 @@ class EmailTicketAutoCalendarTests(unittest.TestCase):
         self.assertNotIn("auto_created", action)
         self.assertEqual(result["auto_calendar"]["already_present"], 1)
 
+    def test_source_key_is_stable_when_ai_changes_title_or_offset_spelling(self):
+        action = self._action(1.0)
+        first = dict(action["attachment_event"])
+        second = dict(first)
+        second["title"] = "Перелёт Пулково → Шереметьево"
+        second["start"] = "2099-09-27T18:00:00Z"
+        second["end"] = "2099-09-27T19:20:00Z"
+
+        key_one = email_actions_api._attachment_event_key(action["source"], first)
+        key_two = email_actions_api._attachment_event_key(action["source"], second)
+
+        self.assertEqual(key_one, key_two)
+        self.assertEqual(len(key_one or ""), 40)
+
     @patch("modules.email_actions_api._create_event")
+    @patch("modules.email_actions_api._existing_semantic_attachment_calendar_event")
     @patch("modules.email_actions_api._existing_attachment_calendar_event")
-    def test_source_key_prevents_duplicate_calendar_insert(self, existing, create_event):
+    def test_legacy_semantic_match_prevents_new_duplicate(self, exact, semantic, create_event):
+        exact.return_value = None
+        semantic.return_value = {"id": "legacy-existing", "status": "confirmed"}
+        action = self._action(1.0)
+
+        event, created = email_actions_api._ensure_attachment_calendar_event(
+            42,
+            action["attachment_event"],
+            source=action["source"],
+            auto_created=True,
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(event["id"], "legacy-existing")
+        semantic.assert_called_once()
+        create_event.assert_not_called()
+
+    @patch("modules.email_actions_api._calendar_service")
+    def test_semantic_lookup_matches_legacy_import_by_time_and_route(self, calendar_service):
+        service = MagicMock()
+        calendar_service.return_value = service
+        service.events.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "id": "legacy-event",
+                    "status": "confirmed",
+                    "start": {"dateTime": "2099-09-27T18:00:00Z"},
+                    "end": {"dateTime": "2099-09-27T19:20:00Z"},
+                    "location": "Пулково, Санкт-Петербург",
+                    "extendedProperties": {
+                        "private": {
+                            "smartPlannerType": "email_attachment_import",
+                            "smartPlannerStartLocation": "Пулково, Санкт-Петербург",
+                            "smartPlannerEndLocation": "Шереметьево, Москва",
+                        }
+                    },
+                }
+            ]
+        }
+        action = self._action(1.0)
+
+        existing = email_actions_api._existing_semantic_attachment_calendar_event(
+            42, action["attachment_event"]
+        )
+
+        self.assertIsNotNone(existing)
+        self.assertEqual(existing["id"], "legacy-event")
+
+    @patch("modules.email_actions_api._create_event")
+    @patch("modules.email_actions_api._existing_semantic_attachment_calendar_event")
+    @patch("modules.email_actions_api._existing_attachment_calendar_event")
+    def test_source_key_prevents_duplicate_calendar_insert(self, existing, semantic, create_event):
         existing.return_value = {"id": "event-existing", "status": "confirmed"}
         action = self._action(1.0)
 
@@ -98,6 +164,7 @@ class EmailTicketAutoCalendarTests(unittest.TestCase):
         self.assertFalse(created)
         self.assertEqual(event["id"], "event-existing")
         create_event.assert_not_called()
+        semantic.assert_not_called()
         key = existing.call_args.args[1]
         self.assertEqual(len(key), 40)
 
