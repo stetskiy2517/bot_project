@@ -193,5 +193,9 @@
   }
 
   document.addEventListener("planner-ready", install);
-  if (document.readyState !== "loading") setTimeout(install, 0);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+  } else {
+    setTimeout(install, 0);
+  }
 })();
