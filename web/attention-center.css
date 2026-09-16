@@ -95,3 +95,17 @@
   font-size: 10px;
   font-weight: 700;
 }
+
+.mobile-attention-card.is-empty .mobile-attention-count {
+  opacity: 0.58;
+}
+
+.mobile-attention-empty {
+  padding: 11px 12px;
+  border: 1px solid #ecece8;
+  border-radius: 14px;
+  background: #fafaf8;
+  color: #85857f;
+  font-size: 11px;
+  line-height: 1.4;
+}
