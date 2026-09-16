@@ -41,7 +41,7 @@ jobs:
           if-no-files-found: ignore
 
   webkit-ios-smoke:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     env:
       EMAIL_AUTO_WORKER_ENABLED: "0"
