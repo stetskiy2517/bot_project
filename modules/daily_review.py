@@ -1,4 +1,4 @@
-"""Deterministic day reviews with tasks, travel and cached email planning signals."""
+"""Deterministic day reviews with tasks, travel and efficient email planning signals."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from core.library_store import list_saved_reminders
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_availability import find_free_slots, _parse_hhmm
 from modules.calendar_user import _list_events, _event_start
+from modules.email_actions import build_email_plan
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +61,29 @@ def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *,
     return lines
 
 
-def _email_lines(user_id: int) -> list[str]:
-    """Read cached background findings; never spend fresh AI tokens during a review."""
-    if not email_auto_enabled(user_id):
+def _live_email_lines(user_id: int) -> list[str]:
+    """Legacy opt-in review behavior for users who did not enable background email analysis."""
+    try:
+        plan = build_email_plan(user_id, "Что из последних писем влияет на мои ближайшие планы и требует действия?")
+    except Exception:
+        logger.exception("Review email planning unavailable for user %s", user_id)
+        return ["Почта: временно не удалось проверить планировочные сигналы."]
+    summary = " ".join(str(plan.get("summary") or "").split()).strip()
+    actions = plan.get("actions") or []
+    if not plan.get("ai_used") and not actions:
         return []
+    lines = [f"Почта: {summary[:350]}" if summary else "Почта: есть сигналы для планирования."]
+    for action in actions[:2]:
+        lines.append(f"• Предложение: {action['title']}")
+    if actions:
+        lines.append("Открой почту в приложении, чтобы подтвердить действие. Ничего из писем автоматически не создано.")
+    return lines
+
+
+def _email_lines(user_id: int) -> list[str]:
+    """Use cached background findings when enabled, avoiding a second AI call in Daily Review."""
+    if not email_auto_enabled(user_id):
+        return _live_email_lines(user_id)
     try:
         plans = recent_auto_plans(user_id, hours=48, limit=8)
     except Exception:
