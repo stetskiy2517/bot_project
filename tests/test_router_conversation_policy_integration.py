@@ -27,25 +27,21 @@ class _Context:
 
 
 class RouterConversationIntentTests(unittest.TestCase):
-    def test_first_person_fact_with_date_and_time_is_not_calendar_write(self):
+    def test_first_person_medication_fact_with_date_and_time_is_not_calendar_write(self):
         self.assertEqual(
             detect_intent("Я принимаю таблетки завтра в 23:00").name,
             INTENT_UNKNOWN,
         )
-        self.assertEqual(
-            detect_intent("У меня встреча завтра в 15:00").name,
-            INTENT_UNKNOWN,
-        )
 
-    def test_explicit_and_shorthand_calendar_writes_still_work(self):
-        self.assertEqual(
-            detect_intent("Добавь встречу завтра в 15:00").name,
-            INTENT_CREATE,
-        )
-        self.assertEqual(
-            detect_intent("Встреча завтра в 15:00").name,
-            INTENT_CREATE,
-        )
+    def test_explicit_and_natural_calendar_writes_still_work(self):
+        for text in (
+            "Добавь встречу завтра в 15:00",
+            "Встреча завтра в 15:00",
+            "Я иду к врачу завтра в 15:00",
+            "Мне завтра в 9 к врачу",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(detect_intent(text).name, INTENT_CREATE)
 
     def test_opened_library_reminder_becomes_current_reference(self):
         context = _Context({
