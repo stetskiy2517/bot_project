@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock
 from core.library_store import get_saved_reminder
-from core.reminder_recurrence import next_repeat_at, validate_repeat_rule
+from core.reminder_recurrence import next_repeat_after, validate_repeat_rule
 
 VALID_REMINDER_CATEGORIES = frozenset(
     {"work", "health", "rest", "travel", "family", "personal", "other"}
@@ -127,7 +127,7 @@ def edit_saved_reminder(
             effective_repeat = normalized_repeat if repeat_rule is not _UNSET else current_repeat
             effective_timezone = str(repeat_timezone or current_repeat_tz or "UTC") if effective_repeat else None
             next_value = (
-                next_repeat_at(effective_time, effective_repeat, effective_timezone).isoformat()
+                next_repeat_after(effective_time, effective_repeat, effective_timezone, now).isoformat()
                 if effective_repeat
                 else None
             )
