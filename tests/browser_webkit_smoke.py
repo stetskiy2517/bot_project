@@ -53,8 +53,6 @@ def main() -> int:
         "errors": [],
     }
 
-    browser = None
-    context = None
     try:
         label = secrets.token_hex(8)
         user_id = get_or_create_google_user(label, label + "@example.test", "WebKit User")
@@ -70,63 +68,67 @@ def main() -> int:
 
         with sync_playwright() as playwright:
             browser = playwright.webkit.launch(headless=True)
-            device = dict(playwright.devices["iPhone 13"])
-            context = browser.new_context(**device, accept_downloads=True)
-            context.add_cookies(
-                [
-                    {
-                        "name": "session",
-                        "value": session_value,
-                        "url": base,
-                        "httpOnly": True,
-                        "sameSite": "Lax",
-                    }
-                ]
-            )
-            page = context.new_page()
-            page.set_default_timeout(10000)
-            page_errors: list[str] = []
-            page.on("pageerror", lambda error: page_errors.append(str(error)))
-
-            page.goto(base, wait_until="domcontentloaded")
-            page.wait_for_function(
-                "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
-            )
-            page.wait_for_function(
-                "document.getElementById('accountEmail').textContent.includes('@example.test')"
-            )
-
-            page.evaluate("showChat()")
-            page.locator("#message").fill("заметка: WebKit smoke")
-            page.locator("#message").press("Enter")
-            page.wait_for_function("!sendingChat")
-
-            notes = list_notes(user_id)
-            if len(notes) != 1 or "WebKit smoke" not in str(notes[0].get("text") or ""):
-                raise AssertionError(f"Expected one WebKit smoke note, got: {notes!r}")
-            if page_errors:
-                raise AssertionError(f"WebKit page errors: {page_errors!r}")
-
-            result.update(
-                passed=True,
-                user_agent=page.evaluate("navigator.userAgent"),
-                viewport=page.viewport_size,
-            )
-            page.screenshot(path=str(output / "webkit-iphone-smoke.png"), full_page=True)
-    except Exception as exc:
-        result["errors"].append(str(exc))
-        if context is not None:
+            context = None
             try:
-                pages = context.pages
-                if pages:
-                    pages[-1].screenshot(path=str(output / "webkit-iphone-failure.png"), full_page=True)
-            except Exception:
-                pass
+                device = dict(playwright.devices["iPhone 13"])
+                context = browser.new_context(**device, accept_downloads=True)
+                context.add_cookies(
+                    [
+                        {
+                            "name": "session",
+                            "value": session_value,
+                            "url": base,
+                            "httpOnly": True,
+                            "sameSite": "Lax",
+                        }
+                    ]
+                )
+                page = context.new_page()
+                page.set_default_timeout(10000)
+                page_errors: list[str] = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+                page.goto(base, wait_until="domcontentloaded")
+                page.wait_for_function(
+                    "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
+                )
+                page.wait_for_function(
+                    "document.getElementById('accountEmail').textContent.includes('@example.test')"
+                )
+
+                page.evaluate("showChat()")
+                page.locator("#message").fill("заметка: WebKit smoke")
+                page.locator("#message").press("Enter")
+                page.wait_for_function("!sendingChat")
+
+                notes = list_notes(user_id)
+                if len(notes) != 1 or "WebKit smoke" not in str(notes[0].get("text") or ""):
+                    raise AssertionError(f"Expected one WebKit smoke note, got: {notes!r}")
+                if page_errors:
+                    raise AssertionError(f"WebKit page errors: {page_errors!r}")
+
+                result.update(
+                    passed=True,
+                    user_agent=page.evaluate("navigator.userAgent"),
+                    viewport=page.viewport_size,
+                )
+                page.screenshot(path=str(output / "webkit-iphone-smoke.png"), full_page=True)
+            except Exception as exc:
+                result["errors"].append(str(exc))
+                if context is not None:
+                    try:
+                        pages = context.pages
+                        if pages:
+                            pages[-1].screenshot(
+                                path=str(output / "webkit-iphone-failure.png"), full_page=True
+                            )
+                    except Exception:
+                        pass
+            finally:
+                if context is not None:
+                    context.close()
+                browser.close()
     finally:
-        if context is not None:
-            context.close()
-        if browser is not None:
-            browser.close()
         server.shutdown()
         thread.join(timeout=5)
         temporary.cleanup()
