@@ -8,10 +8,11 @@ from core.conversation_policy import (
 
 
 class ConversationPolicyTests(unittest.TestCase):
-    def test_first_person_facts_are_declarative(self):
+    def test_routine_and_medication_facts_are_declarative(self):
         self.assertTrue(is_declarative_statement("Я принимаю таблетки завтра в 23:00"))
-        self.assertTrue(is_declarative_statement("У меня встреча завтра в 15:00"))
-        self.assertTrue(is_declarative_statement("Мне завтра к врачу в 12:00"))
+        self.assertTrue(is_declarative_statement("Я обычно пью таблетки в 22:00"))
+        self.assertFalse(is_declarative_statement("Я иду к врачу завтра в 15:00"))
+        self.assertFalse(is_declarative_statement("Мне завтра к врачу в 12:00"))
 
     def test_clear_product_commands_are_detected(self):
         for text in (
