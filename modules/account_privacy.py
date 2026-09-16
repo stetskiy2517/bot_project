@@ -86,7 +86,7 @@ def export_account(user_id: int) -> dict:
             selectors = {
                 "identity_accounts": "provider,subject,email,name,created_at,updated_at",
                 "notes": "note_id,title,text,created_at,updated_at,deleted_at",
-                "note_metadata": "note_id,pinned,tags_json,checklist_json,updated_at",
+                "note_metadata": "note_id,pinned,tags_json,checklist_json,category,updated_at",
                 "reminder_details": "reminder_id,category,updated_at",
                 "reminders": "reminder_id,text,remind_at,status,created_at,delivered_at,completed_at,deleted_at,repeat_rule,repeat_timezone,next_remind_at",
                 "tasks": "task_id,title,due_at,status,priority,created_at,completed_at,category,estimate_minutes,flexible,calendar_event_id,scheduled_start,parent_task_id,repeat_rule,updated_at",
