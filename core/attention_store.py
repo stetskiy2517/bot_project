@@ -12,6 +12,11 @@ ACTION_TYPES = {"none", "email_action", "task", "navigation", "proactive"}
 RETENTION_DAYS = 60
 PUSH_FRESHNESS_HOURS = 6
 PUSH_BATCH_INTERVAL_MINUTES = 5
+TRANSIENT_SOURCE_HOURS = {
+    "navigation_leave_now": 6,
+    "navigation_route_change": 6,
+    "daily_review": 36,
+}
 
 
 def _now() -> str:
@@ -212,6 +217,23 @@ def dismiss_attention_item(user_id: int, attention_id: int) -> bool:
     return bool(cur.rowcount)
 
 
+def dismiss_attention_source(user_id: int, source_type: str, source_key: str) -> bool:
+    source_type = _clean(source_type, 80)
+    source_key = _clean(source_key, 300)
+    if not source_type or not source_key:
+        return False
+    now = _now()
+    with db_lock:
+        cur = conn.execute(
+            """UPDATE attention_items
+               SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=?
+               WHERE user_id=? AND source_type=? AND source_key=? AND dismissed_at IS NULL""",
+            (now, now, now, int(user_id), source_type, source_key),
+        )
+        conn.commit()
+    return bool(cur.rowcount)
+
+
 def dismiss_missing_source_keys(user_id: int, source_type: str, active_keys: set[str]) -> None:
     source_type = _clean(source_type, 80)
     now = _now()
@@ -247,8 +269,18 @@ def mark_attention_push_result(user_id: int, attention_id: int, *, success: bool
 
 
 def cleanup_attention_store() -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
+    current = datetime.now(timezone.utc)
+    cutoff = (current - timedelta(days=RETENTION_DAYS)).isoformat()
+    now = current.isoformat()
     with db_lock:
+        for source_type, hours in TRANSIENT_SOURCE_HOURS.items():
+            transient_cutoff = (current - timedelta(hours=hours)).isoformat()
+            conn.execute(
+                """UPDATE attention_items
+                   SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=?
+                   WHERE source_type=? AND dismissed_at IS NULL AND updated_at<?""",
+                (now, now, now, source_type, transient_cutoff),
+            )
         conn.execute("DELETE FROM attention_items WHERE updated_at<?", (cutoff,))
         conn.commit()
 
