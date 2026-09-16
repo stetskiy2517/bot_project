@@ -104,6 +104,20 @@ def main() -> None:
                     }, ensure_ascii=False),
                 ),
             )
+            page.route(
+                "**/api/email/action",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "type": "calendar_event",
+                        "created": True,
+                        "already_present": False,
+                        "item": {"id": "email-event-1"},
+                    }, ensure_ascii=False),
+                ),
+            )
 
             page.goto(base)
             page.wait_for_function(
@@ -111,19 +125,17 @@ def main() -> None:
             )
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-shell')")
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-home')")
+            page.wait_for_function("document.getElementById('emailActionStyles')")
 
-            # Voice home contains only the main hold-to-record control.
             expect(page.locator("#voiceBtn")).to_be_visible()
             expect(page.locator("#mobileBottomNav")).to_be_visible()
             expect(page.locator(".composer-wrap")).not_to_be_visible()
             expect(page.locator("#message")).not_to_be_visible()
             expect(page.locator("#fileAttachBtn")).not_to_be_visible()
 
-            # The late file-ingest style must not be able to force the composer onto home.
             expect(page.locator("#fileIngestStyles")).to_have_count(1)
             expect(page.locator(".composer-wrap")).not_to_be_visible()
 
-            # Composer belongs to the dedicated chat tab and must sit above bottom navigation.
             page.locator('#mobileBottomNav [data-view="chat"]').click()
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-chat')")
             expect(page.locator(".composer-wrap")).to_be_visible()
@@ -155,7 +167,58 @@ def main() -> None:
             add_button.click()
             expect(add_button).to_have_text("Добавлено ✓")
 
-            # Returning to voice mode hides the composer again.
+            manual_email_action = {
+                "action_type": "calendar_event",
+                "title": "Рейс SU101 Москва — Казань",
+                "confidence": 0.98,
+                "ready": True,
+                "source": {"attachment": "ticket-98.pdf"},
+                "attachment_event": {
+                    "title": "Рейс SU101 Москва — Казань",
+                    "start": "2026-10-10T10:00:00+03:00",
+                    "end": "2026-10-10T11:30:00+03:00",
+                    "start_timezone": "Europe/Moscow",
+                    "end_timezone": "Europe/Moscow",
+                    "start_location": "Москва, аэропорт Шереметьево",
+                    "end_location": "Казань, аэропорт",
+                    "location": "Москва → Казань",
+                    "ready": True,
+                },
+                "warnings": [],
+            }
+            page.evaluate(
+                "action => document.dispatchEvent(new CustomEvent('planner-result', {detail: {email_plan: {actions: [action]}}}))",
+                manual_email_action,
+            )
+            email_card = page.locator(".email-chat-action-card").last
+            expect(email_card).to_contain_text("SU101")
+            email_button = email_card.locator("button")
+            expect(email_button).to_have_text("Добавить в календарь")
+            expect(email_button).to_be_enabled()
+            email_button.click()
+            expect(email_button).to_have_text("Добавлено ✓")
+
+            auto_email_action = {
+                **manual_email_action,
+                "title": "Рейс SU102 Казань — Москва",
+                "confidence": 1.0,
+                "auto_created": True,
+                "applied": True,
+                "attachment_event": {
+                    **manual_email_action["attachment_event"],
+                    "title": "Рейс SU102 Казань — Москва",
+                },
+            }
+            page.evaluate(
+                "action => document.dispatchEvent(new CustomEvent('planner-result', {detail: {email_plan: {actions: [action]}}}))",
+                auto_email_action,
+            )
+            auto_card = page.locator(".email-chat-action-card").last
+            expect(auto_card).to_contain_text("SU102")
+            auto_button = auto_card.locator("button")
+            expect(auto_button).to_have_text("Добавлено автоматически ✓")
+            expect(auto_button).to_be_disabled()
+
             page.locator('#mobileBottomNav [data-view="home"]').click()
             page.wait_for_function("document.getElementById('app').classList.contains('mobile-view-home')")
             expect(page.locator("#voiceBtn")).to_be_visible()

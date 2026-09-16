@@ -22,7 +22,6 @@ MAX_ATTACHMENT_ACTIONS = 8
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
-# Values sent to GigaChat mirror the already deployed manual file-ingest API.
 SUPPORTED_TYPES = {
     ".pdf": ("application/pdf", MAX_DOCUMENT_BYTES),
     ".txt": ("text/plain", MAX_DOCUMENT_BYTES),
@@ -40,8 +39,6 @@ SUPPORTED_TYPES = {
     ".bmp": ("image/bmp", MAX_IMAGE_BYTES),
 }
 
-# Mail providers do not always preserve a useful filename. Detect those files by
-# MIME type and synthesize only the provider-facing extension when necessary.
 SUPPORTED_MIME_TYPES = {
     "application/pdf": (".pdf", "application/pdf", MAX_DOCUMENT_BYTES),
     "text/plain": (".txt", "text/plain", MAX_DOCUMENT_BYTES),
@@ -103,13 +100,15 @@ def _duration_minutes(event: dict) -> int | None:
     return max(5, min(60 * 24 * 7, minutes)) if minutes > 0 else None
 
 
-def _source(account: dict, message: dict, source_index: int, filename: str) -> dict:
+def _source(account: dict, message: dict, source_index: int, filename: str, attachment: dict) -> dict:
     return {
         "index": source_index,
         "subject": str(message.get("subject") or "Без темы")[:300],
         "from": str(message.get("from") or "")[:300],
         "account": account.get("display_name") or account.get("email") or account.get("provider"),
         "attachment": filename,
+        "provider_message_id": str(message.get("provider_message_id") or "")[:500],
+        "attachment_id": str(attachment.get("attachment_id") or attachment.get("part_index") or "")[:500],
     }
 
 
@@ -136,8 +135,10 @@ def _action_from_event(
     *,
     account: dict,
     message: dict,
+    attachment: dict,
     source_index: int,
     filename: str,
+    document_type: str,
     document_summary: str,
     document_warnings: list[str],
 ) -> dict:
@@ -159,7 +160,8 @@ def _action_from_event(
         "duration_minutes": _duration_minutes(event),
         "confidence": float(event.get("confidence") or 0),
         "reason": reason[:700],
-        "source": _source(account, message, source_index, filename),
+        "source": _source(account, message, source_index, filename, attachment),
+        "attachment_document_type": document_type,
         "attachment_event": event,
         "ready": bool(event.get("ready")),
         "warnings": warnings,
@@ -219,6 +221,7 @@ def analyze_email_attachments(
                 warnings.append(f"Не удалось надёжно разобрать вложение «{filename}».")
                 continue
 
+            document_type = str(result.get("document_type") or "other").strip().lower()[:60]
             document_summary = " ".join(str(result.get("summary") or "").split()).strip()[:300]
             document_warnings = [str(item)[:300] for item in (result.get("warnings") or [])]
             for event in result.get("events") or []:
@@ -227,8 +230,10 @@ def analyze_email_attachments(
                         event,
                         account=account,
                         message=message,
+                        attachment=attachment,
                         source_index=source_index,
                         filename=filename,
+                        document_type=document_type,
                         document_summary=document_summary,
                         document_warnings=document_warnings,
                     )
