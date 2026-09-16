@@ -1,4 +1,4 @@
-"""Extended note controls: editing, metadata, task conversion and safe semantic search."""
+"""Product-level note controls and safe semantic search."""
 
 from __future__ import annotations
 
@@ -10,8 +10,14 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.feature_access import has_ai_access
-from core.note_enhancements import enhanced_note, update_note_content, update_note_metadata
-from core.note_store import list_notes, search_notes
+from core.note_enhancements import (
+    DEFAULT_NOTE_CATEGORY,
+    enhanced_note,
+    list_enhanced_notes,
+    update_note_content,
+    update_note_metadata,
+)
+from core.note_store import create_note, list_notes, search_notes
 from core.task_planner_store import create_planner_task
 from integrations.ai import AIError, complete, is_ai_available
 
@@ -40,6 +46,20 @@ def _json_object(value: str) -> dict:
     return payload
 
 
+def _public_note(note: dict) -> dict:
+    return {
+        "note_id": int(note["note_id"]),
+        "title": str(note.get("title") or "Без названия"),
+        "text": str(note.get("text") or ""),
+        "created_at": note.get("created_at"),
+        "updated_at": note.get("updated_at"),
+        "pinned": bool(note.get("pinned")),
+        "tags": list(note.get("tags") or []),
+        "checklist": list(note.get("checklist") or []),
+        "category": str(note.get("category") or DEFAULT_NOTE_CATEGORY),
+    }
+
+
 @note_tools_api.after_app_request
 def note_tools_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
@@ -55,12 +75,38 @@ def note_tools_js():
     return send_from_directory(WEB_DIR, "note-tools.js", mimetype="application/javascript")
 
 
+@note_tools_api.get("/api/note-tools")
+def note_list():
+    notes = list_enhanced_notes(_user(), limit=500)
+    return {"notes": [_public_note(item) for item in notes]}
+
+
+@note_tools_api.post("/api/note-tools")
+def create_note_from_ui():
+    payload = request.get_json(silent=True) or {}
+    allowed = {"title", "text", "pinned", "tags", "checklist", "category"}
+    if set(payload) - allowed:
+        raise ValueError("Неизвестные поля заметки")
+    text = str(payload.get("text") or "").strip()
+    title = str(payload.get("title") or "").strip() or None
+    note = create_note(_user(), text, title=title)
+    note = update_note_metadata(
+        _user(),
+        note["note_id"],
+        pinned=bool(payload.get("pinned", False)),
+        tags=payload.get("tags", []),
+        checklist=payload.get("checklist", []),
+        category=payload.get("category", DEFAULT_NOTE_CATEGORY),
+    )
+    return {"note": _public_note(note)}, 201
+
+
 @note_tools_api.get("/api/note-tools/<int:note_id>")
 def note_details(note_id: int):
     note = enhanced_note(_user(), note_id)
     if not note:
         return jsonify(error="note_not_found"), 404
-    return {"note": note}
+    return {"note": _public_note(note)}
 
 
 @note_tools_api.patch("/api/note-tools/<int:note_id>")
@@ -68,26 +114,27 @@ def edit_note(note_id: int):
     payload = request.get_json(silent=True) or {}
     if set(payload) != {"title", "text"}:
         raise ValueError("Нужны название и текст заметки")
-    return {"note": update_note_content(_user(), note_id, title=payload.get("title"), text=payload.get("text"))}
+    note = update_note_content(_user(), note_id, title=payload.get("title"), text=payload.get("text"))
+    return {"note": _public_note(note)}
 
 
 @note_tools_api.put("/api/note-tools/<int:note_id>/metadata")
 def edit_note_metadata(note_id: int):
     payload = request.get_json(silent=True) or {}
-    if set(payload) - {"pinned", "tags", "checklist"}:
+    if set(payload) - {"pinned", "tags", "checklist", "category"}:
         raise ValueError("Неизвестные поля заметки")
     current = enhanced_note(_user(), note_id)
     if not current:
         return jsonify(error="note_not_found"), 404
-    return {
-        "note": update_note_metadata(
-            _user(),
-            note_id,
-            pinned=payload.get("pinned", current.get("pinned", False)),
-            tags=payload.get("tags", current.get("tags", [])),
-            checklist=payload.get("checklist", current.get("checklist", [])),
-        )
-    }
+    note = update_note_metadata(
+        _user(),
+        note_id,
+        pinned=payload.get("pinned", current.get("pinned", False)),
+        tags=payload.get("tags", current.get("tags", [])),
+        checklist=payload.get("checklist", current.get("checklist", [])),
+        category=payload.get("category", current.get("category", DEFAULT_NOTE_CATEGORY)),
+    )
+    return {"note": _public_note(note)}
 
 
 @note_tools_api.post("/api/note-tools/<int:note_id>/to-task")
@@ -102,7 +149,7 @@ def note_to_task(note_id: int):
         title,
         due_at=payload.get("due_at"),
         priority=payload.get("priority", "normal"),
-        category=payload.get("category", "other"),
+        category=payload.get("category", note.get("category") or "other"),
         estimate_minutes=payload.get("estimate_minutes"),
         flexible=payload.get("flexible", True),
     )
@@ -121,9 +168,14 @@ def semantic_note_search():
     if not candidates:
         return {"answer": "Заметок пока нет.", "notes": [], "ai_used": False}
     if not has_ai_access(user_id) or not is_ai_available():
+        notes = []
+        for item in candidates[:5]:
+            enriched = enhanced_note(user_id, int(item["note_id"]))
+            if enriched:
+                notes.append(_public_note(enriched))
         return {
             "answer": "Показываю совпадения по словам. Умный поиск доступен при включённом ИИ.",
-            "notes": [{"note_id": item["note_id"], "title": item["title"], "text": item["text"][:500]} for item in candidates[:5]],
+            "notes": notes,
             "ai_used": False,
         }
     blocks = []
@@ -153,13 +205,18 @@ def semantic_note_search():
             if len(ids) >= 5:
                 break
         notes = [enhanced_note(user_id, note_id) for note_id in ids]
-        notes = [item for item in notes if item]
+        notes = [_public_note(item) for item in notes if item]
         answer = " ".join(str(result.get("answer") or "").split()).strip()[:2000] or "Не нашёл."
         return {"answer": answer, "notes": notes, "ai_used": True}
     except (AIError, ValueError, json.JSONDecodeError):
         logger.exception("Semantic note search failed for user %s", user_id)
+        notes = []
+        for item in candidates[:5]:
+            enriched = enhanced_note(user_id, int(item["note_id"]))
+            if enriched:
+                notes.append(_public_note(enriched))
         return {
             "answer": "Умный поиск временно недоступен. Показываю совпадения по словам.",
-            "notes": [{**item, "pinned": False, "tags": [], "checklist": []} for item in candidates[:5]],
+            "notes": notes,
             "ai_used": False,
         }
