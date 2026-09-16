@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 from pathlib import Path
@@ -24,11 +26,18 @@ from core.email_store import (
 from integrations.email_gmail import GMAIL_SCOPE
 from integrations.email_imap import EmailAuthenticationError, EmailTransportError, test_connection
 from modules.email import answer_email_query, detect_email_intent
+from modules.email_actions import build_email_plan
 
 logger = logging.getLogger(__name__)
 email_api = Blueprint("email", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 GMAIL_SCOPES = [GMAIL_SCOPE]
+
+EMAIL_PLAN_REQUEST_RE = re.compile(
+    r"\b(?:разбер\w*|проанализ\w*|анализ\w*|что\s+важн\w*|что\s+учесть|"
+    r"проверь\s+(?:мою\s+)?почт\w*|почт\w*\s+(?:для\s+)?планирован\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def _user() -> int:
@@ -53,6 +62,111 @@ def _client_config() -> dict:
             "redirect_uris": [_redirect_uri()],
         }
     }
+
+
+def _is_email_plan_request(text: str) -> bool:
+    clean = " ".join(str(text or "").split()).strip()
+    if not clean or not detect_email_intent(clean):
+        return False
+    return bool(EMAIL_PLAN_REQUEST_RE.search(clean))
+
+
+def _format_plan_time(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw
+    if parsed.tzinfo is None:
+        return parsed.strftime("%d.%m.%Y, %H:%M")
+    return parsed.strftime("%d.%m.%Y, %H:%M %z")
+
+
+def _format_email_plan_for_chat(plan: dict) -> str:
+    actions = [item for item in (plan.get("actions") or []) if isinstance(item, dict)]
+    attachment_actions = [
+        item for item in actions if isinstance(item.get("attachment_event"), dict)
+    ]
+    attachment_info = plan.get("attachment_analysis") if isinstance(plan.get("attachment_analysis"), dict) else {}
+    detected = int(attachment_info.get("detected") or 0)
+    supported = int(attachment_info.get("supported_found") or 0)
+    analyzed = int(attachment_info.get("analyzed") or 0)
+    warnings = [str(item).strip() for item in (attachment_info.get("warnings") or []) if str(item).strip()]
+
+    if attachment_actions:
+        lines = [
+            "Почта → вложения",
+            f"Вложения: найдено {detected} · поддерживается {supported} · разобрано {analyzed}",
+        ]
+        for index, action in enumerate(attachment_actions, 1):
+            event = action["attachment_event"]
+            source = action.get("source") if isinstance(action.get("source"), dict) else {}
+            title = str(event.get("title") or action.get("title") or "Событие из вложения").strip()
+            block = [f"{index}. {title}"]
+            attachment_name = str(source.get("attachment") or "").strip()
+            subject = str(source.get("subject") or "").strip()
+            if attachment_name:
+                block.append(f"Вложение: {attachment_name}")
+            if subject:
+                block.append(f"Письмо: {subject}")
+            start = _format_plan_time(event.get("start") or action.get("due_at"))
+            end = _format_plan_time(event.get("end"))
+            if start and end:
+                block.append(f"Время: {start} → {end}")
+            elif start:
+                block.append(f"Время: {start}")
+            start_location = str(event.get("start_location") or "").strip()
+            end_location = str(event.get("end_location") or "").strip()
+            location = str(event.get("location") or "").strip()
+            if start_location and end_location:
+                block.append(f"Маршрут: {start_location} → {end_location}")
+            elif location:
+                block.append(f"Место: {location}")
+            try:
+                confidence = float(action.get("confidence") or event.get("confidence") or 0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            if confidence:
+                block.append(f"Уверенность: {round(max(0.0, min(1.0, confidence)) * 100)}%")
+            if action.get("ready") is False or event.get("ready") is False:
+                block.append("⚠ Нужна проверка данных перед добавлением в календарь.")
+            for warning in action.get("warnings") or []:
+                clean = str(warning).strip()
+                if clean:
+                    block.append(f"⚠ {clean}")
+            lines.append("\n".join(block))
+        for warning in warnings:
+            lines.append(f"⚠ {warning}")
+        lines.append("Ничего не добавляю в календарь без твоего подтверждения.")
+        return "\n\n".join(lines)
+
+    lines = ["Почта → планирование"]
+    summary = str(plan.get("summary") or "").strip()
+    if summary:
+        lines.append(summary)
+    if attachment_info.get("enabled"):
+        lines.append(
+            f"Вложения: найдено {detected} · поддерживается {supported} · разобрано {analyzed}"
+        )
+    for warning in warnings:
+        lines.append(f"⚠ {warning}")
+    for index, action in enumerate(actions[:5], 1):
+        title = str(action.get("title") or "Действие").strip()
+        when = _format_plan_time(action.get("due_at"))
+        line = f"{index}. {title}"
+        if when:
+            line += f" · {when}"
+        lines.append(line)
+    return "\n\n".join(lines)
+
+
+def answer_email_chat_request(user_id: int, text: str) -> str:
+    if _is_email_plan_request(text):
+        plan = build_email_plan(user_id, text, include_attachments=True)
+        return _format_email_plan_for_chat(plan)
+    return answer_email_query(user_id, text)
 
 
 def build_gmail_authorization_url(user_id: int) -> str:
@@ -115,7 +229,7 @@ def email_response_hooks(response):
             text = payload.get("transcript")
         if isinstance(text, str) and detect_email_intent(text):
             try:
-                answer = answer_email_query(_user(), text)
+                answer = answer_email_chat_request(_user(), text)
                 payload["handled"] = True
                 payload["replies"] = [answer]
                 response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
