@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WEB_PUSH_WORKER_ENABLED: "0"
+      EMAIL_AUTO_WORKER_ENABLED: "0"
     strategy:
       fail-fast: false
       matrix:

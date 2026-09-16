@@ -24,6 +24,7 @@ USER_TABLES = (
     "command_templates", "proactive_actions", "proactive_feedback", "ai_memory_event_processing", "ai_calendar_sync",
     "user_memories", "ai_memory_events", "feature_entitlements", "notes", "note_metadata", "reminders", "tasks",
     "life_balance_ratings", "push_subscriptions", "navigation_preferences", "privacy_challenges",
+    "email_auto_messages", "email_auto_accounts", "email_auto_runs", "email_auto_preferences",
     "email_accounts", "email_oauth_states", "identity_accounts",
     "oauth_states", "users", "google_accounts",
 )
@@ -47,7 +48,7 @@ def privacy_policy() -> dict:
         "notice": (
             "Стираются локальная учётная запись, заметки, задачи, напоминания, история, изученная ИИ-память, "
             "журнал и оценки проактивных действий, настройки, оценки жизненного баланса, доступ к ИИ, "
-            "почтовые подключения, push-подписки и локальные данные входа. "
+            "почтовые подключения и состояние автоматического разбора почты, push-подписки и локальные данные входа. "
             "События во внешнем календаре и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
@@ -92,6 +93,10 @@ def export_account(user_id: int) -> dict:
                 "command_templates": "template_id,name,spec_json",
                 "feature_entitlements": "feature,enabled,source,updated_at",
                 "email_accounts": "account_id,provider,email,display_name,enabled,created_at,updated_at",
+                "email_auto_preferences": "enabled,updated_at",
+                "email_auto_accounts": "account_id,initialized_at,last_scan_at,last_error",
+                "email_auto_messages": "account_id,fingerprint,provider_message_id,state,reason,processed_at",
+                "email_auto_runs": "run_id,created_at,new_messages,candidates,ai_text_calls,attachments_analyzed,auto_created,already_present,failed,plan_json",
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",

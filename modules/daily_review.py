@@ -1,4 +1,4 @@
-"""Deterministic day reviews with tasks, travel and safe email planning signals."""
+"""Deterministic day reviews with tasks, travel and efficient email planning signals."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from core.assistant_preferences import get_assistant_preferences, quiet_until
 from core.db import conn, db_lock, get_calendar_preferences, get_user_timezone
+from core.email_auto_store import email_auto_enabled, recent_auto_plans
 from core.library_store import list_saved_reminders
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_availability import find_free_slots, _parse_hhmm
@@ -60,7 +61,8 @@ def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *,
     return lines
 
 
-def _email_lines(user_id: int) -> list[str]:
+def _live_email_lines(user_id: int) -> list[str]:
+    """Legacy opt-in review behavior for users who did not enable background email analysis."""
     try:
         plan = build_email_plan(user_id, "Что из последних писем влияет на мои ближайшие планы и требует действия?")
     except Exception:
@@ -75,6 +77,42 @@ def _email_lines(user_id: int) -> list[str]:
         lines.append(f"• Предложение: {action['title']}")
     if actions:
         lines.append("Открой почту в приложении, чтобы подтвердить действие. Ничего из писем автоматически не создано.")
+    return lines
+
+
+def _email_lines(user_id: int) -> list[str]:
+    """Use cached background findings when enabled, avoiding a second AI call in Daily Review."""
+    if not email_auto_enabled(user_id):
+        return _live_email_lines(user_id)
+    try:
+        plans = recent_auto_plans(user_id, hours=48, limit=8)
+    except Exception:
+        logger.exception("Cached email planning unavailable for user %s", user_id)
+        return ["Почта: временно не удалось прочитать результаты авторазбора."]
+    actions = []
+    seen = set()
+    for plan in plans:
+        for action in plan.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            key = (str(action.get("action_type") or ""), str(action.get("title") or ""), str(action.get("due_at") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            actions.append(action)
+    if not actions:
+        return []
+    lines = [f"Почта: авторазбор нашёл {len(actions)} актуальных сигналов за последние 48 часов."]
+    for action in actions[:3]:
+        title = str(action.get("title") or "Действие")[:140]
+        if action.get("auto_created"):
+            lines.append(f"• {title} · уже добавлено автоматически")
+        elif action.get("already_in_calendar"):
+            lines.append(f"• {title} · уже есть в календаре")
+        else:
+            lines.append(f"• Предложение: {title}")
+    if any(not item.get("auto_created") and not item.get("already_in_calendar") for item in actions):
+        lines.append("Открой почту в приложении, чтобы подтвердить остальные предложения.")
     return lines
 
 

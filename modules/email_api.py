@@ -15,6 +15,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 from config import BASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from core.email_auto_store import email_auto_enabled, email_auto_status, set_email_auto_enabled
 from core.email_store import (
     PROVIDERS,
     consume_email_oauth_state,
@@ -23,11 +24,13 @@ from core.email_store import (
     save_email_account,
     save_email_oauth_state,
 )
+from core.feature_access import has_ai_access
 from integrations.email_gmail import GMAIL_SCOPE
 from integrations.email_imap import EmailAuthenticationError, EmailTransportError, test_connection
 from modules.email import answer_email_query, detect_email_intent
 from modules.email_actions import build_email_plan
 from modules.email_actions_api import apply_high_confidence_attachment_actions
+from modules.email_auto import start_email_auto_worker
 
 logger = logging.getLogger(__name__)
 email_api = Blueprint("email", __name__)
@@ -276,6 +279,33 @@ def accounts():
     }
 
 
+@email_api.get("/api/email/auto")
+def automatic_email_status():
+    return email_auto_status(_user())
+
+
+@email_api.post("/api/email/auto")
+def automatic_email_settings():
+    payload = request.get_json(silent=True) or {}
+    enabled = payload.get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify(error="invalid_email_auto_setting", message="enabled должен быть true или false."), 400
+    user_id = _user()
+    if enabled:
+        if not has_ai_access(user_id):
+            return jsonify(error="ai_access_required", message="Для автоматического разбора почты нужен доступ к ИИ."), 403
+        if not any(account.get("enabled") for account in list_email_accounts(user_id)):
+            return jsonify(error="email_account_required", message="Сначала подключи почтовый ящик."), 400
+    set_email_auto_enabled(user_id, enabled)
+    status = email_auto_status(user_id)
+    status["note"] = (
+        "Авторазбор включён. Первый фоновый проход создаёт baseline без ИИ; дальше анализируются только новые подходящие письма."
+        if enabled
+        else "Авторазбор выключен."
+    )
+    return status
+
+
 @email_api.post("/api/email/accounts/imap")
 def connect_imap():
     payload = request.get_json(silent=True) or {}
@@ -357,3 +387,6 @@ def disconnect(account_id: int):
     if not delete_email_account(_user(), account_id):
         return jsonify(error="email_account_not_found"), 404
     return {"ok": True}
+
+
+start_email_auto_worker()
