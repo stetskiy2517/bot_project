@@ -16,6 +16,7 @@ from modules.attention import attention_snapshot
 from modules.calendar_location_api import calendar_location_api
 from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review, capture_review_attention
+from modules.event_detail_api import event_detail_api
 from modules.file_ingest_api import file_ingest_api
 from modules.navigation import is_managed_travel_event
 from modules.reminder_detail_api import reminder_detail_api
@@ -90,6 +91,7 @@ def inject_mobile_ui(response):
         '<script src="/mobile-ui.js"></script>',
         '<script src="/mobile-ui-fixes.js"></script>',
         '<script src="/swipe-navigation.js"></script>',
+        '<script src="/event-editor.js"></script>',
         '<script src="/file-ingest.js"></script>',
         '<script src="/attention-center.js"></script>',
         '<script src="/reminder-editor.js"></script>',
@@ -134,6 +136,11 @@ def mobile_ui_fixes_js():
 @mobile_ui_api.get("/swipe-navigation.js")
 def swipe_navigation_js():
     return send_from_directory(WEB_DIR, "swipe-navigation.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/event-editor.js")
+def event_editor_js():
+    return send_from_directory(WEB_DIR, "event-editor.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/attention-center.js")
@@ -223,5 +230,6 @@ def mobile_today():
 
 
 mobile_ui_api.register_blueprint(calendar_location_api)
+mobile_ui_api.register_blueprint(event_detail_api)
 mobile_ui_api.register_blueprint(file_ingest_api)
 mobile_ui_api.register_blueprint(reminder_detail_api)
