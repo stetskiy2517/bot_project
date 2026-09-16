@@ -27,6 +27,7 @@ from integrations.email_gmail import GMAIL_SCOPE
 from integrations.email_imap import EmailAuthenticationError, EmailTransportError, test_connection
 from modules.email import answer_email_query, detect_email_intent
 from modules.email_actions import build_email_plan
+from modules.email_actions_api import apply_high_confidence_attachment_actions
 
 logger = logging.getLogger(__name__)
 email_api = Blueprint("email", __name__)
@@ -130,7 +131,13 @@ def _format_email_plan_for_chat(plan: dict) -> str:
                 confidence = 0.0
             if confidence:
                 block.append(f"Уверенность: {round(max(0.0, min(1.0, confidence)) * 100)}%")
-            if action.get("ready") is False or event.get("ready") is False:
+            if action.get("auto_created"):
+                block.append("✓ Добавлено в календарь автоматически.")
+            elif action.get("already_in_calendar"):
+                block.append("✓ Уже есть в календаре.")
+            elif action.get("auto_create_error"):
+                block.append("⚠ Автодобавление не сработало — можно добавить кнопкой ниже.")
+            elif action.get("ready") is False or event.get("ready") is False:
                 block.append("⚠ Нужна проверка данных перед добавлением в календарь.")
             for warning in action.get("warnings") or []:
                 clean = str(warning).strip()
@@ -139,7 +146,11 @@ def _format_email_plan_for_chat(plan: dict) -> str:
             lines.append("\n".join(block))
         for warning in warnings:
             lines.append(f"⚠ {warning}")
-        lines.append("Ничего не добавляю в календарь без твоего подтверждения.")
+        auto = plan.get("auto_calendar") if isinstance(plan.get("auto_calendar"), dict) else {}
+        if int(auto.get("created") or 0):
+            lines.append("Транспортные билеты с уверенностью 99%+ добавляю автоматически. Для остальных событий ниже доступны кнопки.")
+        else:
+            lines.append("Для событий, которые не прошли порог автодобавления, используй кнопку «Добавить в календарь».")
         return "\n\n".join(lines)
 
     lines = ["Почта → планирование"]
@@ -162,11 +173,16 @@ def _format_email_plan_for_chat(plan: dict) -> str:
     return "\n\n".join(lines)
 
 
-def answer_email_chat_request(user_id: int, text: str) -> str:
+def answer_email_chat_request_details(user_id: int, text: str) -> tuple[str, dict | None]:
     if _is_email_plan_request(text):
         plan = build_email_plan(user_id, text, include_attachments=True)
-        return _format_email_plan_for_chat(plan)
-    return answer_email_query(user_id, text)
+        apply_high_confidence_attachment_actions(user_id, plan)
+        return _format_email_plan_for_chat(plan), plan
+    return answer_email_query(user_id, text), None
+
+
+def answer_email_chat_request(user_id: int, text: str) -> str:
+    return answer_email_chat_request_details(user_id, text)[0]
 
 
 def build_gmail_authorization_url(user_id: int) -> str:
@@ -229,9 +245,11 @@ def email_response_hooks(response):
             text = payload.get("transcript")
         if isinstance(text, str) and detect_email_intent(text):
             try:
-                answer = answer_email_chat_request(_user(), text)
+                answer, plan = answer_email_chat_request_details(_user(), text)
                 payload["handled"] = True
                 payload["replies"] = [answer]
+                if plan is not None:
+                    payload["email_plan"] = plan
                 response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
             except Exception:
                 logger.exception("Email query failed for user %s", _user())
