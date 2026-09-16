@@ -12,8 +12,8 @@
     personal: "Личное",
     other: "Прочее",
   };
-  const MAX_TITLE = 160;
-  const MAX_TEXT = 20000;
+  const MAX_TITLE = 120;
+  const MAX_TEXT = 5000;
 
   let current = null;
   let metadataLoading = false;
@@ -54,7 +54,7 @@
     .note-product-button{min-height:44px;padding:9px 10px;border-radius:13px;background:#ececea;color:#292926;font-size:13px;font-weight:650;cursor:pointer}
     .note-product-button.primary{background:#171717;color:#fff}
     .note-product-button.danger{background:#f2dddd;color:#842f2f}
-    .note-product-button:disabled{opacity:.5;cursor:default}
+    .note-product-button:disabled,.notes-toolbar-button:disabled{opacity:.5;cursor:default}
     .note-editor-grid{display:grid;gap:11px}
     .note-editor-field{display:grid;gap:6px;color:#767671;font-size:11px}
     .note-editor-field input,.note-editor-field select,.note-editor-field textarea{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
@@ -159,10 +159,7 @@
     return String(value || "").split("\n").map(line => line.trim()).filter(Boolean).slice(0, 100).map(line => {
       const match = line.match(/^\[([xхXХ ])\]\s*(.*)$/);
       if (!match) return {text: line.slice(0, 300), done: false};
-      return {
-        text: String(match[2] || "").trim().slice(0, 300),
-        done: !/^\s*$/.test(match[1]),
-      };
+      return {text: String(match[2] || "").trim().slice(0, 300), done: !/^\s*$/.test(match[1])};
     }).filter(item => item.text);
   }
 
@@ -205,15 +202,7 @@
   }
 
   function blankNote() {
-    return {
-      note_id: null,
-      title: "",
-      text: "",
-      category: "other",
-      pinned: false,
-      tags: [],
-      checklist: [],
-    };
+    return {note_id: null, title: "", text: "", category: "other", pinned: false, tags: [], checklist: []};
   }
 
   function renderEditor(note, {creating = false, error = ""} = {}) {
@@ -299,10 +288,7 @@
     try {
       let saved;
       if (creating) {
-        const result = await api("/api/note-tools", {
-          method: "POST",
-          body: JSON.stringify(draft),
-        });
+        const result = await api("/api/note-tools", {method: "POST", body: JSON.stringify(draft)});
         saved = result.note;
       } else {
         const content = await api(`/api/note-tools/${noteId}`, {
@@ -311,12 +297,7 @@
         });
         const metadata = await api(`/api/note-tools/${noteId}/metadata`, {
           method: "PUT",
-          body: JSON.stringify({
-            pinned: draft.pinned,
-            tags: draft.tags,
-            checklist: draft.checklist,
-            category: draft.category,
-          }),
+          body: JSON.stringify({pinned: draft.pinned, tags: draft.tags, checklist: draft.checklist, category: draft.category}),
         });
         saved = metadata.note || content.note;
       }
@@ -332,12 +313,7 @@
   async function togglePinned(note) {
     const result = await api(`/api/note-tools/${note.note_id}/metadata`, {
       method: "PUT",
-      body: JSON.stringify({
-        pinned: !note.pinned,
-        tags: note.tags || [],
-        checklist: note.checklist || [],
-        category: note.category || "other",
-      }),
+      body: JSON.stringify({pinned: !note.pinned, tags: note.tags || [], checklist: note.checklist || [], category: note.category || "other"}),
     });
     signalChanged();
     renderDetail(result.note);
@@ -349,12 +325,7 @@
     checklist[index].done = Boolean(checked);
     const result = await api(`/api/note-tools/${note.note_id}/metadata`, {
       method: "PUT",
-      body: JSON.stringify({
-        pinned: Boolean(note.pinned),
-        tags: note.tags || [],
-        checklist,
-        category: note.category || "other",
-      }),
+      body: JSON.stringify({pinned: Boolean(note.pinned), tags: note.tags || [], checklist, category: note.category || "other"}),
     });
     current = result.note;
     signalChanged();
@@ -368,7 +339,7 @@
         <h2 class="note-product-title">Удалить заметку?</h2>
         <button class="note-product-close" type="button" data-note-delete-cancel aria-label="Отмена">×</button>
       </div>
-      <p class="note-delete-copy">«${escapeHtml(note.title || "Без названия") }» будет удалена. Это действие можно отменить через историю действий, если она ещё доступна.</p>
+      <p class="note-delete-copy">«${escapeHtml(note.title || "Без названия") }» будет удалена из списка заметок.</p>
       <div id="noteDeleteError" class="note-editor-error"></div>
       <div class="note-product-actions">
         <button class="note-product-button" type="button" data-note-delete-cancel>Отмена</button>
@@ -464,7 +435,7 @@
   }
 
   function rowSignature() {
-    return noteRows().map(row => row.dataset.id).join(",");
+    return noteRows().map(row => `${row.dataset.id}:${row.dataset.noteDecorated || "0"}`).join(",");
   }
 
   function filterNoteCards() {
@@ -490,12 +461,8 @@
   }
 
   function decorateRow(row, note) {
-    row.dataset.noteSearch = [
-      note.title,
-      note.text,
-      CATEGORIES[note.category] || "",
-      ...(note.tags || []),
-    ].join(" ");
+    row.dataset.noteSearch = [note.title, note.text, CATEGORIES[note.category] || "", ...(note.tags || [])].join(" ");
+    row.dataset.noteDecorated = "1";
     const card = row.querySelector(".library-card");
     if (!card) return;
     card.querySelector(".note-card-badges")?.remove();
@@ -545,7 +512,7 @@
       lastDecoratedSignature = rowSignature();
       filterNoteCards();
     } catch (_) {
-      // The base library still remains usable if metadata decoration fails.
+      // Base library stays usable if metadata decoration is unavailable.
     } finally {
       metadataLoading = false;
     }
@@ -582,10 +549,7 @@
       status.classList.add("visible");
     }
     try {
-      const data = await api("/api/note-tools/search", {
-        method: "POST",
-        body: JSON.stringify({query}),
-      });
+      const data = await api("/api/note-tools/search", {method: "POST", body: JSON.stringify({query})});
       const notes = Array.isArray(data.notes) ? data.notes : [];
       showSheet(`
         <div class="note-product-head">
@@ -598,9 +562,7 @@
             <div class="note-search-result-title">${escapeHtml(note.title || "Без названия")}</div>
             <div class="note-search-result-preview">${escapeHtml(note.text || "")}</div>
           </button>`).join("") : '<div class="mobile-empty">Подходящих заметок нет.</div>'}</div>`);
-      if (status) {
-        status.textContent = data.ai_used ? "Поиск выполнен по смыслу." : "Показаны совпадения по словам.";
-      }
+      if (status) status.textContent = data.ai_used ? "Поиск выполнен по смыслу." : "Показаны совпадения по словам.";
     } catch (error) {
       if (status) status.textContent = error?.message || "Не удалось выполнить поиск.";
     } finally {
@@ -655,9 +617,7 @@
       return;
     }
     if (event.target.closest?.("[data-note-pin]") && current) {
-      togglePinned(current).catch(error => {
-        showSheet(`<div class="mobile-error">${escapeHtml(error?.message || "Не удалось изменить закрепление.")}</div>`);
-      });
+      togglePinned(current).catch(error => showSheet(`<div class="mobile-error">${escapeHtml(error?.message || "Не удалось изменить закрепление.")}</div>`));
       return;
     }
     if (event.target.closest?.("[data-note-delete]") && current) {
@@ -678,9 +638,7 @@
       return;
     }
     const result = event.target.closest?.("[data-note-result]");
-    if (result) {
-      open(Number(result.dataset.noteResult));
-    }
+    if (result) open(Number(result.dataset.noteResult));
   });
 
   document.addEventListener("planner-library-changed", () => scheduleDecoration(true));
