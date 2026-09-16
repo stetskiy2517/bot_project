@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 from pathlib import Path
+import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
@@ -67,30 +68,49 @@ def _clean_location(value: object) -> str:
     return " ".join(str(value or "").split()).strip(" ,.;")[:500]
 
 
+def _canonical_event_time(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw
+    if parsed.tzinfo is None:
+        return raw
+    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
 def _attachment_event_key(source: object, proposal: dict) -> str | None:
     if not isinstance(source, dict):
         return None
-    identity = [
-        str(source.get("account") or "").strip(),
-        str(source.get("provider_message_id") or "").strip(),
-        str(source.get("attachment_id") or "").strip(),
-        str(source.get("attachment") or "").strip(),
-        str(proposal.get("start") or "").strip(),
-        str(proposal.get("end") or "").strip(),
-        str(proposal.get("title") or "").strip(),
-    ]
-    if not any(identity[1:4]):
+    message_id = str(source.get("provider_message_id") or "").strip()
+    attachment_id = str(source.get("attachment_id") or "").strip()
+    attachment_name = str(source.get("attachment") or "").strip()
+    if not message_id or not (attachment_id or attachment_name):
         return None
+    identity = [
+        "v2",
+        str(source.get("account") or "").strip(),
+        message_id,
+        attachment_id or attachment_name,
+        _canonical_event_time(proposal.get("start")),
+        _canonical_event_time(proposal.get("end")),
+    ]
     digest = hashlib.sha256("\x1f".join(identity).encode("utf-8")).hexdigest()
     return digest[:40]
 
 
-def _existing_attachment_calendar_event(user_id: int, event_key: str) -> dict | None:
+def _calendar_service(user_id: int):
     token_dict = get_google_token(user_id)
     if not token_dict:
         raise PermissionError("GOOGLE_AUTH_REQUIRED")
     credentials = Credentials.from_authorized_user_info(token_dict)
-    service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+    return build("calendar", "v3", credentials=credentials, cache_discovery=False)
+
+
+def _existing_attachment_calendar_event(user_id: int, event_key: str) -> dict | None:
+    service = _calendar_service(user_id)
     result = service.events().list(
         calendarId="primary",
         privateExtendedProperty=f"smartPlannerEmailAttachmentKey={event_key}",
@@ -100,6 +120,85 @@ def _existing_attachment_calendar_event(user_id: int, event_key: str) -> dict | 
     for item in result.get("items") or []:
         if item.get("status") != "cancelled":
             return item
+    return None
+
+
+def _calendar_item_datetime(item: dict, field: str) -> datetime | None:
+    payload = item.get(field)
+    if not isinstance(payload, dict):
+        return None
+    raw = str(payload.get("dateTime") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _location_tokens(value: object) -> set[str]:
+    return {
+        token.casefold()
+        for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", str(value or ""))
+        if len(token) > 1
+    }
+
+
+def _locations_similar(left: object, right: object) -> bool:
+    a = _location_tokens(left)
+    b = _location_tokens(right)
+    if not a or not b:
+        return True
+    overlap = len(a & b) / max(1, len(a | b))
+    return overlap >= 0.5
+
+
+def _existing_semantic_attachment_calendar_event(user_id: int, proposal: dict) -> dict | None:
+    """Find legacy email imports whose old hash changed because AI wording changed."""
+    start = _parse_when(proposal.get("start"), required=True)
+    end = _parse_when(proposal.get("end"), required=True)
+    assert start is not None and end is not None
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+    service = _calendar_service(user_id)
+    result = service.events().list(
+        calendarId="primary",
+        privateExtendedProperty="smartPlannerType=email_attachment_import",
+        timeMin=(start_utc - timedelta(minutes=5)).isoformat(),
+        timeMax=(end_utc + timedelta(minutes=5)).isoformat(),
+        singleEvents=True,
+        maxResults=25,
+        showDeleted=False,
+    ).execute()
+    expected_start_location = _clean_location(proposal.get("start_location"))
+    expected_end_location = _clean_location(proposal.get("end_location"))
+    expected_location = _clean_location(proposal.get("location"))
+
+    for item in result.get("items") or []:
+        if item.get("status") == "cancelled":
+            continue
+        item_start = _calendar_item_datetime(item, "start")
+        item_end = _calendar_item_datetime(item, "end")
+        if item_start is None or item_end is None:
+            continue
+        if abs((item_start - start_utc).total_seconds()) > 120:
+            continue
+        if abs((item_end - end_utc).total_seconds()) > 120:
+            continue
+
+        private = ((item.get("extendedProperties") or {}).get("private") or {})
+        existing_start_location = private.get("smartPlannerStartLocation") or item.get("location")
+        existing_end_location = private.get("smartPlannerEndLocation")
+        if expected_start_location and not _locations_similar(expected_start_location, existing_start_location):
+            continue
+        if expected_end_location and existing_end_location and not _locations_similar(expected_end_location, existing_end_location):
+            continue
+        if not expected_start_location and expected_location and not _locations_similar(expected_location, item.get("location")):
+            continue
+        return item
     return None
 
 
@@ -141,10 +240,13 @@ def _ensure_attachment_calendar_event(
     calendar_location = start_location if movement else (location or start_location or end_location)
 
     event_key = _attachment_event_key(source, proposal)
+    existing = None
     if event_key:
         existing = _existing_attachment_calendar_event(user_id, event_key)
-        if existing is not None:
-            return existing, False
+    if existing is None:
+        existing = _existing_semantic_attachment_calendar_event(user_id, proposal)
+    if existing is not None:
+        return existing, False
 
     details = str(proposal.get("description") or "").strip()[:1500]
     creation_note = (
