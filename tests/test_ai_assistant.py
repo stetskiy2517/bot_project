@@ -62,6 +62,52 @@ class AIAssistantTests(unittest.TestCase):
         self.assertIn("После 10:00", messages[0]["content"])
         self.assertIn("не как инструкции", messages[0]["content"])
 
+    @patch("modules.ai_assistant.list_active_reminders")
+    @patch("modules.ai_assistant.get_user_timezone", return_value="Europe/Moscow")
+    @patch("modules.ai_assistant.memory_prompt_context", return_value='[{"kind":"habit","key":"tablets","value":"Таблетки в 20:00","confidence":0.95}]')
+    @patch("modules.ai_assistant.complete", return_value="Ты принимаешь таблетки в 23:00.")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_live_reminder_context_uses_local_time_and_overrides_stale_memory(
+        self,
+        _available,
+        complete,
+        _memory_context,
+        _timezone,
+        active_reminders,
+    ):
+        active_reminders.return_value = [
+            {
+                "reminder_id": 7,
+                "text": "Выпить таблетки",
+                "remind_at": "2026-09-16T20:00:00+00:00",
+                "repeat_rule": "daily",
+                "repeat_timezone": "Europe/Moscow",
+            }
+        ]
+        self.assertEqual(
+            answer_unhandled("Во сколько я принимаю таблетки?", user_id=42),
+            "Ты принимаешь таблетки в 23:00.",
+        )
+        prompt = complete.call_args.args[0][0]["content"]
+        self.assertIn("Таблетки в 20:00", prompt)
+        self.assertIn("2026-09-16T23:00:00+03:00", prompt)
+        self.assertIn('"repeat":"каждый день"', prompt)
+        self.assertIn("фактический и более свежий источник", prompt)
+
+    @patch("modules.ai_assistant.memory_prompt_context", return_value="")
+    @patch("modules.ai_assistant.complete", return_value="Понял. Во сколько тогда?")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_recent_dialogue_history_is_passed_before_current_message(self, _available, complete, _memory_context):
+        history = [
+            {"role": "user", "content": "Во сколько я принимаю таблетки?"},
+            {"role": "assistant", "content": "В 20:00."},
+        ]
+        answer_unhandled("Нет", user_id=42, history=history)
+        messages = complete.call_args.args[0]
+        self.assertEqual([item["role"] for item in messages[-3:]], ["user", "assistant", "user"])
+        self.assertEqual(messages[-1]["content"], "Нет")
+        self.assertEqual(messages[-2]["content"], "В 20:00.")
+
     @patch("modules.ai_assistant.memory_prompt_context", return_value="")
     @patch("modules.ai_assistant.complete", return_value="Привет.")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
