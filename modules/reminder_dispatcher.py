@@ -1,4 +1,4 @@
-"""Background delivery of standalone reminders through Web Push."""
+"""Background delivery of standalone reminders and important attention signals through Web Push."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from time import sleep
 from pywebpush import WebPushException
 
 from config import BASE_URL, WEB_PUSH_WORKER_INTERVAL_SECONDS, WEB_PUSH_WORKER_ENABLED
+from core.attention_store import mark_attention_push_result, pending_attention_pushes
 from core.push_store import (
     delete_push_subscription_by_id,
     list_push_subscriptions,
@@ -21,8 +22,9 @@ from core.reminder_store import claim_due_for_push, complete_push_delivery, rele
 from core.db import get_google_account
 from core.library_store import get_saved_reminder
 from core.command_store import user_operation, UserBusyError
-from core.assistant_preferences import quiet_until
+from core.assistant_preferences import get_assistant_preferences, quiet_until
 from core.notification_policy import activate_repeats, claim_repeat_attempts, postpone_transport
+from modules.attention import sync_attention_context
 from modules.daily_review import deliver_reviews_for_user
 from integrations.web_push import send_web_push, web_push_error_details
 
@@ -30,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 _worker_lock = threading.Lock()
 _worker_started = False
+_attention_sync_at: dict[int, float] = {}
+ATTENTION_SYNC_SECONDS = 5 * 60
 
 
 def _push_error_message(exc: WebPushException) -> tuple[int | None, str]:
@@ -159,9 +163,46 @@ def _send_review(user_id: int, text: str, tag: str) -> bool:
     ))["ok"]
 
 
+def _sync_attention_if_due(user_id: int, now: datetime) -> None:
+    stamp = now.timestamp()
+    last = _attention_sync_at.get(int(user_id), 0.0)
+    if stamp - last < ATTENTION_SYNC_SECONDS:
+        return
+    sync_attention_context(user_id, now=now)
+    _attention_sync_at[int(user_id)] = stamp
+
+
+def _dispatch_attention_pushes(user_id: int, now: datetime) -> tuple[int, int]:
+    if not get_assistant_preferences(user_id).get("attention_push_enabled", False):
+        return 0, 0
+    _sync_attention_if_due(user_id, now)
+    delivered = failed = 0
+    for item in pending_attention_pushes(user_id, limit=2):
+        title = "Требует внимания" if item.get("priority") == "high" else "Личный секретарь"
+        body = str(item.get("title") or "")
+        detail = str(item.get("body") or "").strip()
+        if detail:
+            body = f"{body}\n{detail}"
+        payload = _notification_payload(
+            title=title,
+            body=body[:1600],
+            tag=f"attention-{int(item['attention_id'])}",
+            url=f"/?view=today&attention={int(item['attention_id'])}",
+        )
+        result = _deliver_payload(user_id, payload)
+        if result["accepted"]:
+            mark_attention_push_result(user_id, item["attention_id"], success=True)
+            delivered += 1
+        else:
+            error = (result["errors"] or ["No active push subscriptions"])[0]
+            mark_attention_push_result(user_id, item["attention_id"], success=False, error=error)
+            failed += 1
+    return delivered, failed
+
+
 def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
     stats = {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0,
-             "repeated": 0, "reviews": 0}
+             "repeated": 0, "reviews": 0, "attention_pushed": 0, "attention_failed": 0}
     now = datetime.now(timezone.utc)
     for user_id in list_push_user_ids():
         if stats["claimed"] >= limit:
@@ -204,6 +245,9 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
                     ))
                     stats["repeated"] += 1
                 stats["reviews"] += deliver_reviews_for_user(user_id, _send_review, now=now)
+                attention_delivered, attention_failed = _dispatch_attention_pushes(user_id, now)
+                stats["attention_pushed"] += attention_delivered
+                stats["attention_failed"] += attention_failed
         except UserBusyError:
             continue
         except Exception as exc:
@@ -216,8 +260,8 @@ def _worker_loop() -> None:
     while True:
         try:
             stats = dispatch_due_reminders_once()
-            if stats["claimed"]:
-                logger.info("Reminder Web Push dispatch: %s", stats)
+            if stats["claimed"] or stats["attention_pushed"]:
+                logger.info("Reminder/attention Web Push dispatch: %s", stats)
         except Exception:
             logger.exception("Reminder Web Push worker iteration failed")
         sleep(interval)
