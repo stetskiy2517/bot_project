@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.feature_access import has_ai_access
 from core.note_enhancements import (
     DEFAULT_NOTE_CATEGORY,
+    NOTE_CATEGORIES,
     enhanced_note,
     list_enhanced_notes,
     update_note_content,
@@ -60,6 +61,22 @@ def _public_note(note: dict) -> dict:
     }
 
 
+def _validate_create_metadata(payload: dict) -> tuple[bool, list, list, str]:
+    pinned = payload.get("pinned", False)
+    tags = payload.get("tags", [])
+    checklist = payload.get("checklist", [])
+    category = str(payload.get("category", DEFAULT_NOTE_CATEGORY) or DEFAULT_NOTE_CATEGORY).strip().lower()
+    if not isinstance(pinned, bool):
+        raise ValueError("Закрепление должно быть true или false")
+    if not isinstance(tags, list):
+        raise ValueError("Теги должны быть списком")
+    if not isinstance(checklist, list):
+        raise ValueError("Чек-лист должен быть списком")
+    if category not in NOTE_CATEGORIES:
+        raise ValueError("Неизвестная категория заметки")
+    return pinned, tags, checklist, category
+
+
 @note_tools_api.after_app_request
 def note_tools_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
@@ -87,16 +104,17 @@ def create_note_from_ui():
     allowed = {"title", "text", "pinned", "tags", "checklist", "category"}
     if set(payload) - allowed:
         raise ValueError("Неизвестные поля заметки")
+    pinned, tags, checklist, category = _validate_create_metadata(payload)
     text = str(payload.get("text") or "").strip()
     title = str(payload.get("title") or "").strip() or None
     note = create_note(_user(), text, title=title)
     note = update_note_metadata(
         _user(),
         note["note_id"],
-        pinned=bool(payload.get("pinned", False)),
-        tags=payload.get("tags", []),
-        checklist=payload.get("checklist", []),
-        category=payload.get("category", DEFAULT_NOTE_CATEGORY),
+        pinned=pinned,
+        tags=tags,
+        checklist=checklist,
+        category=category,
     )
     return {"note": _public_note(note)}, 201
 
