@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_policy import is_declarative_statement, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
 from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
@@ -314,6 +315,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_UNKNOWN, 0.0)
     if BARE_EVENT_STATEMENT_RE.search(lower):
         return IntentResult(INTENT_UNKNOWN, 0.0)
+    if is_declarative_statement(lower):
+        return IntentResult(INTENT_UNKNOWN, 0.0)
 
     has_event = _contains_event_marker(lower)
     has_date = bool(DATE_HINT_RE.search(lower))
@@ -354,6 +357,17 @@ def _pending(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
 
 def _clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("smart_planner_pending", None)
+
+
+def _sync_active_reminder_reference(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Consume a reminder opened from the web library as the current chat reference."""
+    active = context.user_data.pop("smart_planner_active_reminder", None)
+    if not isinstance(active, dict) or not active.get("reminder_id"):
+        return
+    context.user_data["smart_planner_last_reminder"] = {
+        "reminder_id": active.get("reminder_id"),
+        "text": active.get("text"),
+    }
 
 
 def _normalise_pending_reply(text: str) -> str:
@@ -451,10 +465,18 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         return False
     if await handle_template(update, context, text):
         return True
-    if await _resume_pending(update, context, text):
-        return True
+
+    pending = _pending(context)
+    if pending:
+        if should_resume_pending(pending, text):
+            if await _resume_pending(update, context, text):
+                return True
+        else:
+            logger.info("Router interrupted pending type=%s with a new command", pending.get("type"))
+            _clear_pending(context)
 
     user_id = getattr(update.effective_user, "id", None)
+    _sync_active_reminder_reference(context)
 
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
