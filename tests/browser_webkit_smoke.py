@@ -112,13 +112,29 @@ def main() -> int:
                 _checkpoint("submitting deterministic note")
                 page.locator("#message").press("Enter")
                 page.wait_for_function("!sendingChat", timeout=15000)
+                page.wait_for_function(
+                    "document.getElementById('app').classList.contains('mobile-view-chat')",
+                    timeout=5000,
+                )
 
                 notes = list_notes(user_id)
                 if len(notes) != 1 or "WebKit smoke" not in str(notes[0].get("text") or ""):
                     raise AssertionError(f"Expected one WebKit smoke note, got: {notes!r}")
+                voice_display = page.locator(".voice-shell").evaluate(
+                    "element => getComputedStyle(element).display"
+                )
+                chat_display = page.locator(".chat-shell").evaluate(
+                    "element => getComputedStyle(element).display"
+                )
+                if voice_display != "none":
+                    raise AssertionError(
+                        f"Voice layer must be hidden in mobile chat, got display={voice_display!r}"
+                    )
+                if chat_display == "none":
+                    raise AssertionError("Chat layer is hidden in mobile chat view")
                 if page_errors:
                     raise AssertionError(f"WebKit page errors: {page_errors!r}")
-                _checkpoint("note flow verified")
+                _checkpoint("note flow and mobile layer isolation verified")
 
                 result.update(
                     passed=True,
