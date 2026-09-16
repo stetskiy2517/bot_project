@@ -8,8 +8,10 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, send_from_directory, session
 
+from core.attention_store import dismiss_attention_item, mark_attention_seen
 from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
+from modules.attention import attention_snapshot
 from modules.calendar_location_api import calendar_location_api
 from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review
@@ -79,12 +81,14 @@ def inject_mobile_ui(response):
     stylesheets = (
         '<link rel="stylesheet" href="/mobile-ui.css" />',
         '<link rel="stylesheet" href="/mobile-ui-overlays.css" />',
+        '<link rel="stylesheet" href="/attention-center.css" />',
     )
     scripts = (
         '<script src="/mobile-ui.js"></script>',
         '<script src="/mobile-ui-fixes.js"></script>',
         '<script src="/swipe-navigation.js"></script>',
         '<script src="/file-ingest.js"></script>',
+        '<script src="/attention-center.js"></script>',
     )
     if "</head>" in html:
         for stylesheet in stylesheets:
@@ -108,6 +112,11 @@ def mobile_ui_overlays_css():
     return send_from_directory(WEB_DIR, "mobile-ui-overlays.css", mimetype="text/css")
 
 
+@mobile_ui_api.get("/attention-center.css")
+def attention_center_css():
+    return send_from_directory(WEB_DIR, "attention-center.css", mimetype="text/css")
+
+
 @mobile_ui_api.get("/mobile-ui.js")
 def mobile_ui_js():
     return send_from_directory(WEB_DIR, "mobile-ui.js", mimetype="application/javascript")
@@ -121,6 +130,26 @@ def mobile_ui_fixes_js():
 @mobile_ui_api.get("/swipe-navigation.js")
 def swipe_navigation_js():
     return send_from_directory(WEB_DIR, "swipe-navigation.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/attention-center.js")
+def attention_center_js():
+    return send_from_directory(WEB_DIR, "attention-center.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/api/mobile/attention")
+def mobile_attention():
+    return {"items": attention_snapshot(_user(), limit=20)}
+
+
+@mobile_ui_api.post("/api/mobile/attention/<int:attention_id>/seen")
+def mobile_attention_seen(attention_id: int):
+    return {"ok": mark_attention_seen(_user(), attention_id)}
+
+
+@mobile_ui_api.delete("/api/mobile/attention/<int:attention_id>")
+def mobile_attention_dismiss(attention_id: int):
+    return {"ok": dismiss_attention_item(_user(), attention_id)}
 
 
 @mobile_ui_api.get("/api/mobile/today")
@@ -168,6 +197,10 @@ def mobile_today():
             "text": "Не удалось собрать обзор целиком. Календарь и задачи доступны отдельно.",
             "reminders": [],
         }
+    try:
+        attention = attention_snapshot(user_id, now=now_utc, limit=8)
+    except Exception:
+        attention = []
 
     return {
         "date": str(local_now.date()),
@@ -177,6 +210,7 @@ def mobile_today():
         "tasks": task_items[:8],
         "task_summary": task_summary(user_id, now=now_utc),
         "review": review,
+        "attention": attention,
     }
 
 
