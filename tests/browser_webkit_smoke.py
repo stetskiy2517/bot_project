@@ -20,6 +20,10 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+def _checkpoint(message: str) -> None:
+    print(f"[webkit-smoke] {message}", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="evidence/browser-webkit-ios")
@@ -34,6 +38,7 @@ def main() -> int:
     os.environ["WEB_SESSION_SECRET"] = secrets.token_hex(32)
     os.environ["BASE_URL"] = ""
 
+    _checkpoint("importing application")
     import web_app
     from core.db import get_or_create_google_user, save_user_timezone
     from core.note_store import list_notes
@@ -45,6 +50,7 @@ def main() -> int:
     base = f"http://127.0.0.1:{server.server_port}"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    _checkpoint(f"local server started on {base}")
 
     result = {
         "browser": "webkit",
@@ -67,6 +73,7 @@ def main() -> int:
         )
 
         with sync_playwright() as playwright:
+            _checkpoint("launching WebKit")
             browser = playwright.webkit.launch(headless=True)
             context = None
             try:
@@ -88,24 +95,30 @@ def main() -> int:
                 page_errors: list[str] = []
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
 
-                page.goto(base, wait_until="domcontentloaded")
+                _checkpoint("opening authenticated app")
+                page.goto(base, wait_until="domcontentloaded", timeout=15000)
                 page.wait_for_function(
-                    "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
+                    "window.PlannerRequests && !document.getElementById('login').classList.contains('open')",
+                    timeout=10000,
                 )
                 page.wait_for_function(
-                    "document.getElementById('accountEmail').textContent.includes('@example.test')"
+                    "document.getElementById('accountEmail').textContent.includes('@example.test')",
+                    timeout=10000,
                 )
+                _checkpoint("authenticated mobile shell ready")
 
                 page.evaluate("showChat()")
                 page.locator("#message").fill("заметка: WebKit smoke")
+                _checkpoint("submitting deterministic note")
                 page.locator("#message").press("Enter")
-                page.wait_for_function("!sendingChat")
+                page.wait_for_function("!sendingChat", timeout=15000)
 
                 notes = list_notes(user_id)
                 if len(notes) != 1 or "WebKit smoke" not in str(notes[0].get("text") or ""):
                     raise AssertionError(f"Expected one WebKit smoke note, got: {notes!r}")
                 if page_errors:
                     raise AssertionError(f"WebKit page errors: {page_errors!r}")
+                _checkpoint("note flow verified")
 
                 result.update(
                     passed=True,
@@ -113,8 +126,10 @@ def main() -> int:
                     viewport=page.viewport_size,
                 )
                 page.screenshot(path=str(output / "webkit-iphone-smoke.png"), full_page=True)
+                _checkpoint("evidence captured")
             except Exception as exc:
                 result["errors"].append(str(exc))
+                _checkpoint(f"failed: {type(exc).__name__}: {exc}")
                 if context is not None:
                     try:
                         pages = context.pages
@@ -126,15 +141,20 @@ def main() -> int:
                         pass
             finally:
                 if context is not None:
+                    _checkpoint("closing browser context")
                     context.close()
+                _checkpoint("closing WebKit")
                 browser.close()
+                _checkpoint("WebKit closed")
     finally:
+        _checkpoint("stopping local server")
         server.shutdown()
         thread.join(timeout=5)
         temporary.cleanup()
         (output / "result.json").write_text(
             json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        _checkpoint("cleanup complete")
 
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0 if result["passed"] else 1
