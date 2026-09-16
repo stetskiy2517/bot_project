@@ -43,7 +43,7 @@ class RouterConversationIntentTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(detect_intent(text).name, INTENT_CREATE)
 
-    def test_opened_library_reminder_becomes_current_reference(self):
+    def test_opened_library_reminder_becomes_one_shot_current_reference(self):
         context = _Context({
             "smart_planner_last_reminder": {"reminder_id": 4, "text": "старое"},
             "smart_planner_active_reminder": {"reminder_id": 9, "text": "таблетка"},
@@ -53,6 +53,7 @@ class RouterConversationIntentTests(unittest.TestCase):
             context.user_data["smart_planner_last_reminder"],
             {"reminder_id": 9, "text": "таблетка"},
         )
+        self.assertNotIn("smart_planner_active_reminder", context.user_data)
 
 
 class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
