@@ -49,7 +49,26 @@ class ReleaseIntegrationTests(unittest.TestCase):
         self.assertIn('workflow_call:', browser)
         self.assertIn('python tests/browser_features.py --output', browser)
         self.assertNotIn('browser_features.py --offline', browser)
-        self.assertNotIn('continue-on-error: true', browser)
+
+        def step_block(name: str) -> str:
+            marker = f'      - name: {name}\n'
+            start = browser.index(marker)
+            end = browser.find('\n      - name:', start + len(marker))
+            return browser[start:] if end < 0 else browser[start:end]
+
+        # Test execution remains a hard deployment gate. Only best-effort evidence
+        # upload may fail without blocking a tested release.
+        for name in (
+            'Run browser feature regression',
+            'Test home composer and file import',
+            'Test email settings initialization',
+            'Test attention center',
+            'Test reminder editor',
+            'Run WebKit iPhone smoke',
+        ):
+            self.assertNotIn('continue-on-error', step_block(name), name)
+        self.assertIn('continue-on-error: true', step_block('Upload browser evidence'))
+        self.assertIn('continue-on-error: true', step_block('Upload WebKit evidence'))
 
     def test_python_matrix_includes_server_compatible_runtime(self):
         workflow = (ROOT / '.github/workflows/tests.yml').read_text()
