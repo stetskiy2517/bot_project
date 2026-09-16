@@ -148,6 +148,18 @@ def get_attention_item(user_id: int, attention_id: int) -> dict | None:
     return _row_payload(row) if row else None
 
 
+def get_attention_by_source(user_id: int, source_type: str, source_key: str) -> dict | None:
+    """Return a signal even if it was dismissed, so stable daily signals are never recreated."""
+    with db_lock:
+        row = conn.execute(
+            """SELECT attention_id,user_id,source_type,source_key,category,priority,title,body,action_type,
+                      action_json,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error
+               FROM attention_items WHERE user_id=? AND source_type=? AND source_key=?""",
+            (int(user_id), _clean(source_type, 80), _clean(source_key, 300)),
+        ).fetchone()
+    return _row_payload(row) if row else None
+
+
 def list_attention_items(user_id: int, *, limit: int = 20) -> list[dict]:
     safe_limit = max(1, min(int(limit), 100))
     cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
