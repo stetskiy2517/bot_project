@@ -91,10 +91,13 @@ def main() -> None:
             page.locator("#libraryRemindersTab").click()
             expect(page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')).to_be_visible()
 
+            edit_button = page.locator(f'[data-reminder-edit="{reminder_id}"]')
             page.wait_for_selector(f'[data-reminder-edit="{reminder_id}"]', state="attached")
             row = page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')
             expect(row.locator(".reminder-category-chip")).to_have_text("Работа")
-            page.locator(f'[data-reminder-edit="{reminder_id}"]').click(force=True)
+            # The edit action sits under the reminder card until the row is swiped open.
+            # Calling DOM click here tests the editor action itself without faking gesture geometry.
+            edit_button.evaluate("button => button.click()")
             expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
 
             page.locator("#reminderEditText").fill("Принять лекарство")
@@ -111,7 +114,7 @@ def main() -> None:
             assert stored["repeat_rule"] == "daily", stored
             assert reminder_category(stored) == "personal", stored
 
-            page.locator(f'[data-reminder-edit="{reminder_id}"]').click(force=True)
+            page.locator(f'[data-reminder-edit="{reminder_id}"]').evaluate("button => button.click()")
             page.locator("#reminderEditCategory").select_option("auto")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
