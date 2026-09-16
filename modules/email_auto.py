@@ -47,6 +47,14 @@ ACTION_SIGNAL_RE = re.compile(
     r"созвон\w*|брон\w*|рейс\w*|вылет\w*|поезд\w*|достав\w*)\b",
     re.IGNORECASE,
 )
+ATTACHMENT_SIGNAL_RE = re.compile(
+    r"\b(?:билет\w*|ticket\w*|маршрут\w*|квитанц\w*|boarding|посадоч\w*|брон\w*|booking|"
+    r"reservation|invoice|сч[её]т\w*|договор\w*|contract\w*|акт\w*|сертифик\w*|certificate\w*|"
+    r"appointment|запис\w*|расписан\w*|schedule|travel|trip|flight|рейс\w*|поезд\w*|hotel|отел\w*|"
+    r"ваучер\w*|voucher|страхов\w*|полис\w*|заказ\w*|order|подтвержд\w*|confirmation|документ\w*)\b",
+    re.IGNORECASE,
+)
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 _worker_lock = threading.Lock()
 _worker_started = False
@@ -71,15 +79,6 @@ def email_auto_worker_enabled() -> bool:
     return _env_bool("EMAIL_AUTO_WORKER_ENABLED", True)
 
 
-def _has_supported_attachment(message: dict) -> bool:
-    for attachment in message.get("attachments") or []:
-        if not isinstance(attachment, dict):
-            continue
-        if _attachment_type(attachment.get("filename"), attachment.get("mime_type")) is not None:
-            return True
-    return False
-
-
 def _has_text_planning_signal(message: dict) -> bool:
     subject = str(message.get("subject") or "")
     body = _message_body(message)
@@ -91,9 +90,34 @@ def _has_text_planning_signal(message: dict) -> bool:
     return bool(DATE_OR_TIME_RE.search(text) and re.search(r"\b(?:встреч|брон|рейс|поезд|срок|до|оплат|ответ|достав)\w*\b", text, re.IGNORECASE))
 
 
+def _has_relevant_attachment(message: dict, *, text_signal: bool) -> bool:
+    """Avoid spending multimodal tokens on logos/signatures and arbitrary attachments."""
+    subject_body = f"{message.get('subject') or ''}\n{_message_body(message)}"[:7000]
+    contextual_signal = text_signal or bool(ATTACHMENT_SIGNAL_RE.search(subject_body))
+    for attachment in message.get("attachments") or []:
+        if not isinstance(attachment, dict):
+            continue
+        typed = _attachment_type(attachment.get("filename"), attachment.get("mime_type"))
+        if typed is None:
+            continue
+        filename, _, _, suffix = typed
+        filename_signal = bool(ATTACHMENT_SIGNAL_RE.search(filename))
+        if not contextual_signal and not filename_signal:
+            continue
+        if suffix in IMAGE_SUFFIXES:
+            try:
+                size = int(attachment.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            if size and size < 12 * 1024 and not filename_signal:
+                continue
+        return True
+    return False
+
+
 def _is_candidate(message: dict) -> tuple[bool, bool, bool]:
-    attachment = _has_supported_attachment(message)
     text_signal = _has_text_planning_signal(message)
+    attachment = _has_relevant_attachment(message, text_signal=text_signal)
     return attachment or text_signal, attachment, text_signal
 
 
@@ -202,7 +226,7 @@ def evaluate_user_email_auto(user_id: int) -> dict:
             if message_was_processed(user_id, account_id, fingerprint):
                 continue
             metrics["new_messages"] += 1
-            candidate, has_attachment, text_signal = _is_candidate(message)
+            candidate, _, text_signal = _is_candidate(message)
             if not candidate:
                 mark_message_processed(
                     user_id,
@@ -210,7 +234,7 @@ def evaluate_user_email_auto(user_id: int) -> dict:
                     fingerprint,
                     message.get("provider_message_id"),
                     "ignored",
-                    "Нет детерминированных признаков действия или поддерживаемого вложения.",
+                    "Нет детерминированных признаков действия или релевантного вложения.",
                 )
                 continue
             if len(candidates) >= MAX_CANDIDATE_MESSAGES:
