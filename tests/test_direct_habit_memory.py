@@ -49,12 +49,18 @@ class DirectHabitMemoryTests(unittest.TestCase):
                 self.assertEqual(detect_intent(text).name, INTENT_UNKNOWN)
                 self.assertIsNone(detect_reminder_intent(text))
 
+    def test_first_person_time_correction_is_not_created_as_calendar_event(self):
+        text = "Я пью таблетки в 23:00"
+        self.assertEqual(detect_intent(text).name, INTENT_UNKNOWN)
+        self.assertIsNone(detect_reminder_intent(text))
+
     def test_explicit_calendar_commands_still_bypass_memory_interpretation(self):
         self.assertEqual(
             detect_intent("Запланируй прогулку с собакой каждый день в 19:00").name,
             INTENT_CREATE,
         )
         self.assertEqual(detect_intent("Встреча завтра в 15:00").name, INTENT_CREATE)
+        self.assertEqual(detect_intent("Я иду к врачу завтра в 15:00").name, INTENT_CREATE)
 
     def test_plain_habit_message_goes_to_memory_without_creating_note(self):
         text = "Я каждый день в 19:00 гуляю с собакой"
