@@ -9,6 +9,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.db import get_user_timezone
+from core.library_store import get_saved_reminder
+from core.reminder_detail_store import edit_saved_reminder
 from core.reminder_recurrence import repeat_label
 from core.reminder_store import (
     claim_due_reminders,
@@ -19,9 +21,11 @@ from core.reminder_store import (
 )
 from modules.calendar import _extract_time, _extract_title, _parse_datetime
 from modules.calendar_user import _user_zone
+from modules.reminder_categories import REMINDER_CATEGORY_LABELS, reminder_category
 
 REMINDER_CREATE = "reminder_create"
 REMINDER_LIST = "reminder_list"
+REMINDER_UPDATE = "reminder_update"
 REMINDER_DELETE = "reminder_delete"
 
 REMINDER_CREATE_RE = re.compile(
@@ -46,6 +50,11 @@ REMINDER_LIST_RE = re.compile(
     r"список\s+напоминани\w*|мои\s+напоминани\w*)\b",
     re.IGNORECASE,
 )
+REMINDER_UPDATE_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|переименуй|переименовать)\s+"
+    r"(?:это\s+)?напоминани\w*\b",
+    re.IGNORECASE,
+)
 REMINDER_DELETE_RE = re.compile(
     r"^\s*(?:удали|удалить|убери|убрать|отмени|отменить)\s+напоминани\w*\b",
     re.IGNORECASE,
@@ -62,6 +71,11 @@ CALENDAR_INLINE_REMINDER_RE = re.compile(
 REMINDER_PREFIX_RE = re.compile(
     r"^\s*(?:(?:напомни|напомнить|напомню)(?:\s+мне)?|не\s+забудь(?:те)?|"
     r"(?:добавь|добавить|создай|создать|поставь|поставить)\s+напоминани\w*)\s*[,.:;\-]?\s*",
+    re.IGNORECASE,
+)
+REMINDER_UPDATE_PREFIX_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|переименуй|переименовать)\s+"
+    r"(?:это\s+)?напоминани\w*\s*[,.:;\-]?\s*",
     re.IGNORECASE,
 )
 REMINDER_DELETE_PREFIX_RE = re.compile(
@@ -88,11 +102,43 @@ REPEAT_CLEAN_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+EDIT_CHANGE_MARKER_RE = re.compile(
+    r"\s+(?=(?:категори\w*|текст\b|назван\w*|повтор\w*|без\s+повтор\w*|не\s+повтор\w*|"
+    r"на\s+(?:сегодня|завтра|завтро|послезавтра|послезавтро|понедельник\w*|вторник\w*|"
+    r"сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|через\b|\d{1,2}[./-]\d{1,2})))",
+    re.IGNORECASE,
+)
+EDIT_DIRECTIVE_START_RE = re.compile(
+    r"^(?:категори\w*|текст\b|назван\w*|повтор\w*|без\s+повтор\w*|не\s+повтор\w*|"
+    r"на\s+(?:сегодня|завтра|завтро|послезавтра|послезавтро|понедельник\w*|вторник\w*|"
+    r"сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|через\b|\d{1,2}[./-]\d{1,2}))",
+    re.IGNORECASE,
+)
+CATEGORY_EDIT_RE = re.compile(
+    r"\bкатегори\w*\s*(?:на|в|:|—|-)?\s*"
+    r"(?P<category>авто\w*|работ\w*|здоров\w*|отдых\w*|поезд\w*|семь\w*|личн\w*|проч\w*)\b",
+    re.IGNORECASE,
+)
+TEXT_EDIT_RE = re.compile(
+    r"^(?:текст|назван\w*)\s*(?:на|в|:|—|-)?\s*(?P<text>.+)$",
+    re.IGNORECASE,
+)
+REPEAT_REMOVE_RE = re.compile(
+    r"\b(?:без\s+повтор\w*|не\s+повтор\w*|убери\s+повтор\w*|отмени\s+повтор\w*)\b",
+    re.IGNORECASE,
+)
+TIME_EDIT_HINT_RE = re.compile(
+    r"\b(?:сегодня|завтра|завтро|послезавтра|послезавтро|через\b|"
+    r"понедельник\w*|вторник\w*|сред\w*|четверг\w*|пятниц\w*|суббот\w*|воскресень\w*|"
+    r"(?:в|к)\s*(?:[01]?\d|2[0-3])(?:(?::|\.)[0-5]\d)?)\b",
+    re.IGNORECASE,
+)
 CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*)\b", re.IGNORECASE)
 QUERY_STOP_WORDS = {"про", "напоминание", "напоминания", "напоминанию"}
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
 REMINDER_REFERENCE_REPLIES = {"это", "его", "это напоминание", "последнее", "последнее напоминание"}
 LAST_REMINDER_KEY = "smart_planner_last_reminder"
+_NO_EDIT = object()
 WEEKDAY_REPEAT_PATTERNS = (
     (0, r"(?:кажд\w*\s+понедельник\w*|по\s+понедельникам)"),
     (1, r"(?:кажд\w*\s+вторник\w*|по\s+вторникам)"),
@@ -164,6 +210,8 @@ def detect_reminder_intent(text: str) -> str | None:
         return None
     if REMINDER_DELETE_RE.search(text):
         return REMINDER_DELETE
+    if REMINDER_UPDATE_RE.search(text):
+        return REMINDER_UPDATE
     if REMINDER_LIST_RE.search(text):
         return REMINDER_LIST
     if REMINDER_CREATE_RE.search(text) or TIME_FIRST_REMINDER_RE.search(text):
@@ -302,6 +350,11 @@ def _repeat_suffix(reminder: dict) -> str:
     return f" · повтор: {label}" if label else " · повтор: нет"
 
 
+def _category_suffix(reminder: dict) -> str:
+    category = reminder_category(reminder)
+    return f" · категория: {REMINDER_CATEGORY_LABELS.get(category, REMINDER_CATEGORY_LABELS['other'])}"
+
+
 def _format_line(reminder: dict, timezone: str, index: int | None = None) -> str:
     prefix = f"{index}." if index is not None else "•"
     return f"{prefix} {_format_when(reminder, timezone)} — {reminder['text']}{_repeat_suffix(reminder)}"
@@ -342,6 +395,111 @@ def _active_reference(context: ContextTypes.DEFAULT_TYPE, reminders: list[dict])
         return None
     reminder_id = reference.get("reminder_id")
     return next((item for item in reminders if item.get("reminder_id") == reminder_id), None)
+
+
+def _split_update_request(text: str) -> tuple[str, str | None]:
+    body = REMINDER_UPDATE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"), count=1).strip(" ,.-")
+    if not body:
+        return "", None
+    if EDIT_DIRECTIVE_START_RE.search(body):
+        return "", body
+    marker = EDIT_CHANGE_MARKER_RE.search(body)
+    if not marker:
+        return body, None
+    return body[: marker.start()].strip(" ,.-"), body[marker.start():].strip(" ,.-")
+
+
+def _category_edit_value(text: str):
+    match = CATEGORY_EDIT_RE.search(_normalise(text))
+    if not match:
+        return _NO_EDIT
+    token = match.group("category")
+    if token.startswith("авто"):
+        return None
+    if token.startswith("работ"):
+        return "work"
+    if token.startswith("здоров"):
+        return "health"
+    if token.startswith("отдых"):
+        return "rest"
+    if token.startswith("поезд"):
+        return "travel"
+    if token.startswith("семь"):
+        return "family"
+    if token.startswith("личн"):
+        return "personal"
+    return "other"
+
+
+def _repeat_edit_value(text: str):
+    if REPEAT_REMOVE_RE.search(_normalise(text)):
+        return None
+    rule = _repeat_rule(text)
+    return rule if rule else _NO_EDIT
+
+
+def _text_edit_value(text: str):
+    match = TEXT_EDIT_RE.search(text.strip())
+    if not match:
+        return _NO_EDIT
+    value = match.group("text").strip(" \t\r\n.,!?;:…\"'«»")
+    return value if value else _NO_EDIT
+
+
+async def _apply_reminder_edit_instruction(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    reminder: dict,
+    instruction: str,
+    timezone: str,
+) -> bool:
+    kwargs = {}
+    category = _category_edit_value(instruction)
+    if category is not _NO_EDIT:
+        kwargs["category"] = category
+
+    new_text = _text_edit_value(instruction)
+    if new_text is not _NO_EDIT:
+        kwargs["text"] = new_text
+
+    repeat_rule = _repeat_edit_value(instruction)
+    if repeat_rule is not _NO_EDIT:
+        kwargs["repeat_rule"] = repeat_rule
+        kwargs["repeat_timezone"] = timezone
+
+    if not kwargs and TIME_EDIT_HINT_RE.search(_normalise(instruction)):
+        due_at = _reminder_due_at(instruction, timezone)
+        if due_at:
+            kwargs["remind_at"] = due_at
+
+    if not kwargs:
+        await update.message.reply_text(
+            "Что изменить? Например: «на завтра в 9», «текст купить лекарства», "
+            "«категория здоровье», «повтор каждый день» или «без повтора»."
+        )
+        return True
+
+    try:
+        edited = edit_saved_reminder(
+            update.effective_user.id,
+            int(reminder["reminder_id"]),
+            **kwargs,
+        )
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return True
+    if not edited:
+        context.user_data.pop("smart_planner_pending", None)
+        await update.message.reply_text("Это напоминание уже удалено.")
+        return True
+
+    context.user_data.pop("smart_planner_pending", None)
+    _remember_reminder_reference(context, edited)
+    await update.message.reply_text(
+        f"Напоминание обновлено · «{edited['text']}»\n"
+        f"{_format_when(edited, timezone)}{_repeat_suffix(edited)}{_category_suffix(edited)}"
+    )
+    return True
 
 
 async def create_reminder_from_text(
@@ -406,6 +564,81 @@ async def list_reminders_from_text(
     return True
 
 
+async def update_reminder_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    user_id = update.effective_user.id
+    timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+    reminders = list_active_reminders(user_id, limit=200)
+    if not reminders:
+        await update.message.reply_text("Активных напоминаний нет.")
+        return True
+
+    query, change = _split_update_request(text)
+    reference = _active_reference(context, reminders)
+    if not query or _normalise(query) in REMINDER_REFERENCE_REPLIES:
+        matches = [reference] if reference else ([reminders[0]] if len(reminders) == 1 else [])
+    else:
+        matches = [item for item in reminders if _matches(item, query)]
+
+    if not matches:
+        if not query and len(reminders) > 1:
+            visible = reminders[:5]
+            _store_pending(
+                context,
+                {
+                    "type": "reminder_select_edit",
+                    "reminders": visible,
+                    "timezone": timezone,
+                    "change": change,
+                },
+            )
+            await update.message.reply_text(
+                "Какое напоминание изменить? Напиши номер:\n" +
+                "\n".join(_format_line(item, timezone, index=index) for index, item in enumerate(visible, start=1))
+            )
+            return True
+        await update.message.reply_text(f"Не нашёл напоминание «{query}».")
+        return True
+
+    if len(matches) > 1:
+        visible = matches[:5]
+        _store_pending(
+            context,
+            {
+                "type": "reminder_select_edit",
+                "reminders": visible,
+                "timezone": timezone,
+                "change": change,
+            },
+        )
+        await update.message.reply_text(
+            "Нашёл несколько напоминаний. Напиши номер:\n" +
+            "\n".join(_format_line(item, timezone, index=index) for index, item in enumerate(visible, start=1))
+        )
+        return True
+
+    reminder = matches[0]
+    if change:
+        return await _apply_reminder_edit_instruction(update, context, reminder, change, timezone)
+    _store_pending(
+        context,
+        {
+            "type": "reminder_edit",
+            "reminder_id": reminder["reminder_id"],
+            "timezone": timezone,
+        },
+    )
+    _remember_reminder_reference(context, reminder)
+    await update.message.reply_text(
+        f"Что изменить в напоминании «{reminder['text']}»? "
+        "Можно время, текст, категорию или повтор."
+    )
+    return True
+
+
 async def delete_reminder_from_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -458,6 +691,8 @@ async def handle_reminder_text(
         return await create_reminder_from_text(update, context, text)
     if intent == REMINDER_LIST:
         return await list_reminders_from_text(update, context, text)
+    if intent == REMINDER_UPDATE:
+        return await update_reminder_from_text(update, context, text)
     if intent == REMINDER_DELETE:
         return await delete_reminder_from_text(update, context, text)
     return False
@@ -495,6 +730,44 @@ async def resume_pending_reminder(
         _remember_reminder_reference(context, reminder)
         await update.message.reply_text(
             f"Напоминание · «{reminder['text']}»\n{_format_when(reminder, timezone)}{_repeat_suffix(reminder)}"
+        )
+        return True
+
+    if pending_type == "reminder_edit":
+        reminder = get_saved_reminder(update.effective_user.id, int(pending.get("reminder_id") or 0))
+        if not reminder:
+            context.user_data.pop("smart_planner_pending", None)
+            await update.message.reply_text("Это напоминание уже удалено.")
+            return True
+        timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
+        return await _apply_reminder_edit_instruction(update, context, reminder, text, timezone)
+
+    if pending_type == "reminder_select_edit":
+        index = _choice_index(text)
+        if index is None:
+            await update.message.reply_text("Напиши номер напоминания или скажи, например, «второе».")
+            return True
+        reminders = pending.get("reminders") or []
+        if index < 0 or index >= len(reminders):
+            await update.message.reply_text("Такого номера нет. Выбери номер из списка.")
+            return True
+        reminder = get_saved_reminder(update.effective_user.id, int(reminders[index]["reminder_id"]))
+        if not reminder:
+            context.user_data.pop("smart_planner_pending", None)
+            await update.message.reply_text("Это напоминание уже удалено.")
+            return True
+        timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
+        change = pending.get("change")
+        if change:
+            return await _apply_reminder_edit_instruction(update, context, reminder, str(change), timezone)
+        _store_pending(
+            context,
+            {"type": "reminder_edit", "reminder_id": reminder["reminder_id"], "timezone": timezone},
+        )
+        _remember_reminder_reference(context, reminder)
+        await update.message.reply_text(
+            f"Что изменить в напоминании «{reminder['text']}»? "
+            "Можно время, текст, категорию или повтор."
         )
         return True
 
