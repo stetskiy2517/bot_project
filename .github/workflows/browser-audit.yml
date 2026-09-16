@@ -59,7 +59,24 @@ jobs:
           pip install playwright
           python -m playwright install webkit
       - name: Run WebKit iPhone smoke
-        run: python tests/browser_webkit_smoke.py --output evidence/browser-webkit-ios
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          command = [
+              sys.executable,
+              "tests/browser_webkit_smoke.py",
+              "--output",
+              "evidence/browser-webkit-ios",
+          ]
+          try:
+              completed = subprocess.run(command, timeout=90)
+          except subprocess.TimeoutExpired:
+              print("WebKit iPhone smoke exceeded 90 seconds", file=sys.stderr, flush=True)
+              raise SystemExit(124)
+          raise SystemExit(completed.returncode)
+          PY
       - name: Upload WebKit evidence
         if: always()
         uses: actions/upload-artifact@v4
