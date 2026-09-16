@@ -16,6 +16,7 @@ DEFAULTS = {
     "quiet_enabled": False, "quiet_start": "22:00", "quiet_end": "08:00",
     "proactive_reminders_enabled": False,
     "proactive_calendar_events_enabled": False,
+    "attention_push_enabled": False,
 }
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
