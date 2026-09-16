@@ -10,8 +10,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from core.db import conn, db_lock
+from core.db import conn, db_lock, get_user_timezone
 from core.feature_access import has_ai_access
 
 
@@ -52,6 +53,32 @@ def init_ai_memory_store() -> None:
         conn.commit()
 
 
+def _localise_reminder_snapshot(user_id: int, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Keep UTC evidence while presenting reminder clocks to memory in the user's timezone."""
+    result = dict(snapshot)
+    timezone_name = str(result.get("repeat_timezone") or get_user_timezone(user_id, default="UTC") or "UTC")
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        timezone_name = "UTC"
+        zone = timezone.utc
+
+    for field in ("remind_at", "next_remind_at"):
+        raw = result.get(field)
+        if not raw:
+            continue
+        try:
+            value = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            result[f"{field}_utc"] = str(raw)
+            result[field] = value.astimezone(zone).isoformat()
+        except (TypeError, ValueError):
+            continue
+    result["memory_timezone"] = timezone_name
+    return result
+
+
 def record_ai_memory_event(
     user_id: int,
     entity_type: str,
@@ -81,7 +108,11 @@ def record_ai_memory_event(
 
     safe_snapshot: dict[str, Any]
     if has_ai_access(int(user_id)):
-        safe_snapshot = snapshot
+        safe_snapshot = (
+            _localise_reminder_snapshot(int(user_id), snapshot)
+            if entity_type == "reminder"
+            else snapshot
+        )
     else:
         safe_snapshot = {"ai_access_skipped": True}
     payload = json.dumps(safe_snapshot, ensure_ascii=False, sort_keys=True, default=str)

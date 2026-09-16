@@ -321,6 +321,8 @@ def detect_intent(text: str) -> IntentResult:
     is_question = bool(QUESTION_PREFIX_RE.search(lower)) or text.rstrip().endswith("?")
     is_current_state = bool(CURRENT_STATE_RE.search(lower))
 
+    if lower.startswith("я ") and has_time and not has_date and not is_question and not is_current_state:
+        return IntentResult(INTENT_UNKNOWN, 0.0)
     if has_date and has_time and not is_question and not is_current_state:
         return IntentResult(INTENT_CREATE, 0.92)
     if has_event and (has_date or has_time) and not is_question and not is_current_state:

@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.ai_memory_store import record_ai_memory_event
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
+from core.chat_context import append_chat_exchange, clear_chat_context, recent_chat_messages
 from core.feature_access import ai_access_status, has_ai_access
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
@@ -116,9 +117,11 @@ def use_ai_for_unhandled_chat(response):
             _journal_user_utterance(user_id, text, channel)
         except Exception:
             logger.exception("Failed to journal user utterance for AI memory")
-        answer = answer_unhandled(text, user_id=user_id)
+        history = recent_chat_messages(user_id)
+        answer = answer_unhandled(text, user_id=user_id, history=history)
         if not answer:
             return response
+        append_chat_exchange(user_id, text, answer)
         payload["handled"] = True
         payload["replies"] = replace_unhandled_reply(replies, answer)
         response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -256,7 +259,9 @@ def account_erase():
     if not _recent_login():
         return jsonify(error="reauth_required", message="Для удаления нужно заново войти в аккаунт."), 403
     payload = request.get_json(silent=True) or {}
-    erase_account(_user(), payload.get("challenge"), payload.get("confirmation"))
+    user_id = _user()
+    erase_account(user_id, payload.get("challenge"), payload.get("confirmation"))
+    clear_chat_context(user_id)
     session.clear()
     return {"ok": True, "local_data_erased": True, "google_calendar_unchanged": True}
 
