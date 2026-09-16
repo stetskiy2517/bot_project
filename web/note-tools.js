@@ -3,6 +3,8 @@
 
   if (window.PlannerNotes) return;
 
+  const MAX_TITLE = 120;
+  const MAX_TEXT = 5000;
   const CATEGORIES = {
     work: "Работа",
     health: "Здоровье",
@@ -12,49 +14,37 @@
     personal: "Личное",
     other: "Прочее",
   };
-  const MAX_TITLE = 120;
-  const MAX_TEXT = 5000;
 
   let current = null;
-  let metadataLoading = false;
-  let metadataQueued = false;
-  let lastDecoratedSignature = "";
-  let toolbarInstalled = false;
   let searchBusy = false;
+  let decorating = false;
 
   const style = document.createElement("style");
   style.id = "notesProductStyles";
   style.textContent = `
-    .notes-product-toolbar{display:none;margin-top:10px;gap:8px;align-items:center}
-    .notes-product-toolbar.visible{display:grid;grid-template-columns:minmax(0,1fr) auto auto}
-    .notes-search-input{min-width:0;height:42px;padding:0 12px;border:1px solid #dededb;border-radius:12px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
-    .notes-search-input:focus{border-color:#b9b9b4;box-shadow:0 0 0 3px rgba(0,0,0,.035)}
-    .notes-toolbar-button{height:42px;padding:0 12px;border-radius:12px;background:#ececea;color:#292926;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
-    .notes-toolbar-button.primary{width:42px;padding:0;background:#171717;color:#fff;font-size:21px;font-weight:400}
-    .notes-search-status{display:none;margin:7px 2px 0;color:#858580;font-size:11px;line-height:1.35}
-    .notes-search-status.visible{display:block}
-    .note-card-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-    .note-card-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;background:#f0f0ed;color:#666660;font-size:10px;line-height:1.1}
-    .note-card-badge.pin{background:#ece8dc;color:#695f3c}
-    .note-product-sheet{max-height:92%;overflow:auto}
-    .note-product-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
-    .note-product-title{min-width:0;margin:0;font-size:21px;line-height:1.2;font-weight:700;overflow-wrap:anywhere}
-    .note-product-close{flex:0 0 auto;width:36px;height:36px;border-radius:50%;background:#efefec;color:#333;font-size:20px;cursor:pointer}
-    .note-product-body{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;border:1px solid #e7e7e4;border-radius:16px;background:#fff;color:#252522;font-size:14px;line-height:1.55}
-    .note-product-meta{display:flex;flex-wrap:wrap;gap:6px;margin:11px 0 14px}
-    .note-product-chip{display:inline-flex;align-items:center;min-height:27px;padding:4px 9px;border-radius:999px;background:#eeeeeb;color:#5b5b56;font-size:11px}
-    .note-product-chip.pin{background:#ece8dc;color:#695f3c}
-    .note-product-dates{margin:10px 2px 0;color:#999994;font-size:10px;line-height:1.35}
-    .note-product-checklist{display:grid;gap:6px;margin:14px 0}
-    .note-check-row{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border-radius:12px;background:#f5f5f2;color:#343431;font-size:13px;line-height:1.35}
-    .note-check-row input{width:18px;height:18px;flex:0 0 auto;margin:0}
-    .note-check-row.done span{text-decoration:line-through;color:#989893}
-    .note-product-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
-    .note-product-actions.three{grid-template-columns:1fr 1fr 1fr}
-    .note-product-button{min-height:44px;padding:9px 10px;border-radius:13px;background:#ececea;color:#292926;font-size:13px;font-weight:650;cursor:pointer}
-    .note-product-button.primary{background:#171717;color:#fff}
-    .note-product-button.danger{background:#f2dddd;color:#842f2f}
-    .note-product-button:disabled,.notes-toolbar-button:disabled{opacity:.5;cursor:default}
+    .note-window-backdrop{position:fixed;z-index:240;inset:0;display:flex;align-items:flex-end;background:rgba(0,0,0,.18);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s ease,visibility 0s linear .18s}
+    .note-window-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transition-delay:0s}
+    .note-window{width:100%;max-height:92vh;overflow:auto;padding:10px 16px calc(env(safe-area-inset-bottom) + 18px);border-radius:24px 24px 0 0;background:#f7f7f5;box-shadow:0 -16px 46px rgba(0,0,0,.14);transform:translateY(18px);transition:transform .18s ease}
+    .note-window-backdrop.open .note-window{transform:translateY(0)}
+    .note-window-handle{width:42px;height:4px;margin:1px auto 14px;border-radius:999px;background:#d0d0cc}
+    .note-window-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+    .note-window-title{min-width:0;margin:0;font-size:21px;line-height:1.2;font-weight:700;overflow-wrap:anywhere}
+    .note-window-close{flex:0 0 auto;width:36px;height:36px;border:0;border-radius:50%;background:#e9e9e6;color:#333;font-size:20px;cursor:pointer}
+    .note-window-body{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;border:1px solid #e4e4e1;border-radius:16px;background:#fff;color:#252522;font-size:14px;line-height:1.55}
+    .note-window-meta{display:flex;flex-wrap:wrap;gap:6px;margin:11px 0 14px}
+    .note-window-chip{display:inline-flex;align-items:center;min-height:27px;padding:4px 9px;border-radius:999px;background:#ececea;color:#5b5b56;font-size:11px}
+    .note-window-chip.pin{background:#ece8dc;color:#695f3c}
+    .note-window-checklist{display:grid;gap:6px;margin:14px 0}
+    .note-window-check{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border-radius:12px;background:#efefec;color:#343431;font-size:13px;line-height:1.35}
+    .note-window-check input{width:18px;height:18px;flex:0 0 auto;margin:0}
+    .note-window-check.done span{text-decoration:line-through;color:#989893}
+    .note-window-dates{margin:10px 2px 0;color:#999994;font-size:10px;line-height:1.35}
+    .note-window-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+    .note-window-actions.three{grid-template-columns:1fr 1fr 1fr}
+    .note-window-button{min-height:44px;padding:9px 10px;border:0;border-radius:13px;background:#e8e8e5;color:#292926;font-size:13px;font-weight:650;cursor:pointer}
+    .note-window-button.primary{background:#171717;color:#fff}
+    .note-window-button.danger{background:#f2dddd;color:#842f2f}
+    .note-window-button:disabled,.notes-toolbar-button:disabled{opacity:.5;cursor:default}
     .note-editor-grid{display:grid;gap:11px}
     .note-editor-field{display:grid;gap:6px;color:#767671;font-size:11px}
     .note-editor-field input,.note-editor-field select,.note-editor-field textarea{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
@@ -65,18 +55,23 @@
     .note-editor-check input{width:20px;height:20px}
     .note-editor-help{margin-top:-4px;color:#9a9a95;font-size:10px;line-height:1.35}
     .note-editor-error{min-height:17px;color:#923d3d;font-size:11px;line-height:1.35}
-    .note-search-answer{padding:12px 13px;margin-bottom:12px;border-radius:14px;background:#f1f1ee;color:#4a4a46;font-size:13px;line-height:1.45;white-space:pre-wrap}
+    .notes-product-toolbar{display:none;margin-top:10px;gap:8px;align-items:center}
+    .notes-product-toolbar.visible{display:grid;grid-template-columns:minmax(0,1fr) auto auto}
+    .notes-search-input{min-width:0;height:42px;padding:0 12px;border:1px solid #dededb;border-radius:12px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
+    .notes-toolbar-button{height:42px;padding:0 12px;border:0;border-radius:12px;background:#e8e8e5;color:#292926;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
+    .notes-toolbar-button.primary{width:42px;padding:0;background:#171717;color:#fff;font-size:21px;font-weight:400}
+    .notes-search-status{display:none;margin:7px 2px 0;color:#858580;font-size:11px;line-height:1.35}
+    .notes-search-status.visible{display:block}
+    .note-card-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+    .note-card-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;background:#f0f0ed;color:#666660;font-size:10px;line-height:1.1}
+    .note-card-badge.pin{background:#ece8dc;color:#695f3c}
+    .note-search-answer{padding:12px 13px;margin-bottom:12px;border-radius:14px;background:#ececea;color:#4a4a46;font-size:13px;line-height:1.45;white-space:pre-wrap}
     .note-search-results{display:grid;gap:8px}
     .note-search-result{display:block;width:100%;padding:12px 13px;border:1px solid #e5e5e2;border-radius:14px;background:#fff;text-align:left;color:#222;cursor:pointer}
     .note-search-result-title{font-size:13px;font-weight:700}
     .note-search-result-preview{margin-top:4px;color:#777772;font-size:11px;line-height:1.35;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-    .note-delete-copy{margin:0 0 14px;color:#555550;font-size:14px;line-height:1.45}
-    @media (max-width:420px){
-      .notes-product-toolbar.visible{grid-template-columns:minmax(0,1fr) 42px}
-      .notes-toolbar-button.semantic{grid-column:1 / -1;grid-row:2;width:max-content;justify-self:end}
-      .note-product-actions.three{grid-template-columns:1fr 1fr}.note-product-actions.three .danger{grid-column:1 / -1}
-    }
-    @media (min-width:760px){.note-product-sheet{max-width:560px;margin:0 auto 18px;border-radius:22px}}
+    @media (max-width:420px){.notes-product-toolbar.visible{grid-template-columns:minmax(0,1fr) 42px}.notes-toolbar-button.semantic{grid-column:1/-1;grid-row:2;width:max-content;justify-self:end}.note-window-actions.three{grid-template-columns:1fr 1fr}.note-window-actions.three .danger{grid-column:1/-1}}
+    @media (min-width:760px){.note-window{max-width:560px;margin:0 auto 18px;border-radius:22px}}
   `;
   document.head.appendChild(style);
 
@@ -85,7 +80,7 @@
     if (typeof window.api === "function") return window.api(path, options);
     return fetch(path, {credentials: "same-origin", cache: "no-store", ...options}).then(async response => {
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw Object.assign(Error(data.message || data.error || `HTTP ${response.status}`), {status: response.status, data});
+      if (!response.ok) throw Object.assign(new Error(data.message || data.error || `HTTP ${response.status}`), {status: response.status, data});
       return data;
     });
   }
@@ -99,20 +94,24 @@
       .replaceAll("'", "&#39;");
   }
 
-  function backdrop() {
-    return document.getElementById("mobileSheetBackdrop");
+  function modal() {
+    let root = document.getElementById("noteWindowBackdrop");
+    if (root) return root;
+    root = document.createElement("div");
+    root.id = "noteWindowBackdrop";
+    root.className = "note-window-backdrop";
+    document.body.appendChild(root);
+    return root;
   }
 
-  function showSheet(html) {
-    const root = backdrop();
-    if (!root) throw new Error("Экран заметки ещё загружается");
-    root.innerHTML = `<section class="mobile-sheet note-product-sheet" role="dialog" aria-modal="true" aria-label="Заметка"><div class="mobile-sheet-handle"></div>${html}</section>`;
+  function show(html) {
+    const root = modal();
+    root.innerHTML = `<section class="note-window" role="dialog" aria-modal="true" aria-label="Заметка"><div class="note-window-handle"></div>${html}</section>`;
     root.classList.add("open");
   }
 
-  function closeSheet() {
-    const root = backdrop();
-    if (!root) return;
+  function close() {
+    const root = modal();
     root.classList.remove("open");
     current = null;
     setTimeout(() => {
@@ -120,39 +119,28 @@
     }, 180);
   }
 
-  function humanDate(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return "";
-    return new Intl.DateTimeFormat("ru-RU", {
-      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
-    }).format(date);
-  }
-
   function categoryOptions(selected = "other") {
     return Object.entries(CATEGORIES)
-      .map(([key, label]) => `<option value="${key}"${selected === key ? " selected" : ""}>${label}</option>`)
+      .map(([key, label]) => `<option value="${key}"${key === selected ? " selected" : ""}>${label}</option>`)
       .join("");
   }
 
   function tagsFromInput(value) {
-    const result = [];
     const seen = new Set();
+    const tags = [];
     String(value || "").split(/[,;\n]+/).forEach(raw => {
       const tag = raw.trim().replace(/^#+/, "").slice(0, 40);
       const key = tag.toLocaleLowerCase("ru-RU");
-      if (tag && !seen.has(key) && result.length < 20) {
-        result.push(tag);
+      if (tag && !seen.has(key) && tags.length < 20) {
         seen.add(key);
+        tags.push(tag);
       }
     });
-    return result;
+    return tags;
   }
 
   function checklistToText(items) {
-    return (Array.isArray(items) ? items : [])
-      .map(item => `${item.done ? "[x]" : "[ ]"} ${item.text || ""}`.trim())
-      .join("\n");
+    return (Array.isArray(items) ? items : []).map(item => `${item.done ? "[x]" : "[ ]"} ${item.text || ""}`.trim()).join("\n");
   }
 
   function checklistFromText(value) {
@@ -163,224 +151,151 @@
     }).filter(item => item.text);
   }
 
-  function chips(note) {
-    const parts = [];
-    if (note.pinned) parts.push('<span class="note-product-chip pin">Закреплено</span>');
-    parts.push(`<span class="note-product-chip">${escapeHtml(CATEGORIES[note.category] || CATEGORIES.other)}</span>`);
-    for (const tag of note.tags || []) parts.push(`<span class="note-product-chip">#${escapeHtml(tag)}</span>`);
-    return parts.join("");
+  function humanDate(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return new Intl.DateTimeFormat("ru-RU", {day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}).format(date);
   }
 
   function renderChecklist(note) {
     const items = Array.isArray(note.checklist) ? note.checklist : [];
     if (!items.length) return "";
-    return `<div class="note-product-checklist">${items.map((item, index) => `
-      <label class="note-check-row${item.done ? " done" : ""}">
-        <input type="checkbox" data-note-check="${index}"${item.done ? " checked" : ""}>
-        <span>${escapeHtml(item.text)}</span>
-      </label>`).join("")}</div>`;
+    return `<div class="note-window-checklist">${items.map((item, index) => `<label class="note-window-check${item.done ? " done" : ""}"><input type="checkbox" data-note-check="${index}"${item.done ? " checked" : ""}><span>${escapeHtml(item.text)}</span></label>`).join("")}</div>`;
   }
 
   function renderDetail(note) {
     current = note;
+    const chips = [];
+    if (note.pinned) chips.push('<span class="note-window-chip pin">Закреплено</span>');
+    chips.push(`<span class="note-window-chip">${escapeHtml(CATEGORIES[note.category] || CATEGORIES.other)}</span>`);
+    for (const tag of note.tags || []) chips.push(`<span class="note-window-chip">#${escapeHtml(tag)}</span>`);
     const created = humanDate(note.created_at);
     const updated = humanDate(note.updated_at);
-    showSheet(`
-      <div class="note-product-head">
-        <h2 class="note-product-title">${escapeHtml(note.title || "Без названия")}</h2>
-        <button class="note-product-close" type="button" data-note-close aria-label="Закрыть">×</button>
-      </div>
-      <div class="note-product-body">${escapeHtml(note.text || "")}</div>
-      <div class="note-product-meta">${chips(note)}</div>
+    show(`
+      <div class="note-window-head"><h2 class="note-window-title">${escapeHtml(note.title || "Без названия")}</h2><button class="note-window-close" type="button" data-note-close aria-label="Закрыть">×</button></div>
+      <div class="note-window-body">${escapeHtml(note.text || "")}</div>
+      <div class="note-window-meta">${chips.join("")}</div>
       ${renderChecklist(note)}
-      <div class="note-product-dates">${created ? `Создано: ${escapeHtml(created)}` : ""}${created && updated ? " · " : ""}${updated ? `Изменено: ${escapeHtml(updated)}` : ""}</div>
-      <div class="note-product-actions three">
-        <button class="note-product-button" type="button" data-note-pin>${note.pinned ? "Открепить" : "Закрепить"}</button>
-        <button class="note-product-button primary" type="button" data-note-edit>Изменить</button>
-        <button class="note-product-button danger" type="button" data-note-delete>Удалить</button>
-      </div>`);
+      <div class="note-window-dates">${created ? `Создано: ${escapeHtml(created)}` : ""}${created && updated ? " · " : ""}${updated ? `Изменено: ${escapeHtml(updated)}` : ""}</div>
+      <div class="note-window-actions three"><button class="note-window-button" type="button" data-note-pin>${note.pinned ? "Открепить" : "Закрепить"}</button><button class="note-window-button primary" type="button" data-note-edit>Изменить</button><button class="note-window-button danger" type="button" data-note-delete>Удалить</button></div>`);
   }
 
   function blankNote() {
     return {note_id: null, title: "", text: "", category: "other", pinned: false, tags: [], checklist: []};
   }
 
-  function renderEditor(note, {creating = false, error = ""} = {}) {
+  function renderEditor(note, creating = false, error = "") {
     current = creating ? null : note;
     const value = note || blankNote();
-    showSheet(`
-      <div class="note-product-head">
-        <h2 class="note-product-title">${creating ? "Новая заметка" : "Изменить заметку"}</h2>
-        <button class="note-product-close" type="button" data-note-editor-cancel aria-label="Отмена">×</button>
-      </div>
+    show(`
+      <div class="note-window-head"><h2 class="note-window-title">${creating ? "Новая заметка" : "Изменить заметку"}</h2><button class="note-window-close" type="button" data-note-editor-cancel aria-label="Отмена">×</button></div>
       <div class="note-editor-grid" data-note-editor-mode="${creating ? "create" : "edit"}" data-note-editor-id="${value.note_id || ""}">
-        <label class="note-editor-field">Название
-          <input id="noteEditTitle" maxlength="${MAX_TITLE}" autocomplete="off" placeholder="Можно оставить пустым" value="${escapeHtml(value.title || "")}">
-        </label>
-        <label class="note-editor-field">Текст
-          <textarea id="noteEditText" maxlength="${MAX_TEXT}" placeholder="Что сохранить?">${escapeHtml(value.text || "")}</textarea>
-        </label>
-        <label class="note-editor-field">Категория
-          <select id="noteEditCategory">${categoryOptions(value.category || "other")}</select>
-        </label>
-        <label class="note-editor-field">Теги
-          <input id="noteEditTags" maxlength="500" autocomplete="off" placeholder="например: машина, покупки" value="${escapeHtml((value.tags || []).join(", "))}">
-        </label>
+        <label class="note-editor-field">Название<input id="noteEditTitle" maxlength="${MAX_TITLE}" autocomplete="off" placeholder="Можно оставить пустым" value="${escapeHtml(value.title || "")}"></label>
+        <label class="note-editor-field">Текст<textarea id="noteEditText" maxlength="${MAX_TEXT}" placeholder="Что сохранить?">${escapeHtml(value.text || "")}</textarea></label>
+        <label class="note-editor-field">Категория<select id="noteEditCategory">${categoryOptions(value.category || "other")}</select></label>
+        <label class="note-editor-field">Теги<input id="noteEditTags" maxlength="500" autocomplete="off" placeholder="например: машина, покупки" value="${escapeHtml((value.tags || []).join(", "))}"></label>
         <label class="note-editor-check"><span>Закрепить сверху</span><input id="noteEditPinned" type="checkbox"${value.pinned ? " checked" : ""}></label>
-        <label class="note-editor-field">Чек-лист
-          <textarea id="noteEditChecklist" class="note-checklist-editor" placeholder="[ ] Купить молоко\n[x] Позвонить">${escapeHtml(checklistToText(value.checklist))}</textarea>
-        </label>
-        <div class="note-editor-help">Каждый пункт — с новой строки. `[x]` означает выполнено, `[ ]` — ещё нет.</div>
+        <label class="note-editor-field">Чек-лист<textarea id="noteEditChecklist" class="note-checklist-editor" placeholder="[ ] Купить молоко\n[x] Позвонить">${escapeHtml(checklistToText(value.checklist))}</textarea></label>
+        <div class="note-editor-help">Каждый пункт с новой строки. [x] означает выполнено, [ ] означает ещё нет.</div>
         <div id="noteEditError" class="note-editor-error">${escapeHtml(error)}</div>
-        <div class="note-product-actions">
-          <button class="note-product-button" type="button" data-note-editor-cancel>Отмена</button>
-          <button class="note-product-button primary" type="button" data-note-save>${creating ? "Создать" : "Сохранить"}</button>
-        </div>
+        <div class="note-window-actions"><button class="note-window-button" type="button" data-note-editor-cancel>Отмена</button><button class="note-window-button primary" type="button" data-note-save>${creating ? "Создать" : "Сохранить"}</button></div>
       </div>`);
-    requestAnimationFrame(() => backdrop()?.querySelector("#noteEditText")?.focus());
+    requestAnimationFrame(() => modal().querySelector("#noteEditText")?.focus());
   }
 
-  function collectEditor() {
-    const root = backdrop();
-    const read = id => root?.querySelector(id)?.value ?? "";
+  function editorDraft() {
+    const root = modal();
+    const value = id => root.querySelector(id)?.value ?? "";
     return {
-      title: read("#noteEditTitle").trim(),
-      text: read("#noteEditText").trim(),
-      category: read("#noteEditCategory") || "other",
-      tags: tagsFromInput(read("#noteEditTags")),
-      pinned: Boolean(root?.querySelector("#noteEditPinned")?.checked),
-      checklist: checklistFromText(read("#noteEditChecklist")),
+      title: value("#noteEditTitle").trim(),
+      text: value("#noteEditText").trim(),
+      category: value("#noteEditCategory") || "other",
+      tags: tagsFromInput(value("#noteEditTags")),
+      pinned: Boolean(root.querySelector("#noteEditPinned")?.checked),
+      checklist: checklistFromText(value("#noteEditChecklist")),
     };
   }
 
-  function setEditorBusy(value) {
-    const root = backdrop();
-    root?.querySelectorAll("button,input,select,textarea").forEach(control => {
-      if (control.matches("[data-note-editor-cancel]")) return;
-      control.disabled = value;
-    });
-  }
-
-  function editorError(text) {
-    const target = backdrop()?.querySelector("#noteEditError");
-    if (target) target.textContent = text || "";
-  }
-
   function signalChanged() {
-    lastDecoratedSignature = "";
     document.dispatchEvent(new Event("planner-library-changed"));
     document.dispatchEvent(new Event("planner-note-changed"));
-    scheduleDecoration(true);
-  }
-
-  async function saveEditor() {
-    const editor = backdrop()?.querySelector("[data-note-editor-mode]");
-    if (!editor) return;
-    const creating = editor.dataset.noteEditorMode === "create";
-    const noteId = Number(editor.dataset.noteEditorId || 0);
-    const draft = collectEditor();
-    if (!draft.text) {
-      editorError("Добавь текст заметки.");
-      return;
-    }
-    setEditorBusy(true);
-    editorError("");
-    try {
-      let saved;
-      if (creating) {
-        const result = await api("/api/note-tools", {method: "POST", body: JSON.stringify(draft)});
-        saved = result.note;
-      } else {
-        const content = await api(`/api/note-tools/${noteId}`, {
-          method: "PATCH",
-          body: JSON.stringify({title: draft.title || current?.title || "Заметка", text: draft.text}),
-        });
-        const metadata = await api(`/api/note-tools/${noteId}/metadata`, {
-          method: "PUT",
-          body: JSON.stringify({pinned: draft.pinned, tags: draft.tags, checklist: draft.checklist, category: draft.category}),
-        });
-        saved = metadata.note || content.note;
-      }
-      signalChanged();
-      renderDetail(saved);
-    } catch (error) {
-      editorError(error?.message || "Не удалось сохранить заметку.");
-    } finally {
-      setEditorBusy(false);
-    }
-  }
-
-  async function togglePinned(note) {
-    const result = await api(`/api/note-tools/${note.note_id}/metadata`, {
-      method: "PUT",
-      body: JSON.stringify({pinned: !note.pinned, tags: note.tags || [], checklist: note.checklist || [], category: note.category || "other"}),
-    });
-    signalChanged();
-    renderDetail(result.note);
-  }
-
-  async function toggleChecklist(note, index, checked) {
-    const checklist = (note.checklist || []).map(item => ({...item}));
-    if (!checklist[index]) return;
-    checklist[index].done = Boolean(checked);
-    const result = await api(`/api/note-tools/${note.note_id}/metadata`, {
-      method: "PUT",
-      body: JSON.stringify({pinned: Boolean(note.pinned), tags: note.tags || [], checklist, category: note.category || "other"}),
-    });
-    current = result.note;
-    signalChanged();
-    renderDetail(result.note);
-  }
-
-  function renderDelete(note) {
-    current = note;
-    showSheet(`
-      <div class="note-product-head">
-        <h2 class="note-product-title">Удалить заметку?</h2>
-        <button class="note-product-close" type="button" data-note-delete-cancel aria-label="Отмена">×</button>
-      </div>
-      <p class="note-delete-copy">«${escapeHtml(note.title || "Без названия") }» будет удалена из списка заметок.</p>
-      <div id="noteDeleteError" class="note-editor-error"></div>
-      <div class="note-product-actions">
-        <button class="note-product-button" type="button" data-note-delete-cancel>Отмена</button>
-        <button class="note-product-button danger" type="button" data-note-delete-confirm>Удалить</button>
-      </div>`);
-  }
-
-  async function confirmDelete(note) {
-    const button = backdrop()?.querySelector("[data-note-delete-confirm]");
-    if (button) button.disabled = true;
-    try {
-      await api(`/api/library/notes/${note.note_id}`, {method: "DELETE"});
-      closeSheet();
-      signalChanged();
-    } catch (error) {
-      const target = backdrop()?.querySelector("#noteDeleteError");
-      if (target) target.textContent = error?.message || "Не удалось удалить заметку.";
-      if (button) button.disabled = false;
-    }
+    setTimeout(() => decorateRows(), 120);
   }
 
   async function open(noteId) {
     const id = Number(noteId || 0);
     if (!id) return;
-    showSheet('<div class="mobile-loading">Загружаю заметку…</div>');
+    show('<div class="note-window-body">Загружаю заметку…</div>');
     try {
-      const {note} = await api(`/api/note-tools/${id}`);
-      renderDetail(note);
+      const data = await api(`/api/note-tools/${id}`);
+      renderDetail(data.note);
     } catch (error) {
-      showSheet(`
-        <div class="note-product-head"><h2 class="note-product-title">Заметка</h2><button class="note-product-close" type="button" data-note-close>×</button></div>
-        <div class="mobile-error">${escapeHtml(error?.message || "Не удалось загрузить заметку.")}</div>`);
+      show(`<div class="note-window-head"><h2 class="note-window-title">Заметка</h2><button class="note-window-close" type="button" data-note-close>×</button></div><div class="note-window-body">${escapeHtml(error?.message || "Не удалось загрузить заметку.")}</div>`);
     }
   }
 
   function create() {
-    renderEditor(blankNote(), {creating: true});
+    renderEditor(blankNote(), true);
   }
 
-  function toolbar() {
-    return document.getElementById("notesProductToolbar");
+  async function saveEditor() {
+    const root = modal();
+    const editor = root.querySelector("[data-note-editor-mode]");
+    if (!editor) return;
+    const draft = editorDraft();
+    const error = root.querySelector("#noteEditError");
+    if (!draft.text) {
+      if (error) error.textContent = "Добавь текст заметки.";
+      return;
+    }
+    root.querySelectorAll("button,input,select,textarea").forEach(control => control.disabled = true);
+    try {
+      let saved;
+      if (editor.dataset.noteEditorMode === "create") {
+        saved = (await api("/api/note-tools", {method: "POST", body: JSON.stringify(draft)})).note;
+      } else {
+        const id = Number(editor.dataset.noteEditorId || 0);
+        await api(`/api/note-tools/${id}`, {method: "PATCH", body: JSON.stringify({title: draft.title || current?.title || "Заметка", text: draft.text})});
+        saved = (await api(`/api/note-tools/${id}/metadata`, {method: "PUT", body: JSON.stringify({pinned: draft.pinned, tags: draft.tags, checklist: draft.checklist, category: draft.category})})).note;
+      }
+      signalChanged();
+      renderDetail(saved);
+    } catch (err) {
+      renderEditor(current || draft, !editor.dataset.noteEditorId, err?.message || "Не удалось сохранить заметку.");
+    }
+  }
+
+  async function updateMetadata(note, patch) {
+    const payload = {
+      pinned: patch.pinned ?? Boolean(note.pinned),
+      tags: patch.tags ?? (note.tags || []),
+      checklist: patch.checklist ?? (note.checklist || []),
+      category: patch.category ?? (note.category || "other"),
+    };
+    const data = await api(`/api/note-tools/${note.note_id}/metadata`, {method: "PUT", body: JSON.stringify(payload)});
+    signalChanged();
+    renderDetail(data.note);
+  }
+
+  function renderDelete(note) {
+    current = note;
+    show(`<div class="note-window-head"><h2 class="note-window-title">Удалить заметку?</h2><button class="note-window-close" type="button" data-note-delete-cancel aria-label="Отмена">×</button></div><div class="note-window-body">${escapeHtml(note.title || "Без названия")}</div><div id="noteDeleteError" class="note-editor-error"></div><div class="note-window-actions"><button class="note-window-button" type="button" data-note-delete-cancel>Отмена</button><button class="note-window-button danger" type="button" data-note-delete-confirm>Удалить</button></div>`);
+  }
+
+  async function confirmDelete() {
+    if (!current) return;
+    const button = modal().querySelector("[data-note-delete-confirm]");
+    if (button) button.disabled = true;
+    try {
+      await api(`/api/library/notes/${current.note_id}`, {method: "DELETE"});
+      close();
+      signalChanged();
+    } catch (error) {
+      const target = modal().querySelector("#noteDeleteError");
+      if (target) target.textContent = error?.message || "Не удалось удалить заметку.";
+      if (button) button.disabled = false;
+    }
   }
 
   function notesActive() {
@@ -392,23 +307,15 @@
   }
 
   function installToolbar() {
-    if (toolbarInstalled) return true;
+    if (document.getElementById("notesProductToolbarWrap")) return;
     const tabs = document.querySelector("#libraryScreen .library-tabs");
-    if (!tabs) return false;
-    const wrapper = document.createElement("div");
-    wrapper.id = "notesProductToolbarWrap";
-    wrapper.innerHTML = `
-      <div id="notesProductToolbar" class="notes-product-toolbar">
-        <input id="notesLibrarySearch" class="notes-search-input" type="search" maxlength="500" autocomplete="off" placeholder="Поиск по заметкам">
-        <button id="notesSemanticSearch" class="notes-toolbar-button semantic" type="button">По смыслу</button>
-        <button id="notesCreate" class="notes-toolbar-button primary" type="button" aria-label="Новая заметка">+</button>
-      </div>
-      <div id="notesSearchStatus" class="notes-search-status" role="status"></div>`;
-    tabs.insertAdjacentElement("afterend", wrapper);
-    toolbarInstalled = true;
-
+    if (!tabs) return;
+    const wrap = document.createElement("div");
+    wrap.id = "notesProductToolbarWrap";
+    wrap.innerHTML = `<div id="notesProductToolbar" class="notes-product-toolbar"><input id="notesLibrarySearch" class="notes-search-input" type="search" maxlength="500" autocomplete="off" placeholder="Поиск по заметкам"><button id="notesSemanticSearch" class="notes-toolbar-button semantic" type="button">По смыслу</button><button id="notesCreate" class="notes-toolbar-button primary" type="button" aria-label="Новая заметка">+</button></div><div id="notesSearchStatus" class="notes-search-status" role="status"></div>`;
+    tabs.insertAdjacentElement("afterend", wrap);
     document.getElementById("notesCreate")?.addEventListener("click", create);
-    document.getElementById("notesLibrarySearch")?.addEventListener("input", filterNoteCards);
+    document.getElementById("notesLibrarySearch")?.addEventListener("input", filterRows);
     document.getElementById("notesLibrarySearch")?.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -419,113 +326,77 @@
     document.getElementById("libraryNotesTab")?.addEventListener("click", () => setTimeout(syncToolbar, 0));
     document.getElementById("libraryRemindersTab")?.addEventListener("click", () => setTimeout(syncToolbar, 0));
     syncToolbar();
-    return true;
   }
 
   function syncToolbar() {
-    const visible = notesActive() && libraryOpen();
-    toolbar()?.classList.toggle("visible", Boolean(visible));
-    const status = document.getElementById("notesSearchStatus");
-    if (status && !visible) status.classList.remove("visible");
-    if (visible) scheduleDecoration(false);
+    const toolbar = document.getElementById("notesProductToolbar");
+    if (!toolbar) return;
+    toolbar.classList.toggle("visible", notesActive() && libraryOpen());
+    if (notesActive() && libraryOpen()) setTimeout(() => decorateRows(), 50);
   }
 
   function noteRows() {
     return Array.from(document.querySelectorAll("#libraryList .note-swipe-row[data-id]"));
   }
 
-  function rowSignature() {
-    return noteRows().map(row => `${row.dataset.id}:${row.dataset.noteDecorated || "0"}`).join(",");
-  }
-
-  function filterNoteCards() {
-    if (!notesActive()) return;
+  function filterRows() {
     const input = document.getElementById("notesLibrarySearch");
     const query = String(input?.value || "").trim().toLocaleLowerCase("ru-RU");
     let visible = 0;
-    noteRows().forEach(row => {
+    for (const row of noteRows()) {
       const haystack = String(row.dataset.noteSearch || row.textContent || "").toLocaleLowerCase("ru-RU");
-      const show = !query || query.split(/\s+/).every(token => haystack.includes(token));
-      row.hidden = !show;
-      if (show) visible += 1;
-    });
+      const showRow = !query || query.split(/\s+/).every(token => haystack.includes(token));
+      row.hidden = !showRow;
+      if (showRow) visible += 1;
+    }
     const status = document.getElementById("notesSearchStatus");
     if (!status) return;
-    if (query) {
-      status.textContent = visible ? `Найдено: ${visible}` : "По словам ничего не найдено. Попробуй поиск по смыслу.";
-      status.classList.add("visible");
-    } else {
-      status.textContent = "";
-      status.classList.remove("visible");
-    }
+    status.classList.toggle("visible", Boolean(query));
+    status.textContent = query ? (visible ? `Найдено: ${visible}` : "По словам ничего не найдено. Попробуй поиск по смыслу.") : "";
   }
 
-  function decorateRow(row, note) {
-    row.dataset.noteSearch = [note.title, note.text, CATEGORIES[note.category] || "", ...(note.tags || [])].join(" ");
-    row.dataset.noteDecorated = "1";
-    const card = row.querySelector(".library-card");
-    if (!card) return;
-    card.querySelector(".note-card-badges")?.remove();
-    const badges = document.createElement("div");
-    badges.className = "note-card-badges";
-    if (note.pinned) {
-      const pin = document.createElement("span");
-      pin.className = "note-card-badge pin";
-      pin.textContent = "Закреплено";
-      badges.appendChild(pin);
-    }
-    const category = document.createElement("span");
-    category.className = "note-card-badge";
-    category.textContent = CATEGORIES[note.category] || CATEGORIES.other;
-    badges.appendChild(category);
-    for (const tag of (note.tags || []).slice(0, 3)) {
-      const item = document.createElement("span");
-      item.className = "note-card-badge";
-      item.textContent = `#${tag}`;
-      badges.appendChild(item);
-    }
-    const meta = card.querySelector(".library-card-meta");
-    if (meta) card.insertBefore(badges, meta);
-    else card.appendChild(badges);
-  }
-
-  async function decorateNotes(force = false) {
-    if (!notesActive() || !libraryOpen() || metadataLoading) return;
+  async function decorateRows() {
+    if (decorating || !notesActive() || !libraryOpen()) return;
     const rows = noteRows();
     if (!rows.length) return;
-    const signature = rowSignature();
-    if (!force && signature && signature === lastDecoratedSignature) {
-      filterNoteCards();
-      return;
-    }
-    metadataLoading = true;
+    decorating = true;
     try {
-      const {notes} = await api("/api/note-tools");
-      const list = document.getElementById("libraryList");
-      const map = new Map(rows.map(row => [Number(row.dataset.id), row]));
-      for (const note of notes || []) {
-        const row = map.get(Number(note.note_id));
+      const data = await api("/api/note-tools");
+      const byId = new Map(rows.map(row => [Number(row.dataset.id), row]));
+      for (const note of data.notes || []) {
+        const row = byId.get(Number(note.note_id));
         if (!row) continue;
-        decorateRow(row, note);
-        list?.appendChild(row);
+        row.dataset.noteSearch = [note.title, note.text, CATEGORIES[note.category] || "", ...(note.tags || [])].join(" ");
+        const card = row.querySelector(".library-card");
+        if (!card) continue;
+        card.querySelector(".note-card-badges")?.remove();
+        const badges = document.createElement("div");
+        badges.className = "note-card-badges";
+        if (note.pinned) {
+          const pin = document.createElement("span");
+          pin.className = "note-card-badge pin";
+          pin.textContent = "Закреплено";
+          badges.appendChild(pin);
+        }
+        const category = document.createElement("span");
+        category.className = "note-card-badge";
+        category.textContent = CATEGORIES[note.category] || CATEGORIES.other;
+        badges.appendChild(category);
+        for (const tag of (note.tags || []).slice(0, 3)) {
+          const chip = document.createElement("span");
+          chip.className = "note-card-badge";
+          chip.textContent = `#${tag}`;
+          badges.appendChild(chip);
+        }
+        const meta = card.querySelector(".library-card-meta");
+        if (meta) card.insertBefore(badges, meta);
+        else card.appendChild(badges);
       }
-      lastDecoratedSignature = rowSignature();
-      filterNoteCards();
-    } catch (_) {
-      // Base library stays usable if metadata decoration is unavailable.
+      filterRows();
+    } catch (_error) {
     } finally {
-      metadataLoading = false;
+      decorating = false;
     }
-  }
-
-  function scheduleDecoration(force = false) {
-    if (force) lastDecoratedSignature = "";
-    if (metadataQueued) return;
-    metadataQueued = true;
-    setTimeout(() => {
-      metadataQueued = false;
-      decorateNotes(force);
-    }, 80);
   }
 
   async function semanticSearch() {
@@ -544,27 +415,15 @@
     searchBusy = true;
     const button = document.getElementById("notesSemanticSearch");
     if (button) button.disabled = true;
-    if (status) {
-      status.textContent = "Ищу по смыслу…";
-      status.classList.add("visible");
-    }
     try {
       const data = await api("/api/note-tools/search", {method: "POST", body: JSON.stringify({query})});
       const notes = Array.isArray(data.notes) ? data.notes : [];
-      showSheet(`
-        <div class="note-product-head">
-          <h2 class="note-product-title">Поиск по заметкам</h2>
-          <button class="note-product-close" type="button" data-note-close aria-label="Закрыть">×</button>
-        </div>
-        <div class="note-search-answer">${escapeHtml(data.answer || (notes.length ? "Найдены совпадения." : "Не нашёл."))}</div>
-        <div class="note-search-results">${notes.length ? notes.map(note => `
-          <button class="note-search-result" type="button" data-note-result="${Number(note.note_id)}">
-            <div class="note-search-result-title">${escapeHtml(note.title || "Без названия")}</div>
-            <div class="note-search-result-preview">${escapeHtml(note.text || "")}</div>
-          </button>`).join("") : '<div class="mobile-empty">Подходящих заметок нет.</div>'}</div>`);
-      if (status) status.textContent = data.ai_used ? "Поиск выполнен по смыслу." : "Показаны совпадения по словам.";
+      show(`<div class="note-window-head"><h2 class="note-window-title">Поиск по заметкам</h2><button class="note-window-close" type="button" data-note-close>×</button></div><div class="note-search-answer">${escapeHtml(data.answer || "Не нашёл.")}</div><div class="note-search-results">${notes.length ? notes.map(note => `<button class="note-search-result" type="button" data-note-result="${Number(note.note_id)}"><div class="note-search-result-title">${escapeHtml(note.title || "Без названия")}</div><div class="note-search-result-preview">${escapeHtml(note.text || "")}</div></button>`).join("") : '<div class="note-window-body">Подходящих заметок нет.</div>'}</div>`);
     } catch (error) {
-      if (status) status.textContent = error?.message || "Не удалось выполнить поиск.";
+      if (status) {
+        status.textContent = error?.message || "Не удалось выполнить поиск.";
+        status.classList.add("visible");
+      }
     } finally {
       searchBusy = false;
       if (button) button.disabled = false;
@@ -572,19 +431,18 @@
   }
 
   function install() {
-    if (!installToolbar()) return;
+    installToolbar();
     const list = document.getElementById("libraryList");
     const app = document.getElementById("app");
     if (list && !list.dataset.notesProductObserved) {
       list.dataset.notesProductObserved = "1";
-      new MutationObserver(() => {
-        if (notesActive() && libraryOpen()) scheduleDecoration(false);
-      }).observe(list, {childList: true, subtree: false});
+      new MutationObserver(() => setTimeout(() => decorateRows(), 30)).observe(list, {childList: true});
     }
     if (app && !app.dataset.notesProductObserved) {
       app.dataset.notesProductObserved = "1";
       new MutationObserver(syncToolbar).observe(app, {attributes: true, attributeFilter: ["class"]});
     }
+    syncToolbar();
   }
 
   document.addEventListener("click", event => {
@@ -598,18 +456,18 @@
   }, true);
 
   document.addEventListener("click", event => {
-    const root = backdrop();
-    if (!root?.classList.contains("open")) return;
+    const root = modal();
+    if (!root.classList.contains("open")) return;
     if (event.target === root || event.target.closest?.("[data-note-close]")) {
-      closeSheet();
+      close();
       return;
     }
     if (event.target.closest?.("[data-note-edit]") && current) {
-      renderEditor(current, {creating: false});
+      renderEditor(current, false);
       return;
     }
     if (event.target.closest?.("[data-note-editor-cancel]")) {
-      if (current) renderDetail(current); else closeSheet();
+      if (current) renderDetail(current); else close();
       return;
     }
     if (event.target.closest?.("[data-note-save]")) {
@@ -617,7 +475,7 @@
       return;
     }
     if (event.target.closest?.("[data-note-pin]") && current) {
-      togglePinned(current).catch(error => showSheet(`<div class="mobile-error">${escapeHtml(error?.message || "Не удалось изменить закрепление.")}</div>`));
+      updateMetadata(current, {pinned: !current.pinned}).catch(() => renderDetail(current));
       return;
     }
     if (event.target.closest?.("[data-note-delete]") && current) {
@@ -628,26 +486,31 @@
       renderDetail(current);
       return;
     }
-    if (event.target.closest?.("[data-note-delete-confirm]") && current) {
-      confirmDelete(current);
+    if (event.target.closest?.("[data-note-delete-confirm]")) {
+      confirmDelete();
       return;
     }
     const check = event.target.closest?.("[data-note-check]");
     if (check && current) {
-      toggleChecklist(current, Number(check.dataset.noteCheck), check.checked).catch(() => renderDetail(current));
+      const checklist = (current.checklist || []).map(item => ({...item}));
+      const index = Number(check.dataset.noteCheck);
+      if (checklist[index]) {
+        checklist[index].done = Boolean(check.checked);
+        updateMetadata(current, {checklist}).catch(() => renderDetail(current));
+      }
       return;
     }
     const result = event.target.closest?.("[data-note-result]");
     if (result) open(Number(result.dataset.noteResult));
   });
 
-  document.addEventListener("planner-library-changed", () => scheduleDecoration(true));
+  document.addEventListener("planner-library-changed", () => setTimeout(() => decorateRows(), 80));
   document.addEventListener("planner-ready", () => setTimeout(install, 0));
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape" && backdrop()?.classList.contains("open") && backdrop()?.querySelector(".note-product-sheet")) closeSheet();
+    if (event.key === "Escape" && modal().classList.contains("open")) close();
   });
 
-  window.PlannerNotes = {open, create, semanticSearch, refresh: () => scheduleDecoration(true)};
-  if (document.readyState !== "loading") setTimeout(install, 0);
-  else document.addEventListener("DOMContentLoaded", () => setTimeout(install, 0), {once: true});
+  window.PlannerNotes = {open, create, semanticSearch, refresh: decorateRows};
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(install, 0), {once: true});
+  else setTimeout(install, 0);
 })();
