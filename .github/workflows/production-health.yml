@@ -96,7 +96,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          remote='cd "$HOME/bot_project" && systemctl is-active --quiet personal-secretary && systemctl is-active --quiet caddy && .venv/bin/python scripts/production_smoke.py --expected-sha '"'"'$EXPECTED_SHA'"'"''
           for attempt in 1 2 3 4; do
             if ssh \
               -i ~/.ssh/deploy_key \
@@ -105,7 +104,7 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=10 \
               "$DEPLOY_USER@$DEPLOY_HOST" \
-              "$remote"; then
+              "cd \"\$HOME/bot_project\" && systemctl is-active --quiet personal-secretary && systemctl is-active --quiet caddy && .venv/bin/python scripts/production_smoke.py --expected-sha '$EXPECTED_SHA'"; then
               echo "Production server smoke: OK"
               exit 0
             fi
