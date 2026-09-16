@@ -14,7 +14,7 @@ from core.task_planner_store import list_planner_tasks, task_summary
 from modules.attention import attention_snapshot
 from modules.calendar_location_api import calendar_location_api
 from modules.calendar_user import _event_start, _list_events
-from modules.daily_review import build_day_review
+from modules.daily_review import build_day_review, capture_review_attention
 from modules.file_ingest_api import file_ingest_api
 from modules.navigation import is_managed_travel_event
 
@@ -189,6 +189,10 @@ def mobile_today():
     task_items.sort(key=task_rank)
     try:
         review = build_day_review(user_id, review_kind, now=now_utc)
+        try:
+            capture_review_attention(user_id, review, kind=review_kind, now=now_utc)
+        except Exception:
+            pass
     except Exception:
         review = {
             "kind": review_kind,
