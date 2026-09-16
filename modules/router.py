@@ -46,7 +46,7 @@ CREATE_WORDS = (
     "напомни", "напомнить",
 )
 SEARCH_WORDS = (
-    "когда у меня", "найди встреч", "найди событ", "найди созвон", "найди звонок",
+    "найди встреч", "найди событ", "найди созвон", "найди звонок",
     "найди запись", "найти встреч", "найти событ", "покажи когда", "покажи где",
     "найди мне встреч", "найди мне событ", "найди мне созвон", "найди мне звонок",
 )
@@ -124,6 +124,7 @@ TIME_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 QUESTION_PREFIX_RE = re.compile(r"^\s*(?:когда|что|где|почему|зачем|как|сколько|есть ли|можно ли)\b", re.IGNORECASE)
+WHEN_MY_SEARCH_RE = re.compile(r"^\s*когда\s+у\s+меня\b", re.IGNORECASE)
 WHEN_SEARCH_RE = re.compile(r"^\s*когда\s+(?!свобод\w*\b|я\s+свобод\w*\b|у\s+меня\b)(.+)", re.IGNORECASE)
 TIME_SEARCH_RE = re.compile(r"^\s*во\s+сколько\b", re.IGNORECASE)
 SHORT_VIEW_PREFIX_RE = re.compile(
@@ -210,6 +211,14 @@ def _contains_event_marker(text: str) -> bool:
     return any(word in text for word in EVENT_WORDS)
 
 
+def _looks_like_calendar_search(text: str) -> bool:
+    return bool(
+        DATE_HINT_RE.search(text)
+        or _contains_event_marker(text)
+        or re.search(r"\b(?:календар|расписан)\w*\b", text, re.IGNORECASE)
+    )
+
+
 def _looks_like_bare_event(text: str) -> bool:
     normal = _normalise(text)
     if BARE_EVENT_STATEMENT_RE.search(normal):
@@ -279,7 +288,11 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
         return IntentResult(INTENT_SEARCH, 0.97)
-    if WHEN_SEARCH_RE.search(lower) or TIME_SEARCH_RE.search(lower):
+    if (
+        WHEN_MY_SEARCH_RE.search(lower)
+        or WHEN_SEARCH_RE.search(lower)
+        or TIME_SEARCH_RE.search(lower)
+    ) and _looks_like_calendar_search(lower):
         return IntentResult(INTENT_SEARCH, 0.93)
 
     has_action = any(word in lower for word in ACTION_WORDS)
