@@ -12,6 +12,7 @@ from core.attention_store import (
     list_attention_items,
     upsert_attention_item,
 )
+from core.email_auto_store import recent_auto_plans
 from core.navigation_store import (
     list_pending_navigation_optimizations,
     list_pending_navigation_origins,
@@ -237,6 +238,8 @@ def sync_navigation_attention(user_id: int) -> int:
 
 
 def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None:
+    for plan in recent_auto_plans(user_id, hours=72, limit=12):
+        capture_email_plan_attention(user_id, plan)
     sync_overdue_task_attention(user_id, now=now)
     sync_navigation_attention(user_id)
 
