@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, session
+from pathlib import Path
+
+from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.db import get_user_timezone
 from core.library_store import get_saved_reminder, list_saved_reminders
@@ -10,6 +12,7 @@ from core.reminder_detail_store import edit_saved_reminder, get_reminder_categor
 from modules.reminder_categories import REMINDER_CATEGORY_LABELS, reminder_category
 
 reminder_detail_api = Blueprint("reminder_details", __name__)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 def _user() -> int:
@@ -30,6 +33,11 @@ def _payload(reminder: dict) -> dict:
         "category_source": "manual" if manual else "auto",
         "category_label": REMINDER_CATEGORY_LABELS.get(category, REMINDER_CATEGORY_LABELS["other"]),
     }
+
+
+@reminder_detail_api.get("/reminder-editor.js")
+def reminder_editor_js():
+    return send_from_directory(WEB_DIR, "reminder-editor.js", mimetype="application/javascript")
 
 
 @reminder_detail_api.get("/api/mobile/reminders/details")
