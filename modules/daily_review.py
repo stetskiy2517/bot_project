@@ -1,4 +1,4 @@
-"""Deterministic day reviews with tasks, travel and efficient email planning signals."""
+"""Deterministic day reviews with tasks, travel and cached email planning signals."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from core.library_store import list_saved_reminders
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_availability import find_free_slots, _parse_hhmm
 from modules.calendar_user import _list_events, _event_start
-from modules.email_actions import build_email_plan
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,7 @@ def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *,
             if kind == "morning" and task.get("priority") == "high":
                 relevant.append((datetime.max.replace(tzinfo=zone), task))
             continue
-        if due < end or (kind == "evening" and due < start + timedelta(days=1)):
+        if due < end:
             relevant.append((due, task))
     relevant.sort(key=lambda item: (0 if item[1].get("priority") == "high" else 1, item[0]))
     lines = [
@@ -61,29 +60,10 @@ def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *,
     return lines
 
 
-def _live_email_lines(user_id: int) -> list[str]:
-    """Legacy opt-in review behavior for users who did not enable background email analysis."""
-    try:
-        plan = build_email_plan(user_id, "Что из последних писем влияет на мои ближайшие планы и требует действия?")
-    except Exception:
-        logger.exception("Review email planning unavailable for user %s", user_id)
-        return ["Почта: временно не удалось проверить планировочные сигналы."]
-    summary = " ".join(str(plan.get("summary") or "").split()).strip()
-    actions = plan.get("actions") or []
-    if not plan.get("ai_used") and not actions:
-        return []
-    lines = [f"Почта: {summary[:350]}" if summary else "Почта: есть сигналы для планирования."]
-    for action in actions[:2]:
-        lines.append(f"• Предложение: {action['title']}")
-    if actions:
-        lines.append("Открой почту в приложении, чтобы подтвердить действие. Ничего из писем автоматически не создано.")
-    return lines
-
-
 def _email_lines(user_id: int) -> list[str]:
-    """Use cached background findings when enabled, avoiding a second AI call in Daily Review."""
+    """Read only cached background findings; a review must never trigger an AI request."""
     if not email_auto_enabled(user_id):
-        return _live_email_lines(user_id)
+        return []
     try:
         plans = recent_auto_plans(user_id, hours=48, limit=8)
     except Exception:
@@ -113,6 +93,24 @@ def _email_lines(user_id: int) -> list[str]:
             lines.append(f"• Предложение: {title}")
     if any(not item.get("auto_created") and not item.get("already_in_calendar") for item in actions):
         lines.append("Открой почту в приложении, чтобы подтвердить остальные предложения.")
+    return lines
+
+
+def _tomorrow_lines(user_id: int, zone_name: str, start: datetime) -> list[str]:
+    tomorrow = start + timedelta(days=1)
+    try:
+        events = _list_events(user_id, tomorrow, tomorrow + timedelta(days=1))
+    except Exception as exc:
+        logger.warning("Tomorrow preview unavailable for user %s (%s)", user_id, type(exc).__name__)
+        return ["Завтра: календарь временно не удалось проверить."]
+    regular = [event for event in events if not _is_travel_event(event)]
+    if not regular:
+        return ["Завтра: встреч в календаре пока нет."]
+    lines = [f"Завтра: {len(regular)} событий."]
+    for event in regular[:3]:
+        when, all_day = _event_start(event, zone_name)
+        label = "весь день" if all_day else (when.strftime("%H:%M") if when else "время не указано")
+        lines.append(f"• {label} · {str(event.get('summary') or 'Событие')[:100]}")
     return lines
 
 
@@ -146,7 +144,7 @@ def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | Non
         item for item in saved_reminders
         if item["status"] != "completed" and datetime.fromisoformat(item["remind_at"]) < end
     ]
-    lines = [("Обзор дня" if kind == "morning" else "Вечерний обзор") + f" · {local:%d.%m}"]
+    lines = [("Утренняя сводка" if kind == "morning" else "Вечерний разбор") + f" · {local:%d.%m}"]
     if not calendar_ok:
         lines.append("Календарь временно недоступен. Занятость не проверена.")
     elif not regular_events:
@@ -177,9 +175,11 @@ def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | Non
     lines.append(f"Незавершённых напоминаний до конца дня: {len(reminders)}" + (" (первые 500 записей)." if len(saved_reminders) >= 500 else "."))
     for reminder in reminders[:3]:
         lines.append("• " + reminder["text"][:100])
-    if kind == "evening" and reminders:
-        lines.append("Отметь выполненное, перенеси или оставь как есть.")
-    if kind == "morning":
+    if kind == "evening":
+        if reminders:
+            lines.append("Отметь выполненное, перенеси или оставь как есть.")
+        lines.extend(_tomorrow_lines(user_id, zone_name, start))
+    else:
         lines.extend(_email_lines(user_id))
     return {
         "kind": kind,
