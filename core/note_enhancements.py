@@ -124,7 +124,6 @@ def list_enhanced_notes(user_id: int, *, limit: int = 100) -> list[dict]:
         {**note, **metadata.get(int(note["note_id"]), fallback)}
         for note in notes
     ]
-    # Python's sort is stable, so notes inside each group preserve list_notes recency order.
     enriched.sort(key=lambda item: 0 if item.get("pinned") else 1)
     return enriched
 
@@ -174,8 +173,6 @@ def update_note_content(user_id: int, note_id: int, *, title: object, text: obje
 
 
 def _clean_tags(values: object) -> list[str]:
-    if values is None:
-        return []
     if not isinstance(values, list):
         raise ValueError("Теги должны быть списком")
     result = []
@@ -192,8 +189,6 @@ def _clean_tags(values: object) -> list[str]:
 
 
 def _clean_checklist(values: object) -> list[dict]:
-    if values is None:
-        return []
     if not isinstance(values, list):
         raise ValueError("Чек-лист должен быть списком")
     result = []
@@ -218,7 +213,7 @@ def update_note_metadata(
     user_id: int,
     note_id: int,
     *,
-    pinned: object = False,
+    pinned: object = None,
     tags: object = None,
     checklist: object = None,
     category: object = None,
@@ -226,18 +221,32 @@ def update_note_metadata(
     current = get_note(user_id, note_id)
     if not current:
         raise ValueError("Заметка не найдена")
-    if not isinstance(pinned, bool):
-        raise ValueError("Закрепление должно быть true или false")
-    clean_tags = _clean_tags(tags)
-    clean_checklist = _clean_checklist(checklist)
     current_metadata = _metadata_row(user_id, note_id)
+
+    if pinned is None:
+        clean_pinned = bool(current_metadata.get("pinned"))
+    elif isinstance(pinned, bool):
+        clean_pinned = pinned
+    else:
+        raise ValueError("Закрепление должно быть true или false")
+
+    clean_tags = (
+        list(current_metadata.get("tags") or [])
+        if tags is None
+        else _clean_tags(tags)
+    )
+    clean_checklist = (
+        list(current_metadata.get("checklist") or [])
+        if checklist is None
+        else _clean_checklist(checklist)
+    )
     clean_category = _clean_category(
         current_metadata.get("category") if category is None else category
     )
     now = datetime.now(timezone.utc).isoformat()
     snapshot = {
         **current,
-        "pinned": pinned,
+        "pinned": clean_pinned,
         "tags": clean_tags,
         "checklist": clean_checklist,
         "category": clean_category,
@@ -252,7 +261,7 @@ def update_note_metadata(
                 (
                     int(user_id),
                     int(note_id),
-                    1 if pinned else 0,
+                    1 if clean_pinned else 0,
                     json.dumps(clean_tags, ensure_ascii=False),
                     json.dumps(clean_checklist, ensure_ascii=False),
                     clean_category,
