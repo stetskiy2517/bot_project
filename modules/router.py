@@ -65,6 +65,10 @@ FREE_WORDS = (
     "когда свобод", "когда я свобод", "свободное окно", "свободные окна", "найди время",
     "найди окно", "куда поставить", "есть ли окно", "есть окно",
 )
+FREE_QUERY_RE = re.compile(
+    r"^\s*(?:когда\b[^.!?]{0,80}\bсвобод\w*\b|есть\s+ли\s+свободн\w*\s+окн\w*)",
+    re.IGNORECASE,
+)
 EVENT_WORDS = (
     "встреч", "созвон", "звонок", "врач", "невролог", "стоматолог", "мрт", "узи",
     "трениров", "зал", "кино", "ресторан", "рейс", "полет", "полёт", "поезд", "такси", "совещ",
@@ -285,7 +289,11 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_DELETE, 0.98)
     if any(word in lower for word in UPDATE_WORDS):
         return IntentResult(INTENT_UPDATE, 0.98)
-    if any(word in lower for word in FREE_WORDS) or re.search(r"\bкогда\b.*\bесть\s+\d+\s*(?:минут|час)", lower):
+    if (
+        any(word in lower for word in FREE_WORDS)
+        or FREE_QUERY_RE.search(lower)
+        or re.search(r"\bкогда\b.*\bесть\s+\d+\s*(?:минут|час)", lower)
+    ):
         return IntentResult(INTENT_FREE, 0.96)
     if any(word in lower for word in SEARCH_WORDS):
         return IntentResult(INTENT_SEARCH, 0.97)
