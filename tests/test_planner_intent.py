@@ -38,10 +38,22 @@ class RouterIntentTests(unittest.TestCase):
             "покажи когда у меня стоматолог",
             "когда полет в Саратов?",
             "когда поезд 18 сентября в 18:00?",
+            "во сколько у меня встреча с Ивановым?",
+            "во сколько завтра врач?",
         )
         for text in cases:
             with self.subTest(text=text):
                 self.assertEqual(detect_intent(text).name, INTENT_SEARCH)
+
+    def test_personal_time_questions_are_not_stolen_by_calendar_search(self):
+        cases = (
+            "Во сколько я принимаю таблетки?",
+            "Когда я принимаю таблетки?",
+            "Когда у меня болит голова?",
+        )
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(detect_intent(text).name, INTENT_UNKNOWN)
 
     def test_view(self):
         self.assertEqual(detect_intent("что у меня завтра?").name, INTENT_VIEW)
