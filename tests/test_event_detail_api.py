@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from modules.event_detail_api import (
     _description_with_category,
     _desired_interval,
+    _filtered_conflicts,
     _recurrence_key,
     _series_interval_patch,
 )
@@ -53,6 +55,31 @@ class EventDetailApiTests(unittest.TestCase):
         )
         self.assertEqual(start_part["dateTime"], "2026-09-02T12:00:00+03:00")
         self.assertEqual(end_part["dateTime"], "2026-09-02T13:30:00+03:00")
+
+    def test_linked_managed_travel_is_not_reported_as_own_conflict(self):
+        source = {"id": "meeting-1"}
+        linked_travel = {
+            "id": "travel-1",
+            "extendedProperties": {
+                "private": {
+                    "smartPlannerType": "travel",
+                    "smartPlannerManaged": "1",
+                    "smartPlannerSourceEventId": "meeting-1",
+                }
+            },
+        }
+        real_conflict = {"id": "meeting-2"}
+        with patch(
+            "modules.event_detail_api._find_conflicts",
+            return_value=[linked_travel, real_conflict],
+        ):
+            result = _filtered_conflicts(
+                1,
+                datetime.fromisoformat("2026-09-16T12:00:00+03:00"),
+                datetime.fromisoformat("2026-09-16T13:00:00+03:00"),
+                source,
+            )
+        self.assertEqual(result, [real_conflict])
 
 
 if __name__ == "__main__":
