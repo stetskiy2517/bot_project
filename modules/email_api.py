@@ -15,6 +15,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 from config import BASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from core.chat_context import append_chat_exchange
 from core.email_auto_store import email_auto_enabled, email_auto_status, set_email_auto_enabled
 from core.email_store import (
     PROVIDERS,
@@ -247,15 +248,17 @@ def email_response_hooks(response):
         else:
             text = payload.get("transcript")
         if isinstance(text, str) and detect_email_intent(text):
+            user_id = _user()
             try:
-                answer, plan = answer_email_chat_request_details(_user(), text)
+                answer, plan = answer_email_chat_request_details(user_id, text)
                 payload["handled"] = True
                 payload["replies"] = [answer]
                 if plan is not None:
                     payload["email_plan"] = plan
+                append_chat_exchange(user_id, text, answer)
                 response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
             except Exception:
-                logger.exception("Email query failed for user %s", _user())
+                logger.exception("Email query failed for user %s", user_id)
                 payload["handled"] = True
                 payload["replies"] = ["Не удалось прочитать почту. Проверь подключение ящика в настройках."]
                 response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
