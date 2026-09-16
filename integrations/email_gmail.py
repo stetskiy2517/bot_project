@@ -13,6 +13,21 @@ MAX_PREVIEW = 700
 MAX_BODY = 6000
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
+DOCUMENT_MIME_SUFFIXES = {
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/epub": ".epub",
+    "application/epub+zip": ".epub",
+    "application/ppt": ".ppt",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/pptx": ".pptx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.ms-excel": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+}
+
 
 def _service(token: dict):
     credentials = Credentials.from_authorized_user_info(token, scopes=[GMAIL_SCOPE])
@@ -95,18 +110,26 @@ def _attachment_metadata(payload: dict) -> list[dict]:
         if not isinstance(part, dict):
             return
         filename = str(part.get("filename") or "").strip()
+        mime = str(part.get("mimeType") or "application/octet-stream").split(";", 1)[0].strip().lower()
+        headers = _headers(part)
+        disposition = headers.get("content-disposition", "").lower()
         body = part.get("body") if isinstance(part.get("body"), dict) else {}
-        if filename:
+        attachment_id = str(body.get("attachmentId") or "").strip()
+        document_without_name = bool(attachment_id and mime in DOCUMENT_MIME_SUFFIXES)
+        is_attachment = bool(filename or "attachment" in disposition or document_without_name)
+        if is_attachment:
             try:
                 size = max(0, int(body.get("size") or 0))
             except (TypeError, ValueError):
                 size = 0
+            if not filename:
+                filename = f"attachment{DOCUMENT_MIME_SUFFIXES.get(mime, '')}" or "attachment"
             attachments.append(
                 {
                     "filename": filename[:255],
-                    "mime_type": str(part.get("mimeType") or "application/octet-stream").lower()[:200],
+                    "mime_type": mime[:200],
                     "size": size,
-                    "attachment_id": str(body.get("attachmentId") or "")[:500] or None,
+                    "attachment_id": attachment_id[:500] or None,
                     "part_id": str(part.get("partId") or "")[:100] or None,
                 }
             )

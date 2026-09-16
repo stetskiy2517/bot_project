@@ -17,6 +17,25 @@ MAX_PREVIEW = 700
 MAX_BODY = 6000
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
+MIME_SUFFIXES = {
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/epub": ".epub",
+    "application/epub+zip": ".epub",
+    "application/ppt": ".ppt",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/pptx": ".pptx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.ms-excel": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/tiff": ".tiff",
+    "image/bmp": ".bmp",
+}
+
 
 class EmailAuthenticationError(RuntimeError):
     pass
@@ -83,15 +102,19 @@ def _attachment_metadata(message: Message) -> list[dict]:
     for index, part in enumerate(parts):
         if part.get_content_maintype() == "multipart":
             continue
+        content_type = str(part.get_content_type() or "application/octet-stream").lower()
         filename = _decode(part.get_filename())
-        if not filename:
+        disposition = str(part.get_content_disposition() or "").lower()
+        if not filename and disposition != "attachment":
             continue
+        if not filename:
+            filename = f"attachment{MIME_SUFFIXES.get(content_type, '')}"
         payload = part.get_payload(decode=True)
         size = len(payload) if isinstance(payload, (bytes, bytearray)) else 0
         attachments.append(
             {
                 "filename": filename[:255],
-                "mime_type": str(part.get_content_type() or "application/octet-stream").lower()[:200],
+                "mime_type": content_type[:200],
                 "size": size,
                 "part_index": index,
             }
@@ -145,8 +168,6 @@ def _message_payload(raw: bytes) -> dict:
         "preview": body[:MAX_PREVIEW],
         "body": body,
         "attachments": attachments,
-        # RFC822 bytes stay in memory only so attachment analysis does not need a
-        # second IMAP fetch. This private field is never returned by public APIs.
         "_raw_message": raw if attachments else None,
     }
 

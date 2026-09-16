@@ -58,6 +58,17 @@
     target.append(box);
   }
 
+  function renderAttachmentStatus(target, info) {
+    if (!info || info.enabled !== true) return;
+    const status = document.createElement("div");
+    status.className = "email-plan-attachment-status settings-help";
+    const detected = Number(info.detected || 0);
+    const supported = Number(info.supported_found || 0);
+    const analyzed = Number(info.analyzed || 0);
+    status.textContent = `Вложения: найдено ${detected} · поддерживается ${supported} · разобрано ${analyzed}`;
+    target.append(status);
+  }
+
   function renderPlan(plan) {
     const target = document.getElementById("emailPlanResults");
     target.replaceChildren();
@@ -67,6 +78,7 @@
     target.append(summary);
 
     const attachmentInfo = plan.attachment_analysis || {};
+    renderAttachmentStatus(target, attachmentInfo);
     renderWarnings(target, attachmentInfo.warnings);
 
     for (const action of plan.actions || []) {
@@ -177,6 +189,7 @@
       .email-plan-divider{border:0;border-top:1px solid #e5e5e2;margin:16px 0}
       .email-plan-card,.email-plan-draft{padding:12px;margin:9px 0;border:1px solid #e4e4e1;border-radius:14px;background:#fff;display:grid;gap:7px}
       .email-plan-attachment-card{border-style:solid}
+      .email-plan-attachment-status{padding:8px 10px;border-radius:10px;background:#f5f5f2;margin:6px 0}
       .email-plan-event-details{white-space:pre-line;font-weight:600}
       .email-plan-warnings{display:grid;gap:4px;font-size:12px;line-height:1.35;color:#6b5b28}
       .email-plan-draft textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ddd;border-radius:10px;font:inherit;resize:vertical}

@@ -22,7 +22,7 @@ MAX_ATTACHMENT_ACTIONS = 8
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
-# GigaChat provider MIME values mirror the already deployed manual file-ingest API.
+# Values sent to GigaChat mirror the already deployed manual file-ingest API.
 SUPPORTED_TYPES = {
     ".pdf": ("application/pdf", MAX_DOCUMENT_BYTES),
     ".txt": ("text/plain", MAX_DOCUMENT_BYTES),
@@ -40,15 +40,55 @@ SUPPORTED_TYPES = {
     ".bmp": ("image/bmp", MAX_IMAGE_BYTES),
 }
 
+# Mail providers do not always preserve a useful filename. Detect those files by
+# MIME type and synthesize only the provider-facing extension when necessary.
+SUPPORTED_MIME_TYPES = {
+    "application/pdf": (".pdf", "application/pdf", MAX_DOCUMENT_BYTES),
+    "text/plain": (".txt", "text/plain", MAX_DOCUMENT_BYTES),
+    "application/msword": (".doc", "application/msword", MAX_DOCUMENT_BYTES),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+        ".docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        MAX_DOCUMENT_BYTES,
+    ),
+    "application/epub": (".epub", "application/epub", MAX_DOCUMENT_BYTES),
+    "application/epub+zip": (".epub", "application/epub", MAX_DOCUMENT_BYTES),
+    "application/ppt": (".ppt", "application/ppt", MAX_DOCUMENT_BYTES),
+    "application/vnd.ms-powerpoint": (".ppt", "application/ppt", MAX_DOCUMENT_BYTES),
+    "application/pptx": (".pptx", "application/pptx", MAX_DOCUMENT_BYTES),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": (
+        ".pptx",
+        "application/pptx",
+        MAX_DOCUMENT_BYTES,
+    ),
+    "application/vnd.ms-excel": (".xlsx", "application/vnd.ms-excel", MAX_DOCUMENT_BYTES),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (
+        ".xlsx",
+        "application/vnd.ms-excel",
+        MAX_DOCUMENT_BYTES,
+    ),
+    "image/jpeg": (".jpg", "image/jpeg", MAX_IMAGE_BYTES),
+    "image/png": (".png", "image/png", MAX_IMAGE_BYTES),
+    "image/tiff": (".tiff", "image/tiff", MAX_IMAGE_BYTES),
+    "image/bmp": (".bmp", "image/bmp", MAX_IMAGE_BYTES),
+}
 
-def _attachment_type(filename: object) -> tuple[str, str, int] | None:
-    name = Path(str(filename or "")).name[:255]
-    suffix = Path(name).suffix.lower()
+
+def _attachment_type(filename: object, mime_type: object = None) -> tuple[str, str, int, str] | None:
+    raw_name = Path(str(filename or "")).name[:255]
+    suffix = Path(raw_name).suffix.lower()
     config = SUPPORTED_TYPES.get(suffix)
-    if not name or config is None:
+    if config is not None:
+        mimetype, limit = config
+        return raw_name, mimetype, limit, suffix
+
+    mime = str(mime_type or "").split(";", 1)[0].strip().lower()
+    mime_config = SUPPORTED_MIME_TYPES.get(mime)
+    if mime_config is None:
         return None
-    mimetype, limit = config
-    return name, mimetype, limit
+    fallback_suffix, mimetype, limit = mime_config
+    display_name = raw_name or f"attachment{fallback_suffix}"
+    return display_name, mimetype, limit, fallback_suffix
 
 
 def _duration_minutes(event: dict) -> int | None:
@@ -136,15 +176,19 @@ def analyze_email_attachments(
     actions: list[dict] = []
     warnings: list[str] = []
     analyzed = 0
+    detected = 0
     supported_found = 0
 
     for source_index, (account, message) in enumerate(messages, 1):
         for attachment in message.get("attachments") or []:
-            typed = _attachment_type(attachment.get("filename"))
+            if not isinstance(attachment, dict):
+                continue
+            detected += 1
+            typed = _attachment_type(attachment.get("filename"), attachment.get("mime_type"))
             if typed is None:
                 continue
             supported_found += 1
-            filename, mimetype, limit = typed
+            filename, mimetype, limit, provider_suffix = typed
             try:
                 declared_size = int(attachment.get("size") or 0)
             except (TypeError, ValueError):
@@ -159,16 +203,17 @@ def analyze_email_attachments(
                 content = _fetch_bytes(user_id, account, message, attachment, limit=limit)
                 result = analyze_file_bytes(
                     content,
-                    filename=f"document{Path(filename).suffix.lower()}",
+                    filename=f"document{provider_suffix}",
                     mimetype=mimetype,
                     user_timezone=user_timezone,
                 )
             except Exception as exc:
                 logger.warning(
-                    "Email attachment analysis failed user=%s account=%s file=%s (%s)",
+                    "Email attachment analysis failed user=%s account=%s file=%s mime=%s (%s)",
                     user_id,
                     account.get("account_id"),
                     filename,
+                    attachment.get("mime_type"),
                     type(exc).__name__,
                 )
                 warnings.append(f"Не удалось надёжно разобрать вложение «{filename}».")
@@ -195,6 +240,8 @@ def analyze_email_attachments(
         if len(actions) >= MAX_ATTACHMENT_ACTIONS:
             break
 
+    if detected and not supported_found:
+        warnings.append("Вложения в письмах найдены, но их формат пока не поддерживается для ИИ-разбора.")
     if supported_found > analyzed:
         warnings.append(
             f"Поддерживаемых вложений найдено {supported_found}; за один раз анализируются максимум {MAX_ATTACHMENTS_ANALYZED}."
@@ -203,5 +250,6 @@ def analyze_email_attachments(
         "actions": actions,
         "warnings": warnings[:10],
         "analyzed": analyzed,
+        "detected": detected,
         "supported_found": supported_found,
     }
