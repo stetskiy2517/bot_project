@@ -17,8 +17,11 @@ from modules.file_ingest import analyze_file_bytes
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTACHMENTS_ANALYZED = 4
-MAX_ATTACHMENT_ACTIONS = 8
+# Attachment analysis is only invoked for an explicit interactive mail review.
+# Keep a safety bound, but make it high enough to process normal multi-attachment
+# messages completely instead of silently stopping after the first few files.
+MAX_ATTACHMENTS_ANALYZED = 12
+MAX_ATTACHMENT_ACTIONS = 12
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
