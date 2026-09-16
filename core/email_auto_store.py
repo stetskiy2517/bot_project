@@ -86,6 +86,14 @@ def set_email_auto_enabled(user_id: int, enabled: bool) -> bool:
     return enabled
 
 
+def reset_email_auto_baseline(user_id: int) -> None:
+    """Forget scan cursors/fingerprints so the next enabled cycle creates a fresh no-AI baseline."""
+    with db_lock:
+        conn.execute("DELETE FROM email_auto_accounts WHERE user_id=?", (int(user_id),))
+        conn.execute("DELETE FROM email_auto_messages WHERE user_id=?", (int(user_id),))
+        conn.commit()
+
+
 def message_fingerprint(account: dict, message: dict) -> str:
     provider = str(account.get("provider") or "").strip().lower()
     provider_id = str(message.get("provider_message_id") or "").strip() if provider == "gmail" else ""
