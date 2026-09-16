@@ -119,7 +119,7 @@
     return lines.join("\n");
   }
 
-  function makeActionButton(action, *, chat = false) {
+  function makeActionButton(action, {chat = false} = {}) {
     const button = document.createElement("button");
     button.className = "action primary";
     button.type = "button";
