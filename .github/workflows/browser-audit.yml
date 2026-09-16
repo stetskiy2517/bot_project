@@ -34,6 +34,7 @@ jobs:
         run: python tests/browser_reminder_editor.py
       - name: Upload browser evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: browser-features
@@ -79,6 +80,7 @@ jobs:
           PY
       - name: Upload WebKit evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: browser-webkit-ios
