@@ -205,8 +205,12 @@
           chip.className = "reminder-category-chip";
           meta.appendChild(chip);
         }
-        chip.textContent = item.category_label || labels[item.category] || labels.other;
-        chip.title = item.category_source === "manual" ? "Категория выбрана вручную" : "Категория определена автоматически";
+        const text = item.category_label || labels[item.category] || labels.other;
+        const title = item.category_source === "manual"
+          ? "Категория выбрана вручную"
+          : "Категория определена автоматически";
+        if (chip.textContent !== text) chip.textContent = text;
+        if (chip.title !== title) chip.title = title;
       }
     }
   }
@@ -230,7 +234,17 @@
     refreshTimer = setTimeout(refreshDetails, 50);
   }
 
-  const observer = new MutationObserver(() => {
+  function mutationAddsReminderRow(mutation) {
+    return Array.from(mutation.addedNodes || []).some(node =>
+      node.nodeType === 1 && (
+        node.matches?.(".reminder-swipe-row") ||
+        node.querySelector?.(".reminder-swipe-row")
+      )
+    );
+  }
+
+  const observer = new MutationObserver(mutations => {
+    if (!mutations.some(mutationAddsReminderRow)) return;
     decorateRows();
     scheduleRefresh();
   });
