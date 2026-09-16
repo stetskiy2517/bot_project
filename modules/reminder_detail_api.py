@@ -9,7 +9,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.db import get_user_timezone
 from core.library_store import get_saved_reminder, list_saved_reminders
 from core.reminder_detail_store import edit_saved_reminder, get_reminder_category_override
-from modules.reminder_categories import REMINDER_CATEGORY_LABELS, reminder_category
+from modules.reminder_categories import REMINDER_CATEGORY_LABELS, detect_reminder_category
 
 reminder_detail_api = Blueprint("reminder_details", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -20,8 +20,8 @@ def _user() -> int:
 
 
 def _payload(reminder: dict) -> dict:
-    category = reminder_category(reminder)
     manual = get_reminder_category_override(int(reminder["user_id"]), int(reminder["reminder_id"]))
+    category = manual or detect_reminder_category(str(reminder.get("text") or ""))
     return {
         "id": int(reminder["reminder_id"]),
         "text": str(reminder.get("text") or ""),
