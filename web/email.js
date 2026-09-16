@@ -8,6 +8,53 @@
     status.dataset.state = state;
   }
 
+  function formatAutoStatus(data) {
+    if (!data?.enabled) return "Выключено. Письма в фоне не отправляются в ИИ.";
+    const last = data.last_run || {};
+    const scan = data.last_scan_at ? new Date(data.last_scan_at).toLocaleString("ru-RU") : "ещё не выполнялась";
+    const pieces = [`Последняя проверка: ${scan}`];
+    if (data.messages_24h) pieces.push(`новых за 24 ч: ${data.messages_24h}`);
+    if (data.analyzed_24h) pieces.push(`ИИ-разборов: ${data.analyzed_24h}`);
+    if (data.ignored_24h) pieces.push(`отсеяно без ИИ: ${data.ignored_24h}`);
+    if (last.auto_created) pieces.push(`автодобавлено: ${last.auto_created}`);
+    if (data.failed_24h) pieces.push(`ошибок: ${data.failed_24h}`);
+    return pieces.join(" · ");
+  }
+
+  async function loadAutoStatus() {
+    const toggle = document.getElementById("emailAutoAnalysis");
+    const status = document.getElementById("emailAutoStatus");
+    if (!toggle || !status || typeof window.api !== "function") return;
+    try {
+      const data = await window.api("/api/email/auto");
+      toggle.checked = Boolean(data.enabled);
+      status.textContent = formatAutoStatus(data);
+    } catch (error) {
+      status.textContent = "Не удалось получить статус авторазбора.";
+    }
+  }
+
+  async function saveAutoStatus() {
+    const toggle = document.getElementById("emailAutoAnalysis");
+    const status = document.getElementById("emailAutoStatus");
+    if (!toggle || !status) return;
+    toggle.disabled = true;
+    status.textContent = toggle.checked ? "Включаю авторазбор…" : "Выключаю авторазбор…";
+    try {
+      const data = await window.api("/api/email/auto", {
+        method: "POST",
+        body: JSON.stringify({enabled: toggle.checked}),
+      });
+      toggle.checked = Boolean(data.enabled);
+      status.textContent = `${data.note || ""} ${formatAutoStatus(data)}`.trim();
+    } catch (error) {
+      toggle.checked = !toggle.checked;
+      status.textContent = error.message;
+    } finally {
+      toggle.disabled = false;
+    }
+  }
+
   async function loadAccounts() {
     const target = document.getElementById("emailAccounts");
     const meta = document.getElementById("emailMeta");
@@ -29,6 +76,7 @@
           await window.api(`/api/email/accounts/${button.dataset.emailRemove}`, {method: "DELETE"});
           setConnectionStatus("Почтовый ящик отключён.", "success");
           await loadAccounts();
+          await loadAutoStatus();
         };
       });
     } catch (error) {
@@ -69,6 +117,7 @@
       document.getElementById("emailAppPassword").value = "";
       setConnectionStatus(`Подключено: ${email}. Почту уже можно проверять через чат или голосом.`, "success");
       await loadAccounts();
+      await loadAutoStatus();
     } catch (error) {
       setConnectionStatus("Не удалось подключить почту: " + error.message, "error");
     } finally {
@@ -95,6 +144,7 @@
   function install() {
     if (document.getElementById("emailGroup")) {
       loadAccounts();
+      loadAutoStatus();
       return;
     }
     const anchor = document.getElementById("categoryColorsGroup");
@@ -124,6 +174,11 @@
         <div class="field"><button id="connectEmailImap" class="action" type="submit">Подключить ящик</button></div>
         <p id="emailConnectionStatus" class="settings-help" role="status" aria-live="polite"></p>
       </form>
+      <div class="field" style="margin-top:12px">
+        <label><input id="emailAutoAnalysis" type="checkbox" /> Автоматически разбирать новые письма</label>
+        <span class="settings-help">Проверка примерно раз в 15 минут. Без ИИ отсекаются уже обработанные и явно нерелевантные письма. ИИ вызывается только для новых писем с поддерживаемыми вложениями или признаками действия/срока. Первый проход создаёт baseline и старую почту не анализирует.</span>
+        <span id="emailAutoStatus" class="settings-help" role="status" aria-live="polite"></span>
+      </div>
       <p class="settings-help">Пароль приложения шифруется на сервере. Отправка писем в этой версии отключена.</p>`;
     anchor.parentNode.insertBefore(group, anchor);
     document.getElementById("connectGmail").onclick = connectGmail;
@@ -131,8 +186,10 @@
       event.preventDefault();
       connectImap();
     };
+    document.getElementById("emailAutoAnalysis").onchange = saveAutoStatus;
     applyOAuthResult();
     loadAccounts();
+    loadAutoStatus();
   }
 
   document.addEventListener("planner-ready", install);
