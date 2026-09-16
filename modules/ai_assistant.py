@@ -14,7 +14,7 @@ from core.feature_access import has_ai_access
 from core.memory_store import memory_prompt_context
 from core.reminder_recurrence import repeat_label
 from core.reminder_store import list_active_reminders
-from integrations.ai import AIError, complete, get_ai_status, is_ai_available
+from integrations.ai import AIRateLimitError, AIError, complete, get_ai_status, is_ai_available
 from integrations.navigation_ors import configured as navigation_configured
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,19 @@ def _history_messages(history: list[dict] | None) -> list[dict]:
     return result
 
 
+def _rate_limit_reply(error: AIRateLimitError) -> str:
+    wait = error.retry_after
+    if wait is None:
+        wait_text = "через несколько секунд"
+    else:
+        seconds = max(1, int(round(wait)))
+        wait_text = f"примерно через {seconds} сек."
+    return (
+        f"ИИ сейчас временно занят. Попробуй ещё раз {wait_text} "
+        "Календарь, напоминания, заметки и другие обычные функции продолжают работать."
+    )
+
+
 def answer_unhandled(
     text: str,
     *,
@@ -140,6 +153,9 @@ def answer_unhandled(
         messages.extend(_history_messages(history))
         messages.append({"role": "user", "content": candidate[:10000]})
         return complete(messages, temperature=0.2)
+    except AIRateLimitError as exc:
+        logger.warning("AI fallback rate-limited: %s", exc)
+        return _rate_limit_reply(exc)
     except AIError as exc:
         logger.warning("AI fallback failed: %s", exc)
         return None
