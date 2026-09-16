@@ -243,7 +243,7 @@ def _ensure_attachment_calendar_event(
     existing = None
     if event_key:
         existing = _existing_attachment_calendar_event(user_id, event_key)
-    if existing is None:
+    if existing is None and isinstance(source, dict):
         existing = _existing_semantic_attachment_calendar_event(user_id, proposal)
     if existing is not None:
         return existing, False
