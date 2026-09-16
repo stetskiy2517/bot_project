@@ -44,6 +44,26 @@ class AIWebFallbackTests(unittest.TestCase):
             user_id=self.user_id,
         )
 
+    def test_personal_time_question_reaches_ai_without_calendar_search(self):
+        with patch("modules.calendar_user._list_events") as calendar_search, patch(
+            "modules.assistant_api.answer_unhandled",
+            return_value="Ты принимаешь таблетки в 23:00.",
+        ) as answer:
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Во сколько я принимаю таблетки?"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(payload["replies"], ["Ты принимаешь таблетки в 23:00."])
+        calendar_search.assert_not_called()
+        answer.assert_called_once_with(
+            "Во сколько я принимаю таблетки?",
+            user_id=self.user_id,
+        )
+
     def test_unavailable_ai_keeps_safe_router_fallback(self):
         async def unhandled_route(update, context, text=None):
             return False
