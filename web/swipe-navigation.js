@@ -107,6 +107,15 @@
     return true;
   }
 
+  function openEventDetails(row) {
+    const eventId = row?.dataset?.eventId;
+    if (eventId && window.PlannerEventEditor?.open) {
+      window.PlannerEventEditor.open(eventId);
+      return true;
+    }
+    return openEventSheet(row);
+  }
+
   function suppressNextClick() {
     suppressClickUntil = performance.now() + 400;
   }
@@ -148,7 +157,7 @@
       !app.classList.contains("library-active") &&
       !modalOpen() &&
       !topSheetOpen() &&
-      openEventSheet(eventRow)
+      openEventDetails(eventRow)
     ) {
       event.preventDefault();
       event.stopPropagation();
@@ -177,11 +186,8 @@
 
     if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) < Math.abs(dy) * DIRECTION_RATIO) return;
 
-    // Existing library navigation owns note/reminder document back gestures.
     if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
 
-    // Any nested mobile sheet behaves as a screen: swipe right goes one level back.
-    // A left swipe is intentionally ignored so the bottom navigation cannot move behind the sheet.
     if (topSheetOpen()) {
       if (dx > 0 && closeTopSheet()) {
         suppressNextClick();
@@ -191,10 +197,8 @@
       return;
     }
 
-    // The library itself still owns its card-level gestures and its own back stack.
     if (app.classList.contains("library-active")) return;
 
-    // On top-level screens, horizontal swipes follow the exact order of bottom navigation.
     const changed = dx < 0 ? switchView(1) : switchView(-1);
     if (changed) {
       suppressNextClick();
@@ -207,7 +211,6 @@
     if (modalOpen() || blockedGestureTarget(event.target)) return;
     if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
 
-    // Notes/reminders and their library keep their existing trackpad back behavior.
     if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
     if (app.classList.contains("library-active")) return;
 
@@ -217,7 +220,6 @@
     if (Math.abs(wheelX) < WHEEL_MIN_X) return;
 
     if (topSheetOpen()) {
-      // On macOS a rightward two-finger gesture produces negative deltaX.
       if (wheelX < 0 && closeTopSheet()) suppressNextClick();
       wheelX = 0;
       return;
