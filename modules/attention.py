@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, time as dt_time, timezone
 import hashlib
 import json
+from zoneinfo import ZoneInfo
 
+from core.assistant_preferences import get_assistant_preferences
 from core.attention_store import (
     cleanup_attention_store,
     dismiss_missing_source_keys,
+    get_attention_by_source,
     list_attention_items,
     upsert_attention_item,
 )
+from core.db import get_user_timezone
 from core.email_auto_store import recent_auto_plans
 from core.navigation_store import (
     list_pending_navigation_optimizations,
@@ -19,8 +23,10 @@ from core.navigation_store import (
 )
 from core.proactive_store import list_proactive_actions
 from core.task_planner_store import list_planner_tasks
+from modules.daily_review import build_day_review
 
 ATTENTION_FRESH_HOURS = 6
+REVIEW_VISIBLE_WINDOW_HOURS = 6
 
 
 def _parse_time(value: object) -> datetime | None:
@@ -256,12 +262,48 @@ def sync_navigation_attention(user_id: int) -> int:
     return count
 
 
+def sync_review_attention(user_id: int, *, now: datetime | None = None) -> int:
+    """Create one non-push fallback card for each enabled morning/evening review."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    prefs = get_assistant_preferences(user_id)
+    zone = ZoneInfo(get_user_timezone(user_id) or "Europe/Moscow")
+    local = current.astimezone(zone)
+    created = 0
+    for kind, label in (("morning", "Утренняя сводка"), ("evening", "Вечерний разбор")):
+        if not prefs.get(f"{kind}_enabled", False):
+            continue
+        scheduled = datetime.combine(local.date(), dt_time.fromisoformat(prefs[f"{kind}_time"]), tzinfo=zone)
+        if local < scheduled or local - scheduled > timedelta(hours=REVIEW_VISIBLE_WINDOW_HOURS):
+            continue
+        source_key = f"{local.date()}:{kind}"
+        if get_attention_by_source(user_id, "daily_review", source_key):
+            continue
+        review = build_day_review(user_id, kind, now=current)
+        upsert_attention_item(
+            user_id,
+            source_type="daily_review",
+            source_key=source_key,
+            category="assistant",
+            priority="info",
+            title=label,
+            body=str(review.get("text") or "")[:1600],
+            action_type="none",
+        )
+        created += 1
+    return created
+
+
 def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None:
     for plan in recent_auto_plans(user_id, hours=ATTENTION_FRESH_HOURS, limit=12):
         capture_email_plan_attention(user_id, plan)
     sync_proactive_action_attention(user_id, now=now)
     sync_overdue_task_attention(user_id, now=now)
     sync_navigation_attention(user_id)
+    sync_review_attention(user_id, now=now)
 
 
 def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int = 8) -> list[dict]:
@@ -277,4 +319,5 @@ __all__ = [
     "sync_navigation_attention",
     "sync_overdue_task_attention",
     "sync_proactive_action_attention",
+    "sync_review_attention",
 ]
