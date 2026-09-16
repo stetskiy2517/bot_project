@@ -7,13 +7,13 @@ import logging
 from zoneinfo import ZoneInfo
 
 from core.assistant_preferences import get_assistant_preferences, quiet_until
+from core.attention_store import upsert_attention_item
 from core.db import conn, db_lock, get_calendar_preferences, get_user_timezone
 from core.email_auto_store import email_auto_enabled, recent_auto_plans
 from core.library_store import list_saved_reminders
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.calendar_availability import find_free_slots, _parse_hhmm
 from modules.calendar_user import _list_events, _event_start
-from modules.email_actions import build_email_plan
 
 logger = logging.getLogger(__name__)
 
@@ -61,29 +61,10 @@ def _task_lines(user_id: int, zone: ZoneInfo, start: datetime, end: datetime, *,
     return lines
 
 
-def _live_email_lines(user_id: int) -> list[str]:
-    """Legacy opt-in review behavior for users who did not enable background email analysis."""
-    try:
-        plan = build_email_plan(user_id, "Что из последних писем влияет на мои ближайшие планы и требует действия?")
-    except Exception:
-        logger.exception("Review email planning unavailable for user %s", user_id)
-        return ["Почта: временно не удалось проверить планировочные сигналы."]
-    summary = " ".join(str(plan.get("summary") or "").split()).strip()
-    actions = plan.get("actions") or []
-    if not plan.get("ai_used") and not actions:
-        return []
-    lines = [f"Почта: {summary[:350]}" if summary else "Почта: есть сигналы для планирования."]
-    for action in actions[:2]:
-        lines.append(f"• Предложение: {action['title']}")
-    if actions:
-        lines.append("Открой почту в приложении, чтобы подтвердить действие. Ничего из писем автоматически не создано.")
-    return lines
-
-
 def _email_lines(user_id: int) -> list[str]:
-    """Use cached background findings when enabled, avoiding a second AI call in Daily Review."""
+    """Use only cached background findings; rendering a review never starts a new AI request."""
     if not email_auto_enabled(user_id):
-        return _live_email_lines(user_id)
+        return []
     try:
         plans = recent_auto_plans(user_id, hours=48, limit=8)
     except Exception:
@@ -114,6 +95,83 @@ def _email_lines(user_id: int) -> list[str]:
     if any(not item.get("auto_created") and not item.get("already_in_calendar") for item in actions):
         lines.append("Открой почту в приложении, чтобы подтвердить остальные предложения.")
     return lines
+
+
+def _tomorrow_lines(user_id: int, zone_name: str, start: datetime) -> list[str]:
+    tomorrow_start = start + timedelta(days=1)
+    tomorrow_end = tomorrow_start + timedelta(days=1)
+    try:
+        events = _list_events(user_id, tomorrow_start, tomorrow_end)
+    except Exception as exc:
+        logger.warning("Tomorrow calendar preview unavailable for user %s (%s)", user_id, type(exc).__name__)
+        return ["Завтра: календарь временно не удалось проверить."]
+
+    regular = []
+    travel = []
+    for event in events:
+        when, all_day = _event_start(event, zone_name)
+        if when is None:
+            continue
+        target = travel if _is_travel_event(event) else regular
+        target.append((when, all_day, event))
+    regular.sort(key=lambda item: item[0])
+    travel.sort(key=lambda item: item[0])
+
+    if not regular and not travel:
+        return ["Завтра: встреч в календаре пока нет."]
+
+    lines = ["Завтра:"]
+    for when, all_day, event in regular[:2]:
+        label = "весь день" if all_day else when.strftime("%H:%M")
+        lines.append(f"• {label} · {str(event.get('summary') or 'Событие')[:100]}")
+    if travel:
+        when, _, event = travel[0]
+        lines.append(f"• Выезд {when:%H:%M} · {str(event.get('location') or event.get('summary') or 'дорога')[:100]}")
+    return lines
+
+
+def _review_due_at(user_id: int, kind: str, current: datetime) -> datetime | None:
+    prefs = get_assistant_preferences(user_id)
+    if kind not in {"morning", "evening"} or not prefs.get(kind + "_enabled", False):
+        return None
+    zone = ZoneInfo(get_user_timezone(user_id) or "Europe/Moscow")
+    local = current.astimezone(zone)
+    scheduled = datetime.combine(local.date(), dt_time.fromisoformat(prefs[kind + "_time"]), tzinfo=zone)
+    return quiet_until(user_id, scheduled.astimezone(timezone.utc)) or scheduled.astimezone(timezone.utc)
+
+
+def capture_review_attention(
+    user_id: int,
+    review: dict,
+    *,
+    kind: str | None = None,
+    now: datetime | None = None,
+) -> dict | None:
+    """Keep a scheduled briefing in the in-app attention center without another data/AI pass."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    review_kind = str(kind or review.get("kind") or "").strip()
+    due = _review_due_at(user_id, review_kind, current)
+    if due is None or current < due:
+        return None
+    zone = ZoneInfo(get_user_timezone(user_id) or "Europe/Moscow")
+    local = current.astimezone(zone)
+    day = str(review.get("date") or local.date())
+    if day != str(local.date()):
+        return None
+    title = "Утренняя сводка" if review_kind == "morning" else "Вечерний разбор"
+    body = str(review.get("text") or "").strip()
+    if not body:
+        return None
+    return upsert_attention_item(
+        user_id,
+        source_type="daily_review",
+        source_key=f"{review_kind}:{day}",
+        category="assistant",
+        priority="info",
+        title=title,
+        body=body[:1600],
+        action_type="none",
+    )
 
 
 def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | None = None) -> dict:
@@ -181,6 +239,8 @@ def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | Non
         lines.append("Отметь выполненное, перенеси или оставь как есть.")
     if kind == "morning":
         lines.extend(_email_lines(user_id))
+    elif calendar_ok:
+        lines.extend(_tomorrow_lines(user_id, zone_name, start))
     return {
         "kind": kind,
         "date": str(local.date()),
@@ -205,7 +265,7 @@ def deliver_reviews_for_user(user_id: int, sender, *, now: datetime | None = Non
         if not prefs[kind + "_enabled"]:
             continue
         scheduled = datetime.combine(local.date(), dt_time.fromisoformat(prefs[kind + "_time"]), tzinfo=zone)
-        scheduled = quiet_until(user_id, scheduled) or scheduled
+        scheduled = quiet_until(user_id, scheduled.astimezone(timezone.utc)) or scheduled.astimezone(timezone.utc)
         if scheduled.astimezone(zone).date() != local.date() or current < scheduled:
             continue
         phase = "missed" if current - scheduled > timedelta(hours=2) else "sending"
@@ -218,6 +278,7 @@ def deliver_reviews_for_user(user_id: int, sender, *, now: datetime | None = Non
             continue
         try:
             review = build_day_review(user_id, kind, now=current)
+            capture_review_attention(user_id, review, kind=kind, now=current)
             result = sender(user_id, review["text"], f"review-{kind}-{local.date()}")
             phase = "accepted" if result else "failed"
         except Exception as exc:
