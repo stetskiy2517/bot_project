@@ -48,6 +48,13 @@ body {
     calc(env(safe-area-inset-bottom) + var(--mobile-nav-height));
 }
 
+/* Mobile views are mutually exclusive. Keeping both absolute layers rendered made
+   the large home microphone bleed through the chat as a pale ghost on iOS. */
+.app.mobile-shell.mobile-view-home .chat-shell,
+.app.mobile-shell.mobile-view-chat .voice-shell {
+  display: none !important;
+}
+
 .app.mobile-shell .voice-shell {
   padding: 20px 24px 34px;
   transform: none;
