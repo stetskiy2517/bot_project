@@ -118,7 +118,9 @@
   }
 
   function openNavigation() {
-    document.dispatchEvent(new Event("planner-navigation-refresh"));
+    // navigation-extra.js already treats visibilitychange as an immediate refresh trigger.
+    // Reuse that path instead of duplicating its origin/optimization state machine here.
+    document.dispatchEvent(new Event("visibilitychange"));
     return true;
   }
 
