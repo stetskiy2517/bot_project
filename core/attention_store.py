@@ -10,6 +10,7 @@ from core.db import conn, db_lock
 PRIORITIES = {"high", "normal", "info"}
 ACTION_TYPES = {"none", "email_action", "task", "navigation", "proactive"}
 RETENTION_DAYS = 60
+PUSH_FRESHNESS_HOURS = 6
 
 
 def _now() -> str:
@@ -56,7 +57,7 @@ def _clean(value: object, limit: int) -> str:
 
 
 def _action_json(payload: object) -> str | None:
-    if payload in {None, ""}:
+    if payload is None or payload == "":
         return None
     if not isinstance(payload, dict):
         raise ValueError("attention action payload must be an object")
@@ -165,15 +166,16 @@ def list_attention_items(user_id: int, *, limit: int = 20) -> list[dict]:
 
 def pending_attention_pushes(user_id: int, *, limit: int = 3) -> list[dict]:
     safe_limit = max(1, min(int(limit), 10))
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=PUSH_FRESHNESS_HOURS)).isoformat()
     with db_lock:
         rows = conn.execute(
             """SELECT attention_id,user_id,source_type,source_key,category,priority,title,body,action_type,
                       action_json,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error
                FROM attention_items
                WHERE user_id=? AND dismissed_at IS NULL AND pushed_at IS NULL
-                 AND priority IN ('high','normal') AND push_attempts<2
+                 AND priority IN ('high','normal') AND push_attempts<2 AND created_at>=?
                ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END,created_at ASC,attention_id ASC LIMIT ?""",
-            (int(user_id), safe_limit),
+            (int(user_id), cutoff, safe_limit),
         ).fetchall()
     return [_row_payload(row) for row in rows]
 
