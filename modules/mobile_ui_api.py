@@ -18,6 +18,7 @@ from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review, capture_review_attention
 from modules.file_ingest_api import file_ingest_api
 from modules.navigation import is_managed_travel_event
+from modules.reminder_detail_api import reminder_detail_api
 
 mobile_ui_api = Blueprint("mobile_ui", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -91,6 +92,7 @@ def inject_mobile_ui(response):
         '<script src="/swipe-navigation.js"></script>',
         '<script src="/file-ingest.js"></script>',
         '<script src="/attention-center.js"></script>',
+        '<script src="/reminder-editor.js"></script>',
     )
     if "</head>" in html:
         for stylesheet in stylesheets:
@@ -222,3 +224,4 @@ def mobile_today():
 
 mobile_ui_api.register_blueprint(calendar_location_api)
 mobile_ui_api.register_blueprint(file_ingest_api)
+mobile_ui_api.register_blueprint(reminder_detail_api)
