@@ -15,9 +15,14 @@ concurrency:
 jobs:
   health:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     env:
       HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://213.171.26.210.sslip.io/api/health' }}
+      EXPECTED_SHA: ${{ github.sha }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
       - name: Check production HTTPS health
         shell: bash
@@ -40,5 +45,73 @@ jobs:
           payload = json.load(sys.stdin)
           if payload.get("status") != "ok":
               raise SystemExit(f"Unexpected health payload: {payload!r}")
-          print("Production health: OK")
+          print("Production health endpoint: OK")
           '
+
+      - name: Check public app and OAuth bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          base_url="${HEALTH_URL%/api/health}"
+          curl -fsS --connect-timeout 5 --max-time 10 "$base_url/" >/dev/null
+          manifest="$(curl -fsS --connect-timeout 5 --max-time 10 "$base_url/manifest.webmanifest")"
+          printf '%s' "$manifest" | python3 -c '
+          import json, sys
+          payload = json.load(sys.stdin)
+          if not isinstance(payload, dict) or not payload.get("name"):
+              raise SystemExit("Production manifest is invalid")
+          print("Production manifest: OK")
+          '
+
+          oauth="$(curl -fsS --connect-timeout 5 --max-time 10 "$base_url/api/google/login")"
+          printf '%s' "$oauth" | python3 -c '
+          import json, sys
+          payload = json.load(sys.stdin)
+          url = payload.get("url") if isinstance(payload, dict) else None
+          if not isinstance(url, str) or not url.startswith("https://accounts.google.com/"):
+              raise SystemExit(f"OAuth bootstrap is invalid: {payload!r}")
+          print("Production OAuth bootstrap: OK")
+          '
+
+      - name: Validate SSH health credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_USER" || { echo "DEPLOY_USER is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_SSH_KEY" || { echo "DEPLOY_SSH_KEY is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_KNOWN_HOSTS" || { echo "DEPLOY_KNOWN_HOSTS is not configured" >&2; exit 1; }
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Check deployed SHA, services, database and optional integrations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          remote='cd "$HOME/bot_project" && systemctl is-active --quiet personal-secretary && systemctl is-active --quiet caddy && .venv/bin/python scripts/production_smoke.py --expected-sha '"'"'$EXPECTED_SHA'"'"''
+          for attempt in 1 2 3 4; do
+            if ssh \
+              -i ~/.ssh/deploy_key \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=10 \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "$remote"; then
+              echo "Production server smoke: OK"
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Production server smoke failed or deployed SHA did not catch up to $EXPECTED_SHA" >&2
+              exit 1
+            fi
+            sleep 20
+          done
