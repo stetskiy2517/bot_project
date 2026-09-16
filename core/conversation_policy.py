@@ -1,7 +1,7 @@
 """Shared safeguards for conversational routing and pending interactions.
 
 This module keeps high-level dialogue policy independent from product modules:
-- factual first-person statements are not treated as implicit calendar writes;
+- factual personal statements are not treated as implicit calendar writes;
 - an unfinished prompt only captures replies that plausibly belong to it;
 - a clearly new command can interrupt stale pending state.
 """
@@ -11,8 +11,15 @@ from __future__ import annotations
 import re
 
 
-FIRST_PERSON_STATEMENT_RE = re.compile(
-    r"^\s*(?:я|мы|у\s+меня|у\s+нас|мне|нам)\b",
+# Do not classify every first-person phrase as a fact: natural planning shorthand
+# such as «я иду к врачу завтра в 15» and «мне завтра в 9 к врачу» is an established
+# calendar command in the product. This guard is deliberately limited to phrases
+# that are normally statements about routines/medication rather than appointments.
+DECLARATIVE_FACT_RE = re.compile(
+    r"^\s*(?:я|мы)\s+(?:(?:обычно|всегда|регулярно)\s+)?(?:"
+    r"принима\w*|пью|пьем|пьём|выпива\w*|ложусь|встаю|медитир\w*|"
+    r"читаю|читаем|кормлю|кормим|поливаю|поливаем|выгулива\w*"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -21,7 +28,7 @@ CLEAR_NEW_COMMAND_RE = re.compile(
     r"покажи\s+(?:календар\w*|расписан\w*|напоминани\w*|заметк\w*|задач\w*)|"
     r"что\s+у\s+меня\b|когда\s+у\s+меня\b|во\s+сколько\b|"
     r"когда\s+(?:я\s+)?свобод\w*\b|(?:найди|найти)\s+(?:встреч\w*|событ\w*|созвон\w*|"
-    r"окн\w*|время|заметк\w*)|"
+    r"(?:свободн\w*\s+)?окн\w*|время|заметк\w*)|"
     r"(?:создай|создать|добавь|добавить|поставь|поставить|запланируй|запланировать|назначь|назначить)\s+"
     r"(?:встреч\w*|событ\w*|созвон\w*|напоминани\w*|заметк\w*|задач\w*)|"
     r"(?:напомни|напомнить|не\s+забудь)\b|"
@@ -87,19 +94,22 @@ FREEFORM_PENDING_TYPES = {
     "reminder_edit", "reminder_delete_query",
 }
 
+INTERRUPTIBLE_PENDING_TYPES = (
+    SELECTION_PENDING_TYPES
+    | CONFIRM_PENDING_TYPES
+    | SCOPE_PENDING_TYPES
+    | TIME_PENDING_TYPES
+    | FREEFORM_PENDING_TYPES
+)
+
 
 def _normalise(text: str) -> str:
     return " ".join(str(text or "").casefold().replace("ё", "е").split()).strip(" .,!?:;«»\"'")
 
 
 def is_declarative_statement(text: str) -> bool:
-    """Return True for common first-person factual statements.
-
-    Explicit command verbs are handled by the router before this guard. This
-    function only prevents the fallback date/time heuristics from turning facts
-    such as «я принимаю таблетки завтра в 23» into calendar writes.
-    """
-    return bool(FIRST_PERSON_STATEMENT_RE.match(str(text or "")))
+    """Return True for bounded factual routine/medication statements."""
+    return bool(DECLARATIVE_FACT_RE.match(str(text or "")))
 
 
 def is_clear_new_command(text: str) -> bool:
@@ -124,28 +134,34 @@ def should_resume_pending(pending: dict | None, text: str) -> bool:
     if normal in CONTROL_REPLIES or normal.isdigit() or ORDINAL_RE.fullmatch(normal):
         return True
 
+    # A clear product command wins over date/time words inside that command. For
+    # example, «Покажи календарь на завтра» must interrupt «Во сколько поставить?»
+    # instead of being consumed as a malformed time answer.
+    if pending_type in INTERRUPTIBLE_PENDING_TYPES and is_clear_new_command(text):
+        return False
+
     if pending_type in SCOPE_PENDING_TYPES:
         if SCOPE_RE.fullmatch(normal):
             return True
-        return not is_clear_new_command(text)
+        return True
 
     if pending_type in TIME_PENDING_TYPES:
         if TIME_OR_DATE_RE.search(normal):
             return True
-        return not is_clear_new_command(text)
+        return True
 
     if pending_type in SELECTION_PENDING_TYPES:
         if REFERENCE_RE.fullmatch(normal):
             return True
-        return not is_clear_new_command(text)
+        return True
 
     if pending_type in CONFIRM_PENDING_TYPES:
-        return not is_clear_new_command(text)
+        return True
 
     if pending_type in FREEFORM_PENDING_TYPES:
-        return not is_clear_new_command(text)
+        return True
 
     # Unknown pending types keep their previous behaviour. A new feature must opt
-    # into stricter interruption semantics explicitly rather than being broken by
-    # a generic router rule.
+    # into interruption semantics explicitly rather than being broken by a generic
+    # router rule.
     return True
