@@ -7,6 +7,7 @@ from uuid import uuid4
 from core.db import conn, db_lock, get_or_create_google_user
 from core.note_enhancements import list_enhanced_notes, update_note_metadata
 from core.note_store import create_note
+from modules.note_tools_api import _direct_matches
 from tests.web_test_support import web_test_app
 
 
@@ -54,6 +55,22 @@ class NoteProductStoreTests(unittest.TestCase):
         self.assertEqual(notes[0]["tags"], ["дом", "семья"])
         self.assertIn(first["note_id"], {item["note_id"] for item in notes})
 
+    def test_partial_metadata_update_preserves_other_fields(self):
+        note = create_note(self.USER_ID, "Планы на поездку", title="Поездка")
+        update_note_metadata(
+            self.USER_ID,
+            note["note_id"],
+            pinned=True,
+            category="travel",
+            tags=["отпуск"],
+            checklist=[{"text": "Паспорт", "done": False}],
+        )
+        saved = update_note_metadata(self.USER_ID, note["note_id"], category="personal")
+        self.assertTrue(saved["pinned"])
+        self.assertEqual(saved["tags"], ["отпуск"])
+        self.assertEqual(saved["checklist"][0]["text"], "Паспорт")
+        self.assertEqual(saved["category"], "personal")
+
     def test_unknown_category_is_rejected(self):
         note = create_note(self.USER_ID, "Текст", title="Тест")
         with self.assertRaises(ValueError):
@@ -63,6 +80,19 @@ class NoteProductStoreTests(unittest.TestCase):
                 pinned=False,
                 category="finance-secret-category",
             )
+
+    def test_direct_search_uses_category_tags_and_checklist(self):
+        notes = [{
+            "note_id": 1,
+            "title": "Сборы",
+            "text": "Не забыть вещи",
+            "category": "travel",
+            "tags": ["отпуск"],
+            "checklist": [{"text": "Паспорт", "done": False}],
+        }]
+        self.assertEqual(_direct_matches(notes, "путешествия")[0]["note_id"], 1)
+        self.assertEqual(_direct_matches(notes, "отпуск паспорт")[0]["note_id"], 1)
+        self.assertEqual(_direct_matches(notes, "семья"), [])
 
 
 class NoteProductApiTests(unittest.TestCase):
@@ -139,6 +169,15 @@ class NoteProductApiTests(unittest.TestCase):
         self.assertFalse(payload["pinned"])
         self.assertTrue(payload["checklist"][0]["done"])
 
+    def test_invalid_metadata_is_rejected_before_note_creation(self):
+        response = self.client.post(
+            "/api/note-tools",
+            json={"text": "Не должна сохраниться", "category": "unknown-category"},
+        )
+        self.assertEqual(response.status_code, 400)
+        listed = self.client.get("/api/note-tools").get_json()["notes"]
+        self.assertFalse(any(item["text"] == "Не должна сохраниться" for item in listed))
+
 
 class NoteProductUiContractTests(unittest.TestCase):
     def test_notes_ui_is_first_class_and_has_no_prompt_editors(self):
@@ -150,6 +189,8 @@ class NoteProductUiContractTests(unittest.TestCase):
         self.assertIn("data-note-check", source)
         self.assertIn("PlannerNotes", source)
         self.assertIn("#libraryList .library-card[data-type='note']", source)
+        self.assertIn("MAX_TITLE = 120", source)
+        self.assertIn("MAX_TEXT = 5000", source)
 
 
 if __name__ == "__main__":
