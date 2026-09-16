@@ -17,6 +17,7 @@ from core.navigation_store import (
     list_pending_navigation_optimizations,
     list_pending_navigation_origins,
 )
+from core.proactive_store import list_proactive_actions
 from core.task_planner_store import list_planner_tasks
 
 
@@ -132,26 +133,39 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
     return created
 
 
-def capture_proactive_created(
-    user_id: int,
-    *,
-    memory_id: int,
-    action_type: str,
-    title: str,
-    body: str,
-) -> dict:
-    noun = "напоминание" if action_type == "reminder" else "событие календаря"
-    return upsert_attention_item(
-        user_id,
-        source_type="proactive_created",
-        source_key=f"{int(memory_id)}:{action_type}",
-        category="assistant",
-        priority="normal",
-        title=f"Секретарь создал {noun}: {title}"[:300],
-        body=body,
-        action_type="proactive",
-        action={"action_type": action_type, "memory_id": int(memory_id)},
-    )
+def sync_proactive_action_attention(user_id: int, *, now: datetime | None = None) -> int:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    cutoff = current - timedelta(hours=72)
+    count = 0
+    for action in list_proactive_actions(user_id, limit=30):
+        if action.get("status") != "created":
+            continue
+        updated = _parse_time(action.get("updated_at"))
+        if updated is None or updated < cutoff:
+            continue
+        action_type = str(action.get("action_type") or "")
+        noun = "напоминание" if action_type == "reminder" else "событие календаря"
+        upsert_attention_item(
+            user_id,
+            source_type="proactive_created",
+            source_key=str(int(action["action_id"])),
+            category="assistant",
+            priority="normal",
+            title=f"Секретарь создал {noun}",
+            body=str(action.get("reason") or "")[:1600],
+            action_type="proactive",
+            action={
+                "action_type": action_type,
+                "reminder_id": action.get("reminder_id"),
+                "calendar_event_id": action.get("calendar_event_id"),
+            },
+        )
+        count += 1
+    return count
 
 
 def sync_overdue_task_attention(user_id: int, *, now: datetime | None = None) -> int:
@@ -172,7 +186,7 @@ def sync_overdue_task_attention(user_id: int, *, now: datetime | None = None) ->
     selected = overdue[:3]
     active_keys: set[str] = set()
     for due, task in selected:
-        key = str(int(task["task_id"]))
+        key = f"{int(task['task_id'])}:{due.replace(microsecond=0).isoformat()}"
         active_keys.add(key)
         age = current - due
         priority = "high" if task.get("priority") == "high" or age >= timedelta(hours=24) else "normal"
@@ -240,6 +254,7 @@ def sync_navigation_attention(user_id: int) -> int:
 def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None:
     for plan in recent_auto_plans(user_id, hours=72, limit=12):
         capture_email_plan_attention(user_id, plan)
+    sync_proactive_action_attention(user_id, now=now)
     sync_overdue_task_attention(user_id, now=now)
     sync_navigation_attention(user_id)
 
@@ -253,8 +268,8 @@ def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int 
 __all__ = [
     "attention_snapshot",
     "capture_email_plan_attention",
-    "capture_proactive_created",
     "sync_attention_context",
     "sync_navigation_attention",
     "sync_overdue_task_attention",
+    "sync_proactive_action_attention",
 ]
