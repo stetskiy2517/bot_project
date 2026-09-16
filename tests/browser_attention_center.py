@@ -120,7 +120,10 @@ def main() -> None:
             expect(card.locator(".mobile-attention-count")).to_have_text("1")
 
             card.get_by_role("button", name="Понятно", exact=True).click()
-            expect(page.locator(".mobile-attention-card")).to_have_count(0)
+            card = page.locator(".mobile-attention-card")
+            expect(card).to_be_visible()
+            expect(card).to_contain_text("Сейчас ничего не требует внимания")
+            expect(card.locator(".mobile-attention-count")).to_have_text("0")
             assert get_attention_item(user_id, first["attention_id"])["dismissed_at"] is not None
 
             email_item = upsert_attention_item(
@@ -147,8 +150,12 @@ def main() -> None:
             card = page.locator(".mobile-attention-card")
             expect(card).to_be_visible()
             expect(card).to_contain_text("Нужно решение по письму")
+            expect(card.locator(".mobile-attention-count")).to_have_text("1")
             card.get_by_role("button", name="Выполнить", exact=True).click()
-            expect(page.locator(".mobile-attention-card")).to_have_count(0)
+            card = page.locator(".mobile-attention-card")
+            expect(card).to_be_visible()
+            expect(card).to_contain_text("Сейчас ничего не требует внимания")
+            expect(card.locator(".mobile-attention-count")).to_have_text("0")
             assert get_attention_item(user_id, email_item["attention_id"])["dismissed_at"] is not None
 
             page.locator("#accountBtn").click()

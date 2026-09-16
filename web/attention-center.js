@@ -37,17 +37,17 @@
     const content = document.getElementById("mobileTodayContent");
     if (!content) return;
     content.querySelector(".mobile-attention-card")?.remove();
-    if (!Array.isArray(items) || !items.length) return;
 
+    const normalized = Array.isArray(items) ? items : [];
     const card = document.createElement("div");
-    card.className = "mobile-card mobile-attention-card";
+    card.className = `mobile-card mobile-attention-card${normalized.length ? "" : " is-empty"}`;
     card.innerHTML = `
       <div class="mobile-card-title">
         <span>Требует внимания</span>
-        <span class="mobile-attention-count">${items.length}</span>
+        <span class="mobile-attention-count">${normalized.length}</span>
       </div>
       <div class="mobile-attention-list">
-        ${items.slice(0, 5).map(item => `
+        ${normalized.length ? normalized.slice(0, 5).map(item => `
           <div class="mobile-attention-item${item.unseen ? "" : " seen"}" data-attention-id="${Number(item.attention_id)}">
             <span class="mobile-attention-dot ${esc(item.priority || "normal")}"></span>
             <div class="mobile-attention-main">
@@ -58,7 +58,10 @@
                 <button type="button" class="secondary" data-attention-action="dismiss">Скрыть</button>
               </div>
             </div>
-          </div>`).join("")}
+          </div>`).join("") : `
+          <div class="mobile-attention-empty">
+            Сейчас ничего не требует внимания.
+          </div>`}
       </div>`;
     content.prepend(card);
   }
@@ -67,7 +70,6 @@
     if (loading || !app.classList.contains("mobile-view-today")) return;
     const content = document.getElementById("mobileTodayContent");
     if (!content) return;
-    if (!force && content.querySelector(".mobile-attention-card")) return;
     loading = true;
     try {
       const data = await api("/api/mobile/attention");
@@ -88,15 +90,7 @@
 
   async function dismiss(id) {
     await api(`/api/mobile/attention/${id}`, {method: "DELETE"});
-    const row = document.querySelector(`.mobile-attention-item[data-attention-id="${id}"]`);
-    row?.remove();
-    const card = document.querySelector(".mobile-attention-card");
-    const remaining = card?.querySelectorAll(".mobile-attention-item").length || 0;
-    if (!remaining) card?.remove();
-    else {
-      const counter = card?.querySelector(".mobile-attention-count");
-      if (counter) counter.textContent = String(remaining);
-    }
+    await load({force: true});
   }
 
   async function applyEmailAction(item, id) {
@@ -151,7 +145,7 @@
     const data = await api("/api/mobile/attention");
     const item = (data.items || []).find(candidate => Number(candidate.attention_id) === id);
     if (!item) {
-      row.remove();
+      await load({force: true});
       return;
     }
     try {
