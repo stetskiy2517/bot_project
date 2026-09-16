@@ -12,6 +12,8 @@ import re
 from types import SimpleNamespace
 from typing import Any
 
+from core.chat_context import append_chat_exchange
+
 
 CREATED_TIMED_RE = re.compile(
     r"^Событие «(?P<title>.+?)» добавлено: "
@@ -80,15 +82,26 @@ def _web_text(text: str, request_text: str = "") -> str:
 @dataclass
 class WebMessage:
     text: str
+    user_id: int | None = None
     replies: list[str] = field(default_factory=list)
+    _context_recorded: bool = field(default=False, init=False, repr=False)
 
     async def reply_text(self, text: str, **_: Any) -> None:
-        self.replies.append(_web_text(text, self.text))
+        reply = _web_text(text, self.text)
+        self.replies.append(reply)
+        # Deterministic modules used to be invisible to the short-term AI context,
+        # so a follow-up after a calendar/reminder/note/task answer lost the prior
+        # turn. Store one representative reply per routed request. The generic
+        # unhandled fallback is appended outside this method and is therefore not
+        # recorded twice before the AI fallback replaces it.
+        if self.user_id is not None and not self._context_recorded:
+            append_chat_exchange(self.user_id, self.text, reply)
+            self._context_recorded = True
 
 
 class WebUpdate:
     def __init__(self, user_id: int, user_name: str, text: str):
-        self.message = WebMessage(text=text)
+        self.message = WebMessage(text=text, user_id=user_id)
         self.effective_user = SimpleNamespace(id=user_id, full_name=user_name)
         self.callback_query = None
 
