@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time as dt_time, timedelta, timezone
+import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,7 @@ from modules.navigation import is_managed_travel_event
 
 mobile_ui_api = Blueprint("mobile_ui", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+logger = logging.getLogger(__name__)
 
 
 def _user() -> int:
@@ -191,8 +193,8 @@ def mobile_today():
         review = build_day_review(user_id, review_kind, now=now_utc)
         try:
             capture_review_attention(user_id, review, kind=review_kind, now=now_utc)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to capture review attention for user %s (%s)", user_id, type(exc).__name__)
     except Exception:
         review = {
             "kind": review_kind,
