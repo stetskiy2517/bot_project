@@ -8,10 +8,14 @@
 
   const VIEW_ORDER = ["home", "chat", "today", "more"];
   const SWIPE_MIN_X = 64;
+  const WHEEL_MIN_X = 90;
   const DIRECTION_RATIO = 1.25;
+  const WHEEL_RESET_MS = 180;
   let gesture = null;
   let libraryDocumentOpen = false;
   let suppressClickUntil = 0;
+  let wheelX = 0;
+  let wheelTimer = null;
 
   function modalOpen() {
     return Boolean(
@@ -19,6 +23,10 @@
       document.getElementById("settingsPanel")?.classList.contains("open") ||
       document.querySelector(".reminder-snooze-backdrop.open")
     );
+  }
+
+  function topSheetOpen() {
+    return Boolean(document.getElementById("mobileSheetBackdrop")?.classList.contains("open"));
   }
 
   function blockedGestureTarget(target) {
@@ -51,8 +59,64 @@
     return true;
   }
 
+  function openEventSheet(row) {
+    const backdrop = document.getElementById("mobileSheetBackdrop");
+    if (!backdrop || backdrop.classList.contains("open")) return false;
+
+    const title = row.querySelector(".mobile-row-title")?.textContent?.trim() || "Событие";
+    const subtitle = row.querySelector(".mobile-row-subtitle")?.textContent?.trim() || "";
+
+    const sheet = document.createElement("section");
+    sheet.className = "mobile-sheet";
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    sheet.setAttribute("aria-label", "Событие");
+
+    const handle = document.createElement("div");
+    handle.className = "mobile-sheet-handle";
+
+    const heading = document.createElement("h2");
+    heading.className = "mobile-sheet-title";
+    heading.textContent = "Событие";
+
+    const card = document.createElement("div");
+    card.className = "mobile-card";
+    const eventTitle = document.createElement("div");
+    eventTitle.className = "mobile-row-title";
+    eventTitle.textContent = title;
+    card.appendChild(eventTitle);
+    if (subtitle) {
+      const eventMeta = document.createElement("div");
+      eventMeta.className = "mobile-row-subtitle";
+      eventMeta.textContent = subtitle;
+      card.appendChild(eventMeta);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "mobile-sheet-actions";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "mobile-action-button secondary";
+    closeButton.textContent = "Назад";
+    closeButton.addEventListener("click", closeTopSheet);
+    actions.appendChild(closeButton);
+
+    sheet.append(handle, heading, card, actions);
+    backdrop.replaceChildren(sheet);
+    backdrop.classList.add("open");
+    return true;
+  }
+
   function suppressNextClick() {
     suppressClickUntil = performance.now() + 400;
+  }
+
+  function resetWheelSoon() {
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => {
+      wheelX = 0;
+      wheelTimer = null;
+    }, WHEEL_RESET_MS);
   }
 
   document.addEventListener("planner-library-open", () => {
@@ -71,9 +135,24 @@
   appObserver.observe(app, {attributes: true, attributeFilter: ["class"]});
 
   document.addEventListener("click", event => {
-    if (performance.now() >= suppressClickUntil) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (performance.now() < suppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    const eventRow = event.target.closest?.("[data-event-id]");
+    if (
+      eventRow &&
+      app.classList.contains("mobile-view-today") &&
+      !app.classList.contains("library-active") &&
+      !modalOpen() &&
+      !topSheetOpen() &&
+      openEventSheet(eventRow)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }, true);
 
   document.addEventListener("touchstart", event => {
@@ -102,10 +181,13 @@
     if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
 
     // Any nested mobile sheet behaves as a screen: swipe right goes one level back.
-    if (dx > 0 && closeTopSheet()) {
-      suppressNextClick();
-      event.stopPropagation();
-      event.preventDefault();
+    // A left swipe is intentionally ignored so the bottom navigation cannot move behind the sheet.
+    if (topSheetOpen()) {
+      if (dx > 0 && closeTopSheet()) {
+        suppressNextClick();
+        event.stopPropagation();
+        event.preventDefault();
+      }
       return;
     }
 
@@ -119,5 +201,30 @@
       event.stopPropagation();
       event.preventDefault();
     }
+  }, {capture: true, passive: false});
+
+  document.addEventListener("wheel", event => {
+    if (modalOpen() || blockedGestureTarget(event.target)) return;
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
+
+    // Notes/reminders and their library keep their existing trackpad back behavior.
+    if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
+    if (app.classList.contains("library-active")) return;
+
+    event.preventDefault();
+    wheelX += event.deltaX;
+    resetWheelSoon();
+    if (Math.abs(wheelX) < WHEEL_MIN_X) return;
+
+    if (topSheetOpen()) {
+      // On macOS a rightward two-finger gesture produces negative deltaX.
+      if (wheelX < 0 && closeTopSheet()) suppressNextClick();
+      wheelX = 0;
+      return;
+    }
+
+    const changed = wheelX > 0 ? switchView(1) : switchView(-1);
+    if (changed) suppressNextClick();
+    wheelX = 0;
   }, {capture: true, passive: false});
 })();
