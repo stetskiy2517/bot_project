@@ -11,6 +11,8 @@ class ConversationPolicyTests(unittest.TestCase):
     def test_routine_and_medication_facts_are_declarative(self):
         self.assertTrue(is_declarative_statement("Я принимаю таблетки завтра в 23:00"))
         self.assertTrue(is_declarative_statement("Я обычно пью таблетки в 22:00"))
+        self.assertTrue(is_declarative_statement("Я завтра в 23:00 принимаю таблетки"))
+        self.assertTrue(is_declarative_statement("Я каждый вечер в 22 пью таблетки"))
         self.assertFalse(is_declarative_statement("Я иду к врачу завтра в 15:00"))
         self.assertFalse(is_declarative_statement("Мне завтра к врачу в 12:00"))
 
@@ -23,6 +25,9 @@ class ConversationPolicyTests(unittest.TestCase):
             "Создай заметку список покупок",
             "Покажи задачи",
             "Найди свободное окно завтра",
+            "Когда завтра свободно?",
+            "Когда в пятницу есть свободное время?",
+            "Есть ли свободное окно завтра?",
         ):
             with self.subTest(text=text):
                 self.assertTrue(is_clear_new_command(text))
@@ -32,6 +37,7 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertTrue(should_resume_pending(pending, "да"))
         self.assertTrue(should_resume_pending(pending, "нет"))
         self.assertFalse(should_resume_pending(pending, "Покажи календарь на завтра"))
+        self.assertFalse(should_resume_pending(pending, "Когда завтра свободно?"))
 
     def test_selection_does_not_swallow_new_command(self):
         pending = {"type": "reminder_select_delete"}
@@ -44,6 +50,7 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertTrue(should_resume_pending(pending, "завтра в 15"))
         self.assertTrue(should_resume_pending(pending, "в 19:30"))
         self.assertFalse(should_resume_pending(pending, "Покажи календарь на завтра"))
+        self.assertFalse(should_resume_pending(pending, "Когда завтра свободно?"))
 
     def test_freeform_prompt_keeps_normal_payload(self):
         pending = {"type": "free_slot_title"}
