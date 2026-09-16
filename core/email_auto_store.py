@@ -18,6 +18,13 @@ def _now() -> str:
 def init_email_auto_store() -> None:
     with db_lock:
         conn.execute(
+            """CREATE TABLE IF NOT EXISTS email_auto_preferences (
+                user_id INTEGER PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
             """CREATE TABLE IF NOT EXISTS email_auto_accounts (
                 user_id INTEGER NOT NULL,
                 account_id INTEGER NOT NULL,
@@ -59,6 +66,26 @@ def init_email_auto_store() -> None:
         conn.commit()
 
 
+def email_auto_enabled(user_id: int) -> bool:
+    with db_lock:
+        row = conn.execute("SELECT enabled FROM email_auto_preferences WHERE user_id=?", (int(user_id),)).fetchone()
+    return bool(row and row[0])
+
+
+def set_email_auto_enabled(user_id: int, enabled: bool) -> bool:
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be boolean")
+    stamp = _now()
+    with db_lock:
+        conn.execute(
+            """INSERT INTO email_auto_preferences(user_id,enabled,updated_at) VALUES (?,?,?)
+               ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at""",
+            (int(user_id), 1 if enabled else 0, stamp),
+        )
+        conn.commit()
+    return enabled
+
+
 def message_fingerprint(account: dict, message: dict) -> str:
     provider = str(account.get("provider") or "").strip().lower()
     provider_id = str(message.get("provider_message_id") or "").strip() if provider == "gmail" else ""
@@ -67,11 +94,15 @@ def message_fingerprint(account: dict, message: dict) -> str:
     for item in message.get("attachments") or []:
         if not isinstance(item, dict):
             continue
+        try:
+            size = max(0, int(item.get("size") or 0))
+        except (TypeError, ValueError):
+            size = 0
         attachments.append(
             (
                 str(item.get("filename") or "").strip().casefold()[:255],
                 str(item.get("mime_type") or "").strip().casefold()[:200],
-                int(item.get("size") or 0) if str(item.get("size") or "0").isdigit() else 0,
+                size,
             )
         )
     payload = {
@@ -96,22 +127,23 @@ def account_is_initialized(user_id: int, account_id: int) -> bool:
     return bool(row)
 
 
-def initialize_account(user_id: int, account_id: int, messages: list[dict]) -> None:
+def initialize_account(user_id: int, account: dict, messages: list[dict]) -> None:
+    account_id = int(account["account_id"])
     stamp = _now()
     with db_lock:
         conn.execute(
             "INSERT OR IGNORE INTO email_auto_accounts(user_id,account_id,initialized_at,last_scan_at,last_error) VALUES (?,?,?,?,NULL)",
-            (int(user_id), int(account_id), stamp, stamp),
+            (int(user_id), account_id, stamp, stamp),
         )
         for message in messages:
-            fingerprint = message_fingerprint({"provider": message.get("_provider")}, message)
+            fingerprint = message_fingerprint(account, message)
             conn.execute(
                 """INSERT OR IGNORE INTO email_auto_messages
                    (user_id,account_id,fingerprint,provider_message_id,state,reason,processed_at)
                    VALUES (?,?,?,?,?,?,?)""",
                 (
                     int(user_id),
-                    int(account_id),
+                    account_id,
                     fingerprint,
                     str(message.get("provider_message_id") or "")[:500],
                     "baseline",
@@ -249,6 +281,7 @@ def email_auto_status(user_id: int) -> dict:
             (int(user_id),),
         ).fetchone()
     return {
+        "enabled": email_auto_enabled(user_id),
         "last_scan_at": account[0] if account else None,
         "accounts_with_errors": int((account[1] if account else 0) or 0),
         "messages_24h": int((recent[0] if recent else 0) or 0),
