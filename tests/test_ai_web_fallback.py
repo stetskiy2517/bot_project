@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from core.chat_context import clear_chat_context
 from core.db import get_or_create_google_user
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE
 from tests.web_test_support import web_test_app
@@ -19,6 +20,7 @@ class AIWebFallbackTests(unittest.TestCase):
             "ai-web-fallback@example.test",
             "AI Web",
         )
+        clear_chat_context(self.user_id)
         with self.client.session_transaction() as session:
             session["user_id"] = self.user_id
 
@@ -42,6 +44,7 @@ class AIWebFallbackTests(unittest.TestCase):
         answer.assert_called_once_with(
             "В какое время мне лучше назначать встречи?",
             user_id=self.user_id,
+            history=[],
         )
 
     def test_personal_time_question_reaches_ai_without_calendar_search(self):
@@ -62,7 +65,52 @@ class AIWebFallbackTests(unittest.TestCase):
         answer.assert_called_once_with(
             "Во сколько я принимаю таблетки?",
             user_id=self.user_id,
+            history=[],
         )
+
+    def test_followup_receives_previous_ai_exchange(self):
+        calls = []
+
+        def answer(text, *, user_id=None, history=None):
+            calls.append((text, user_id, list(history or [])))
+            if text == "Нет":
+                return "Понял, предыдущее время неверно. Во сколько ты принимаешь таблетки?"
+            return "Ты принимаешь таблетки в 23:00."
+
+        with patch("modules.assistant_api.answer_unhandled", side_effect=answer):
+            first = self.client.post("/api/chat", json={"message": "Во сколько я принимаю таблетки?"})
+            second = self.client.post("/api/chat", json={"message": "Нет"})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][2], [])
+        self.assertEqual(
+            calls[1][2],
+            [
+                {"role": "user", "content": "Во сколько я принимаю таблетки?"},
+                {"role": "assistant", "content": "Ты принимаешь таблетки в 23:00."},
+            ],
+        )
+        self.assertEqual(
+            second.get_json()["replies"],
+            ["Понял, предыдущее время неверно. Во сколько ты принимаешь таблетки?"],
+        )
+
+    def test_first_person_correction_reaches_ai_instead_of_calendar_creation(self):
+        with patch(
+            "modules.assistant_api.answer_unhandled",
+            return_value="Понял: таблетки в 23:00.",
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Я пью таблетки в 23:00"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(payload["replies"], ["Понял: таблетки в 23:00."])
 
     def test_unavailable_ai_keeps_safe_router_fallback(self):
         async def unhandled_route(update, context, text=None):
