@@ -29,6 +29,10 @@ DEFAULT_GIGACHAT_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 DEFAULT_GIGACHAT_CA_URL = "https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt"
 DEFAULT_GIGACHAT_CA_BUNDLE = PROJECT_ROOT / "data" / "certs" / "gigachat-ca-bundle.pem"
 DEFAULT_GIGACHAT_ROOT_CERT = PROJECT_ROOT / "data" / "certs" / "russian_trusted_root_ca_pem.crt"
+TRANSIENT_GIGACHAT_STATUSES = frozenset({429, 500, 502, 503, 504})
+COMPLETION_MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.5
+RETRY_MAX_SECONDS = 4.0
 
 
 class AIError(RuntimeError):
@@ -41,6 +45,12 @@ class AIConfigurationError(AIError):
 
 class AIProviderError(AIError):
     pass
+
+
+class AIRateLimitError(AIProviderError):
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -69,7 +79,15 @@ class _TokenEntry:
 
 _token_lock = threading.Lock()
 _ca_lock = threading.Lock()
+_personal_completion_lock = threading.Lock()
+_provider_state_lock = threading.Lock()
 _token_cache: dict[str, _TokenEntry] = {}
+_provider_state = {
+    "state": "unknown",
+    "last_error": None,
+    "retry_after_seconds": None,
+    "updated_at": None,
+}
 
 
 def _as_bool(value: str | None, default: bool = True) -> bool:
@@ -117,13 +135,34 @@ def load_ai_settings() -> AISettings:
     )
 
 
+def _set_provider_state(state: str, error: str | None = None, retry_after: float | None = None) -> None:
+    with _provider_state_lock:
+        _provider_state.update(
+            state=state,
+            last_error=error,
+            retry_after_seconds=(round(max(0.0, retry_after), 3) if retry_after is not None else None),
+            updated_at=time.time(),
+        )
+
+
+def _provider_status_snapshot() -> dict:
+    with _provider_state_lock:
+        return dict(_provider_state)
+
+
 def get_ai_status() -> dict:
     settings = load_ai_settings()
+    runtime = _provider_status_snapshot()
+    if not settings.enabled:
+        runtime = {**runtime, "state": "disabled"}
+    elif not settings.configured:
+        runtime = {**runtime, "state": "unconfigured"}
     return {
         "enabled": settings.enabled,
         "provider": settings.provider,
         "configured": settings.configured,
         "model": settings.model,
+        **runtime,
     }
 
 
@@ -294,13 +333,24 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
     return result
 
 
-def _gigachat_completion(
+def _retry_after_seconds(response, attempt: int) -> float:
+    headers = getattr(response, "headers", {}) or {}
+    raw = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if raw not in {None, ""}:
+        try:
+            return min(RETRY_MAX_SECONDS, max(0.0, float(raw)))
+        except (TypeError, ValueError):
+            pass
+    return min(RETRY_MAX_SECONDS, RETRY_BACKOFF_SECONDS * (2**attempt))
+
+
+def _completion_request(
     settings: AISettings,
     messages: list[dict],
     *,
-    response_format: dict | None = None,
-    max_tokens: int | None = None,
-    temperature: float = 0.2,
+    response_format: dict | None,
+    max_tokens: int | None,
+    temperature: float,
 ) -> str:
     verify = _ensure_gigachat_ca_bundle(settings)
     clean_messages = _validate_messages(messages)
@@ -315,7 +365,9 @@ def _gigachat_completion(
     if response_format is not None:
         payload["response_format"] = response_format
 
-    for attempt in range(2):
+    refreshed_token = False
+    last_retry_after = None
+    for attempt in range(COMPLETION_MAX_ATTEMPTS):
         try:
             response = requests.post(
                 f"{settings.base_url}/chat/completions",
@@ -329,23 +381,85 @@ def _gigachat_completion(
                 verify=verify,
             )
         except requests.RequestException as exc:
+            if attempt + 1 < COMPLETION_MAX_ATTEMPTS:
+                delay = min(RETRY_MAX_SECONDS, RETRY_BACKOFF_SECONDS * (2**attempt))
+                _set_provider_state("degraded", "transport_error", delay)
+                time.sleep(delay)
+                continue
+            _set_provider_state("degraded", "transport_error")
             raise AIProviderError("GigaChat completion request failed") from exc
-        if response.status_code == 401 and attempt == 0:
+
+        if response.status_code == 401 and not refreshed_token:
+            refreshed_token = True
             _invalidate_token(settings)
             token = _get_access_token(settings, verify)
             continue
+
+        if response.status_code in TRANSIENT_GIGACHAT_STATUSES:
+            delay = _retry_after_seconds(response, attempt)
+            last_retry_after = delay
+            error_kind = "rate_limited" if response.status_code == 429 else f"http_{response.status_code}"
+            _set_provider_state("degraded", error_kind, delay)
+            if attempt + 1 < COMPLETION_MAX_ATTEMPTS:
+                time.sleep(delay)
+                continue
+            if response.status_code == 429:
+                raise AIRateLimitError(
+                    "GigaChat rate limit exceeded",
+                    retry_after=last_retry_after,
+                )
+            raise AIProviderError(f"GigaChat completion failed: HTTP {response.status_code}")
+
         if response.status_code != 200:
+            _set_provider_state("degraded", f"http_{response.status_code}")
             raise AIProviderError(f"GigaChat completion failed: HTTP {response.status_code}")
         try:
             data = response.json()
             content = data["choices"][0]["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
+            _set_provider_state("degraded", "invalid_response")
             raise AIProviderError("GigaChat completion returned an unexpected response") from exc
         answer = str(content or "").strip()
         if not answer:
+            _set_provider_state("degraded", "empty_response")
             raise AIProviderError("GigaChat completion returned an empty response")
+        _set_provider_state("healthy")
         return answer
-    raise AIProviderError("GigaChat authorization could not be refreshed")
+    raise AIProviderError("GigaChat completion failed after retries")
+
+
+def _gigachat_completion(
+    settings: AISettings,
+    messages: list[dict],
+    *,
+    response_format: dict | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.2,
+) -> str:
+    if settings.scope != "GIGACHAT_API_PERS":
+        return _completion_request(
+            settings,
+            messages,
+            response_format=response_format,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    wait_timeout = max(1.0, float(settings.timeout_seconds) + 5.0)
+    acquired = _personal_completion_lock.acquire(timeout=wait_timeout)
+    if not acquired:
+        _set_provider_state("degraded", "personal_scope_busy", 1.0)
+        raise AIRateLimitError("GigaChat personal request queue is busy", retry_after=1.0)
+    try:
+        return _completion_request(
+            settings,
+            messages,
+            response_format=response_format,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    finally:
+        _personal_completion_lock.release()
 
 
 def complete(
@@ -401,3 +515,10 @@ def complete_structured(
 def _reset_token_cache_for_tests() -> None:
     with _token_lock:
         _token_cache.clear()
+    with _provider_state_lock:
+        _provider_state.update(
+            state="unknown",
+            last_error=None,
+            retry_after_seconds=None,
+            updated_at=None,
+        )

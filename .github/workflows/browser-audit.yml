@@ -39,3 +39,48 @@ jobs:
           name: browser-features
           path: evidence/browser-features
           if-no-files-found: ignore
+
+  webkit-ios-smoke:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      EMAIL_AUTO_WORKER_ENABLED: "0"
+      WEB_PUSH_WORKER_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install application dependencies
+        run: pip install -r requirements.txt
+      - name: Install WebKit
+        run: |
+          pip install playwright
+          python -m playwright install webkit
+      - name: Run WebKit iPhone smoke
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          command = [
+              sys.executable,
+              "tests/browser_webkit_smoke.py",
+              "--output",
+              "evidence/browser-webkit-ios",
+          ]
+          try:
+              completed = subprocess.run(command, timeout=90)
+          except subprocess.TimeoutExpired:
+              print("WebKit iPhone smoke exceeded 90 seconds", file=sys.stderr, flush=True)
+              raise SystemExit(124)
+          raise SystemExit(completed.returncode)
+          PY
+      - name: Upload WebKit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-webkit-ios
+          path: evidence/browser-webkit-ios
+          if-no-files-found: ignore

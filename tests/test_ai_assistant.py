@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from integrations.ai import AIProviderError
+from integrations.ai import AIRateLimitError, AIProviderError
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, answer_unhandled, replace_unhandled_reply
 
 
@@ -125,6 +125,14 @@ class AIAssistantTests(unittest.TestCase):
         messages = complete.call_args.args[0]
         self.assertEqual(len(messages), 2)
         self.assertNotIn("Долговременная память пользователя", messages[0]["content"])
+
+    @patch("modules.ai_assistant.complete", side_effect=AIRateLimitError("busy", retry_after=3.0))
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_rate_limit_returns_clear_degraded_message(self, _available, _complete):
+        answer = answer_unhandled("Привет")
+        self.assertIn("ИИ сейчас временно занят", answer)
+        self.assertIn("3 сек", answer)
+        self.assertIn("Календарь", answer)
 
     @patch("modules.ai_assistant.complete", side_effect=AIProviderError("provider failed"))
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
