@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-from core.db import get_category_colors, get_user_timezone
+from core.db import get_category_colors, get_google_token, get_user_timezone
 from core.reminder_store import create_reminder
 from core.task_planner_store import create_planner_task
 from modules.calendar import _create_event
@@ -19,6 +22,15 @@ from modules.file_ingest import ALLOWED_CATEGORIES
 logger = logging.getLogger(__name__)
 email_actions_api = Blueprint("email_actions", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+AUTO_CREATE_CONFIDENCE = 0.99
+AUTO_CREATE_DOCUMENT_TYPES = {
+    "flight_ticket",
+    "boarding_pass",
+    "train_ticket",
+    "bus_ticket",
+    "travel_ticket",
+}
 
 
 def _user() -> int:
@@ -55,7 +67,49 @@ def _clean_location(value: object) -> str:
     return " ".join(str(value or "").split()).strip(" ,.;")[:500]
 
 
-def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
+def _attachment_event_key(source: object, proposal: dict) -> str | None:
+    if not isinstance(source, dict):
+        return None
+    identity = [
+        str(source.get("account") or "").strip(),
+        str(source.get("provider_message_id") or "").strip(),
+        str(source.get("attachment_id") or "").strip(),
+        str(source.get("attachment") or "").strip(),
+        str(proposal.get("start") or "").strip(),
+        str(proposal.get("end") or "").strip(),
+        str(proposal.get("title") or "").strip(),
+    ]
+    if not any(identity[1:4]):
+        return None
+    digest = hashlib.sha256("\x1f".join(identity).encode("utf-8")).hexdigest()
+    return digest[:40]
+
+
+def _existing_attachment_calendar_event(user_id: int, event_key: str) -> dict | None:
+    token_dict = get_google_token(user_id)
+    if not token_dict:
+        raise PermissionError("GOOGLE_AUTH_REQUIRED")
+    credentials = Credentials.from_authorized_user_info(token_dict)
+    service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+    result = service.events().list(
+        calendarId="primary",
+        privateExtendedProperty=f"smartPlannerEmailAttachmentKey={event_key}",
+        maxResults=2,
+        showDeleted=False,
+    ).execute()
+    for item in result.get("items") or []:
+        if item.get("status") != "cancelled":
+            return item
+    return None
+
+
+def _ensure_attachment_calendar_event(
+    user_id: int,
+    proposal: dict,
+    *,
+    source: object = None,
+    auto_created: bool = False,
+) -> tuple[dict, bool]:
     if proposal.get("ready") is False:
         raise ValueError("Событие из вложения требует проверки перед добавлением")
 
@@ -82,13 +136,23 @@ def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
     start_location = _clean_location(proposal.get("start_location"))
     end_location = _clean_location(proposal.get("end_location"))
     movement = bool(proposal.get("movement") and start_location and end_location)
+    if movement and proposal.get("timezone_verified") is False:
+        raise ValueError("Для автоматического добавления поездки часовые пояса должны быть проверены")
     calendar_location = start_location if movement else (location or start_location or end_location)
 
+    event_key = _attachment_event_key(source, proposal)
+    if event_key:
+        existing = _existing_attachment_calendar_event(user_id, event_key)
+        if existing is not None:
+            return existing, False
+
     details = str(proposal.get("description") or "").strip()[:1500]
-    description = (
-        f"AI Smart Planner category: {category}\n"
-        "Создано из вложения электронной почты после подтверждения пользователя."
+    creation_note = (
+        "Автоматически создано из транспортного билета с уверенностью распознавания 99% или выше."
+        if auto_created
+        else "Создано из вложения электронной почты после подтверждения пользователя."
     )
+    description = f"AI Smart Planner category: {category}\n{creation_note}"
     if movement:
         description += f"\nМаршрут: {start_location} → {end_location}"
     if details:
@@ -98,6 +162,10 @@ def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
         "smartPlannerType": "email_attachment_import",
         "smartPlannerManaged": "1",
     }
+    if event_key:
+        private["smartPlannerEmailAttachmentKey"] = event_key
+    if auto_created:
+        private["smartPlannerAutoCreated"] = "1"
     if movement:
         private["smartPlannerMovement"] = "1"
         private["smartPlannerStartLocation"] = start_location
@@ -120,7 +188,79 @@ def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
     color = get_category_colors(user_id).get(category)
     if color:
         event["colorId"] = color
-    return _create_event(user_id, event)
+    return _create_event(user_id, event), True
+
+
+def _create_attachment_calendar_event(user_id: int, proposal: dict) -> dict:
+    created, _ = _ensure_attachment_calendar_event(user_id, proposal)
+    return created
+
+
+def _auto_eligible(action: dict) -> bool:
+    event = action.get("attachment_event")
+    if not isinstance(event, dict):
+        return False
+    if action.get("action_type") != "calendar_event" or action.get("ready") is False or event.get("ready") is False:
+        return False
+    document_type = str(action.get("attachment_document_type") or "").strip().lower()
+    if document_type not in AUTO_CREATE_DOCUMENT_TYPES:
+        return False
+    try:
+        confidence = float(action.get("confidence") or event.get("confidence") or 0)
+    except (TypeError, ValueError):
+        return False
+    if confidence < AUTO_CREATE_CONFIDENCE:
+        return False
+    if event.get("movement") and event.get("timezone_verified") is not True:
+        return False
+    return True
+
+
+def apply_high_confidence_attachment_actions(user_id: int, plan: dict) -> dict:
+    """Auto-create only validated transport tickets at or above the user's 99% policy."""
+    created_count = 0
+    existing_count = 0
+    failed_count = 0
+    actions = plan.get("actions") if isinstance(plan, dict) else None
+    if not isinstance(actions, list):
+        return plan
+
+    for action in actions:
+        if not isinstance(action, dict) or not _auto_eligible(action):
+            continue
+        try:
+            event, created = _ensure_attachment_calendar_event(
+                user_id,
+                action["attachment_event"],
+                source=action.get("source"),
+                auto_created=True,
+            )
+            action["applied"] = True
+            action["calendar_event_id"] = str(event.get("id") or "")
+            if created:
+                action["auto_created"] = True
+                created_count += 1
+            else:
+                action["already_in_calendar"] = True
+                existing_count += 1
+        except Exception as exc:
+            failed_count += 1
+            action["auto_create_error"] = "Не удалось автоматически добавить билет в календарь."
+            logger.warning(
+                "High-confidence email ticket auto-create failed user=%s title=%s (%s)",
+                user_id,
+                action.get("title"),
+                type(exc).__name__,
+            )
+
+    plan["auto_calendar"] = {
+        "enabled": True,
+        "confidence_threshold": AUTO_CREATE_CONFIDENCE,
+        "created": created_count,
+        "already_present": existing_count,
+        "failed": failed_count,
+    }
+    return plan
 
 
 @email_actions_api.after_app_request
@@ -142,7 +282,8 @@ def email_actions_js():
 def email_plan():
     payload = request.get_json(silent=True) or {}
     request_text = str(payload.get("request") or "Разбери последние письма: что нужно учесть в планах?")[:1000]
-    return build_email_plan(_user(), request_text, include_attachments=True)
+    plan = build_email_plan(_user(), request_text, include_attachments=True)
+    return apply_high_confidence_attachment_actions(_user(), plan)
 
 
 @email_actions_api.post("/api/email/action")
@@ -156,8 +297,20 @@ def apply_email_action():
 
     attachment_event = payload.get("attachment_event")
     if action_type == "calendar_event" and isinstance(attachment_event, dict):
-        created = _create_attachment_calendar_event(user_id, attachment_event)
-        return {"ok": True, "type": "calendar_event", "item": created, "source": "email_attachment"}
+        created, created_new = _ensure_attachment_calendar_event(
+            user_id,
+            attachment_event,
+            source=payload.get("source"),
+            auto_created=False,
+        )
+        return {
+            "ok": True,
+            "type": "calendar_event",
+            "item": created,
+            "source": "email_attachment",
+            "created": created_new,
+            "already_present": not created_new,
+        }
 
     when = _parse_when(payload.get("due_at"), required=action_type != "task")
     duration = payload.get("duration_minutes")
