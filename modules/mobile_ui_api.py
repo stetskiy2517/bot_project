@@ -81,12 +81,14 @@ def inject_mobile_ui(response):
     stylesheets = (
         '<link rel="stylesheet" href="/mobile-ui.css" />',
         '<link rel="stylesheet" href="/mobile-ui-overlays.css" />',
+        '<link rel="stylesheet" href="/attention-center.css" />',
     )
     scripts = (
         '<script src="/mobile-ui.js"></script>',
         '<script src="/mobile-ui-fixes.js"></script>',
         '<script src="/swipe-navigation.js"></script>',
         '<script src="/file-ingest.js"></script>',
+        '<script src="/attention-center.js"></script>',
     )
     if "</head>" in html:
         for stylesheet in stylesheets:
@@ -110,6 +112,11 @@ def mobile_ui_overlays_css():
     return send_from_directory(WEB_DIR, "mobile-ui-overlays.css", mimetype="text/css")
 
 
+@mobile_ui_api.get("/attention-center.css")
+def attention_center_css():
+    return send_from_directory(WEB_DIR, "attention-center.css", mimetype="text/css")
+
+
 @mobile_ui_api.get("/mobile-ui.js")
 def mobile_ui_js():
     return send_from_directory(WEB_DIR, "mobile-ui.js", mimetype="application/javascript")
@@ -123,6 +130,11 @@ def mobile_ui_fixes_js():
 @mobile_ui_api.get("/swipe-navigation.js")
 def swipe_navigation_js():
     return send_from_directory(WEB_DIR, "swipe-navigation.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/attention-center.js")
+def attention_center_js():
+    return send_from_directory(WEB_DIR, "attention-center.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/api/mobile/attention")
