@@ -39,6 +39,10 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn('planner-library-open', source)
         self.assertIn('closeTopSheet', source)
         self.assertIn('library-swipe-row', source)
+        self.assertIn('addEventListener("wheel"', source)
+        self.assertIn('openEventSheet', source)
+        self.assertIn('[data-event-id]', source)
+        self.assertIn('if (topSheetOpen())', source)
 
 
 class MobileUiApiTests(unittest.TestCase):
@@ -63,7 +67,10 @@ class MobileUiApiTests(unittest.TestCase):
     def test_swipe_navigation_asset_is_served(self):
         response = self.client.get("/swipe-navigation.js")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("VIEW_ORDER", response.get_data(as_text=True))
+        source = response.get_data(as_text=True)
+        self.assertIn("VIEW_ORDER", source)
+        self.assertIn("WHEEL_MIN_X", source)
+        self.assertIn("openEventSheet", source)
 
     def test_today_endpoint_is_stable_without_calendar(self):
         with self.client.session_transaction() as session:
