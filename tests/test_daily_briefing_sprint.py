@@ -13,10 +13,10 @@ from modules import daily_review, navigation_notifications
 
 class DailyBriefingSprintTests(unittest.TestCase):
     def setUp(self):
-        self.user_id = 992700127
-        db.get_or_create_google_user(
-            f"briefing-{self.user_id}",
-            f"briefing-{self.user_id}@example.test",
+        identity = "briefing-sprint-992700127"
+        self.user_id = db.get_or_create_google_user(
+            identity,
+            identity + "@example.test",
             "Briefing Test",
         )
         db.save_user_timezone(self.user_id, "Europe/Moscow")
