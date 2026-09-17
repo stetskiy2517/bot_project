@@ -46,18 +46,39 @@
   min-width: 0;
 }
 
+.mobile-attention-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
 .mobile-attention-title {
+  min-width: 0;
   color: #202020;
   font-size: 13px;
   font-weight: 680;
   line-height: 1.32;
 }
 
+.mobile-attention-ai-badge {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #ececea;
+  color: #565652;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: .01em;
+}
+
 .mobile-attention-body {
-  margin-top: 4px;
-  color: #7b7b76;
+  margin-top: 5px;
+  color: #6f6f6a;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.48;
+  white-space: pre-line;
 }
 
 .mobile-attention-actions {
