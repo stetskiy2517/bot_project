@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import secrets
@@ -24,7 +25,6 @@ def main() -> None:
     from core.db import get_or_create_google_user, save_user_timezone
     from core.library_store import get_saved_reminder
     from core.reminder_store import create_reminder
-    from datetime import datetime, timedelta, timezone
     from modules.reminder_categories import reminder_category
     from playwright.sync_api import expect, sync_playwright
     from werkzeug.serving import make_server
@@ -86,26 +86,26 @@ def main() -> None:
 
             page.locator('#mobileBottomNav [data-view="more"]').click()
             expect(page.locator("#mobileMoreScreen")).to_be_visible()
-            page.locator('[data-more="saved"]').click()
+            page.locator('[data-more="tasks"]').click()
             expect(page.locator("#libraryScreen")).to_be_visible()
-
-            # Reminders are no longer a separate user-facing section. They are
-            # lightweight tasks with an attached notification inside Tasks.
             expect(page.locator("#libraryRemindersTab")).to_be_hidden()
-            page.locator("#libraryTasksTab").click()
+
             card = page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"]')
             expect(card).to_be_visible()
             expect(card).to_contain_text("Позвонить клиенту")
             expect(card).to_contain_text("Уведомление")
             expect(card).to_contain_text("Работа")
 
-            edit_button = card.locator(f'[data-reminder-edit="{reminder_id}"]')
-            expect(edit_button).to_be_visible()
-            edit_button.click()
+            bell = card.locator(".planner-task-bell")
+            expect(bell).to_be_visible()
+            bell.click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
             expect(page.locator(".task-notification-edit-title")).to_have_text("Задача с уведомлением")
+            expect(page.locator("#reminderEditAt")).to_be_visible()
 
+            new_when = datetime.now() + timedelta(days=1, hours=1)
             page.locator("#reminderEditText").fill("Принять лекарство")
+            page.locator("#reminderEditAt").fill(new_when.strftime("%Y-%m-%dT%H:%M"))
             page.locator("#reminderEditCategory").select_option("personal")
             page.locator("#reminderEditRepeat").select_option("daily")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
@@ -118,8 +118,9 @@ def main() -> None:
             assert stored["text"] == "Принять лекарство", stored
             assert stored["repeat_rule"] == "daily", stored
             assert reminder_category(stored) == "personal", stored
+            assert datetime.fromisoformat(stored["remind_at"].replace("Z", "+00:00")) > datetime.now(timezone.utc)
 
-            page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"] [data-reminder-edit]').click()
+            page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"] .planner-task-bell').click()
             page.locator("#reminderEditCategory").select_option("auto")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
