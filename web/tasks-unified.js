@@ -13,6 +13,7 @@
 
   let installed = false;
   let syncTimer = null;
+  let repairTimer = null;
   let syncing = false;
 
   function api(path, options) {
@@ -79,11 +80,6 @@
     };
   }
 
-  function mergeReminderData(baseItems, detailItems) {
-    const details = new Map((detailItems || []).map(item => [Number(item.id), item]));
-    return (baseItems || []).map(item => ({...item, ...(details.get(Number(item.id)) || {})}));
-  }
-
   function visibleReminder(item, filters) {
     if (filters.query && !String(item.text || "").toLocaleLowerCase("ru-RU").includes(filters.query)) return false;
     if (filters.category && String(item.category || "") !== filters.category) return false;
@@ -143,11 +139,8 @@
   }
 
   async function loadReminders() {
-    const [library, detailResult] = await Promise.all([
-      api("/api/library"),
-      api("/api/mobile/reminders/details").catch(() => ({items: []})),
-    ]);
-    return mergeReminderData(library.reminders || [], detailResult.items || []);
+    const result = await api("/api/mobile/reminders/details");
+    return Array.isArray(result.items) ? result.items : [];
   }
 
   async function syncReminderTasks() {
@@ -157,7 +150,7 @@
     syncing = true;
     try {
       const reminders = (await loadReminders()).filter(item => visibleReminder(item, currentFilters()));
-      if (!taskTabActive()) return;
+      if (!taskTabActive() || !list.querySelector(".planner-task-toolbar")) return;
 
       list.querySelectorAll(".planner-reminder-task, .planner-task-reminder-summary").forEach(node => node.remove());
       if (reminders.length) {
@@ -170,6 +163,7 @@
       summary.textContent = `С уведомлением ${reminders.filter(item => item.status !== "completed").length}`;
       const filters = list.querySelector(".planner-task-filters");
       if (filters) filters.insertAdjacentElement("afterend", summary);
+      else list.append(summary);
       for (const reminder of reminders) list.append(reminderCard(reminder));
     } catch (error) {
       notify(error?.message || "Не удалось загрузить задачи с уведомлением.");
@@ -181,6 +175,20 @@
   function scheduleSync(delay = 60) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(syncReminderTasks, delay);
+  }
+
+  function taskRenderInProgress(list) {
+    const loading = list?.querySelector(".library-loading");
+    return Boolean(loading && String(loading.textContent || "").toLocaleLowerCase("ru-RU").includes("задач"));
+  }
+
+  function repairTaskView(tasks, list) {
+    if (!taskTabActive() || !list || list.querySelector(".planner-task-toolbar") || taskRenderInProgress(list)) return;
+    clearTimeout(repairTimer);
+    repairTimer = setTimeout(() => {
+      if (!taskTabActive() || list.querySelector(".planner-task-toolbar") || taskRenderInProgress(list)) return;
+      tasks.click();
+    }, 40);
   }
 
   function refreshTaskView() {
@@ -221,15 +229,6 @@
     } finally {
       button.disabled = false;
     }
-  }
-
-  function mutationNeedsSync(mutations) {
-    return mutations.some(mutation => Array.from(mutation.addedNodes || []).some(node =>
-      node.nodeType === 1 && (
-        node.matches?.(".planner-task-toolbar, .planner-task-filters") ||
-        node.querySelector?.(".planner-task-toolbar, .planner-task-filters")
-      )
-    ));
   }
 
   function ensureNotificationRepeatEditor(backdrop) {
@@ -350,7 +349,7 @@
     `;
     document.head.appendChild(style);
 
-    tasks.addEventListener("click", () => scheduleSync(90));
+    tasks.addEventListener("click", () => scheduleSync(120));
     list.addEventListener("click", event => {
       const button = event.target.closest("[data-unified-reminder-action]");
       if (!button) return;
@@ -359,8 +358,13 @@
       runReminderAction(button);
     });
 
-    const listObserver = new MutationObserver(mutations => {
-      if (taskTabActive() && mutationNeedsSync(mutations)) scheduleSync(80);
+    const listObserver = new MutationObserver(() => {
+      if (!taskTabActive()) return;
+      if (list.querySelector(".planner-task-toolbar")) {
+        if (!list.querySelector(".planner-task-reminder-summary")) scheduleSync(40);
+        return;
+      }
+      repairTaskView(tasks, list);
     });
     listObserver.observe(list, {childList: true, subtree: true});
 
