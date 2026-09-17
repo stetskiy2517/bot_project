@@ -211,6 +211,15 @@ class DynamicCategoryApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "invalid_category")
 
+    def test_non_object_payload_is_rejected_without_server_error(self):
+        response = self.client.post(
+            "/api/categories",
+            data='["bad"]',
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_category")
+
 
 if __name__ == "__main__":
     unittest.main()
