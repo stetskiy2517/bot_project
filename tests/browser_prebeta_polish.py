@@ -87,6 +87,14 @@ def main() -> None:
                 arg=email,
             )
 
+            # A first-install clients.claim() controller change must not reload an active screen.
+            page.evaluate("""
+                window.__claimSentinel = 'alive';
+                navigator.serviceWorker?.dispatchEvent(new Event('controllerchange'));
+            """)
+            page.wait_for_timeout(250)
+            assert page.evaluate("window.__claimSentinel") == "alive"
+
             # Document -> right/back semantics: trackpad gesture returns one level to Saved.
             page.locator('#mobileBottomNav [data-view="more"]').click()
             page.locator('[data-more="saved"]').click()
@@ -102,7 +110,7 @@ def main() -> None:
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
 
-            # Settings are five separate screens; inside a screen controls are open, not nested accordions.
+            # Settings are five separate screens with normal interactive accordions inside.
             page.locator('#mobileBottomNav [data-view="more"]').click()
             page.locator('[data-more="settings"]').click()
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
@@ -111,8 +119,10 @@ def main() -> None:
             expect(page.locator("#settingsTheme-account")).to_be_visible()
             diagnostics = page.locator("#diagnosticsGroup")
             expect(diagnostics).to_be_visible()
+            expect(diagnostics).not_to_have_attribute("open", "")
+            expect(diagnostics).not_to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
+            diagnostics.locator("summary").click()
             expect(diagnostics).to_have_attribute("open", "")
-            expect(diagnostics).to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
             page.locator("#refreshDiagnostics").click()
             page.wait_for_function("document.getElementById('diagVersion')?.textContent?.includes('prebeta-v14')")
             expect(page.locator("#diagNetwork")).not_to_have_text("—")
