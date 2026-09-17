@@ -21,7 +21,7 @@ from scripts.backup_state import retention_days, MIN_SNAPSHOTS_TO_KEEP
 ERASE_CONFIRMATION = "УДАЛИТЬ МОИ ДАННЫЕ"
 USER_TABLES = (
     "command_effects", "command_requests", "conversation_state", "undo_actions",
-    "reminder_push_policy", "review_deliveries", "assistant_preferences",
+    "reminder_push_policy", "review_deliveries", "daily_review_ai_cache", "assistant_preferences",
     "command_templates", "proactive_actions", "proactive_feedback", "attention_items",
     "ai_memory_event_processing", "ai_calendar_sync", "user_memories", "ai_memory_events",
     "feature_entitlements", "notes", "note_metadata", "reminder_details", "reminders", "tasks",
@@ -93,6 +93,7 @@ def export_account(user_id: int) -> dict:
                 "users": "timezone,work_start,work_end,work_days,buffer_minutes,category_colors",
                 "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes,parking_buffer_minutes,walking_buffer_minutes,pending_origin_json",
                 "assistant_preferences": "settings_json",
+                "daily_review_ai_cache": "day,kind,source_hash,text,created_at",
                 "life_balance_ratings": "category,rating,target,updated_at",
                 "command_templates": "template_id,name,spec_json",
                 "feature_entitlements": "feature,enabled,source,updated_at",
