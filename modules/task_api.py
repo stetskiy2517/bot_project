@@ -41,6 +41,8 @@ def task_ui_hook(response):
             scripts.append('<script defer src="/tasks.js"></script>')
         if 'src="/tasks-unified.js"' not in html:
             scripts.append('<script defer src="/tasks-unified.js"></script>')
+        if 'src="/task-swipe.js"' not in html:
+            scripts.append('<script defer src="/task-swipe.js"></script>')
         if scripts and "</body>" in html:
             block = "\n    ".join(scripts)
             response.set_data(html.replace("</body>", f"    {block}\n  </body>", 1))
@@ -55,6 +57,11 @@ def tasks_js():
 @task_api.get("/tasks-unified.js")
 def tasks_unified_js():
     return send_from_directory(WEB_DIR, "tasks-unified.js", mimetype="application/javascript")
+
+
+@task_api.get("/task-swipe.js")
+def task_swipe_js():
+    return send_from_directory(WEB_DIR, "task-swipe.js", mimetype="application/javascript")
 
 
 @task_api.get("/api/tasks")
