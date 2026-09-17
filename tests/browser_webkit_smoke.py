@@ -112,12 +112,17 @@ def main() -> int:
                 )
                 _checkpoint("authenticated mobile shell ready")
 
-                _checkpoint("checking unified tasks library on WebKit")
+                _checkpoint("checking distinct tasks and notes routes on WebKit")
                 page.locator('#mobileBottomNav [data-view="more"]').click()
-                page.locator('[data-more="saved"]').click()
+                saved_label = page.locator('[data-more="saved"] .mobile-more-title').inner_text().strip()
+                if saved_label != "Заметки":
+                    raise AssertionError(f"Saved row must be named 'Заметки', got {saved_label!r}")
+
+                page.locator('[data-more="tasks"]').click()
                 page.wait_for_function(
                     "document.getElementById('libraryTasksTab') && "
-                    "document.getElementById('libraryScreen').classList.contains('library-screen')",
+                    "document.getElementById('libraryTasksTab').classList.contains('active') && "
+                    "document.querySelector('#libraryList .planner-task-toolbar')",
                     timeout=10000,
                 )
                 reminders_display = page.locator("#libraryRemindersTab").evaluate(
@@ -132,13 +137,25 @@ def main() -> int:
                     )
                 if tasks_display == "none":
                     raise AssertionError("Tasks tab is hidden in unified tasks view")
-                page.locator("#libraryTasksTab").click()
+
+                page.locator("#libraryBackBtn").click()
                 page.wait_for_function(
-                    "document.querySelector('#libraryList .planner-task-toolbar')",
+                    "!document.getElementById('app').classList.contains('library-active')",
+                    timeout=5000,
+                )
+                page.locator('[data-more="saved"]').click()
+                page.wait_for_function(
+                    "document.getElementById('app').classList.contains('library-active') && "
+                    "document.getElementById('libraryNotesTab').classList.contains('active') && "
+                    "document.getElementById('libraryNotesTab').getAttribute('aria-selected') === 'true' && "
+                    "!document.getElementById('libraryTasksTab').classList.contains('active') && "
+                    "document.getElementById('libraryTasksTab').getAttribute('aria-selected') !== 'true'",
                     timeout=10000,
                 )
+                if page.locator("#libraryList .planner-task-toolbar").count():
+                    raise AssertionError("Notes route incorrectly rendered the tasks toolbar")
                 page.locator("#libraryBackBtn").click()
-                _checkpoint("unified tasks library verified")
+                _checkpoint("tasks and notes routes are distinct")
 
                 page.locator('#mobileBottomNav [data-view="chat"]').click()
                 page.wait_for_function(
