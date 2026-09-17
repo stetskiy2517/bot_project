@@ -323,7 +323,7 @@
 
   function install() {
     if (installed) return true;
-    const tabs = document.getElementById("libraryTabs");
+    const tabs = document.querySelector("#libraryScreen .library-tabs");
     const reminders = document.getElementById("libraryRemindersTab");
     const tasks = document.getElementById("libraryTasksTab");
     const list = document.getElementById("libraryList");
