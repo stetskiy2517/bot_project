@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import secrets
+import sys
+import tempfile
+import threading
+import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ["WEB_PUSH_WORKER_ENABLED"] = "0"
+os.environ["EMAIL_AUTO_WORKER_ENABLED"] = "0"
+os.environ["BASE_URL"] = ""
+os.environ["WEB_SESSION_SECRET"] = secrets.token_hex(32)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium")
+    args = parser.parse_args()
+
+    temporary = tempfile.TemporaryDirectory()
+    os.environ["DB_PATH"] = str(Path(temporary.name) / "prebeta-polish-browser.db")
+
+    import web_app
+    from core.db import get_or_create_google_user, save_user_timezone
+    from core.note_store import create_note
+    from playwright.sync_api import expect, sync_playwright
+    from werkzeug.serving import make_server
+
+    app = web_app.create_web_app()
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    base = f"http://127.0.0.1:{server.server_port}"
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        label = secrets.token_hex(8)
+        email = label + "@example.test"
+        user_id = get_or_create_google_user(label, email, "Prebeta Polish Test")
+        save_user_timezone(user_id, "Europe/Moscow")
+        create_note(user_id, "Тестовая заметка для проверки возврата свайпом", title="Тестовая заметка")
+        session_value = app.session_interface.get_signing_serializer(app).dumps({
+            "user_id": user_id,
+            "auth_time": time.time(),
+            "csrf_token": secrets.token_urlsafe(32),
+            "_permanent": True,
+        })
+
+        with sync_playwright() as playwright:
+            browser_type = playwright.webkit if args.engine == "webkit" else playwright.chromium
+            launch_kwargs = {"headless": True}
+            if args.engine == "chromium":
+                launch_kwargs.update({
+                    "executable_path": os.environ.get("CHROMIUM_PATH") or None,
+                    "args": ["--no-sandbox"],
+                })
+            browser = browser_type.launch(**launch_kwargs)
+            context = browser.new_context(
+                viewport={"width": 390, "height": 844},
+                is_mobile=args.engine == "webkit",
+                has_touch=args.engine == "webkit",
+            )
+            context.add_cookies([{
+                "name": "session",
+                "value": session_value,
+                "url": base,
+                "httpOnly": True,
+                "sameSite": "Lax",
+            }])
+            page = context.new_page()
+            errors: list[str] = []
+            dialogs: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
+
+            page.goto(base)
+            page.wait_for_function(
+                "window.PlannerRequests && window.PlannerPolish && window.PlannerSettingsThemes && "
+                "!document.getElementById('login').classList.contains('open')"
+            )
+            page.wait_for_function(
+                "expected => document.getElementById('accountEmail')?.textContent === expected",
+                arg=email,
+            )
+
+            # Document -> right/back semantics: trackpad gesture returns one level to Saved.
+            page.locator('#mobileBottomNav [data-view="more"]').click()
+            page.locator('[data-more="saved"]').click()
+            expect(page.locator("#libraryScreen")).to_be_visible()
+            note = page.locator(".library-card", has_text="Тестовая заметка").first
+            expect(note).to_be_visible()
+            note.click()
+            page.wait_for_function("document.getElementById('app').classList.contains('chat-active')")
+            page.locator("#app").evaluate(
+                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
+            )
+            page.wait_for_function("document.getElementById('app').classList.contains('library-active')")
+            expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
+            page.locator("#libraryBackBtn").click()
+
+            # Settings are five separate screens; inside a screen controls are open, not nested accordions.
+            page.locator('#mobileBottomNav [data-view="more"]').click()
+            page.locator('[data-more="settings"]').click()
+            expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(5)
+            page.locator('[data-settings-open="account"]').click()
+            expect(page.locator("#settingsTheme-account")).to_be_visible()
+            diagnostics = page.locator("#diagnosticsGroup")
+            expect(diagnostics).to_be_visible()
+            expect(diagnostics).to_have_attribute("open", "")
+            expect(diagnostics).to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
+            page.locator("#refreshDiagnostics").click()
+            page.wait_for_function("document.getElementById('diagVersion')?.textContent?.includes('prebeta-v14')")
+            expect(page.locator("#diagNetwork")).not_to_have_text("—")
+            page.locator("#settingsThemeBack").click()
+            expect(page.locator("#settingsThemes")).to_be_visible()
+            page.locator("#closeSettings").click()
+
+            # Today empty states explain what to do instead of showing dead ends.
+            page.locator('#mobileBottomNav [data-view="today"]').click()
+            expect(page.locator("#mobileTodayContent")).to_be_visible()
+            page.wait_for_timeout(500)
+            content_text = page.locator("#mobileTodayContent").inner_text()
+            assert "Срочных задач нет" in content_text, content_text
+            assert "В календаре свободно" in content_text or "календарь недоступен" in content_text.lower(), content_text
+
+            # Offline state is visible and recovery is actionable.
+            context.set_offline(True)
+            page.evaluate("window.dispatchEvent(new Event('offline'))")
+            expect(page.locator("#plannerConnectionBanner")).to_have_class(__import__("re").compile(r"\boffline\b"))
+            expect(page.locator("#plannerConnectionBanner")).to_contain_text("Нет соединения")
+            context.set_offline(False)
+            page.evaluate("window.dispatchEvent(new Event('online'))")
+            page.wait_for_timeout(400)
+            expect(page.locator("#plannerConnectionBanner")).not_to_have_class(__import__("re").compile(r"\boffline\b"))
+
+            assert not dialogs, dialogs
+            assert not errors, errors
+            context.close()
+            browser.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        temporary.cleanup()
+
+
+if __name__ == "__main__":
+    main()
