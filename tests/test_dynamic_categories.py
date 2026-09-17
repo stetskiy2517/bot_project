@@ -11,6 +11,7 @@ from core.category_store import (
     get_user_categories,
     update_user_category,
 )
+from modules.account_privacy import ERASE_CONFIRMATION, create_erase_challenge, erase_account, export_account
 from modules.category_runtime import install_category_detector_guard
 from modules.event_detail_api import _event_payload
 from modules.language_support import install_english_category_support
@@ -58,6 +59,22 @@ class DynamicCategoryStoreTests(unittest.TestCase):
             self.assertTrue(delete_user_category(user_id, key))
         with self.assertRaises(ValueError):
             delete_user_category(user_id, keys[-1])
+
+    def test_categories_are_exported_and_erased_with_account(self):
+        user_id = self.user("privacy")
+        custom = create_user_category(user_id, "Learning", "9")
+        exported = export_account(user_id)
+        exported_categories = {item["category_key"]: item for item in exported["user_categories"]}
+        self.assertIn(custom["key"], exported_categories)
+        self.assertEqual(exported_categories[custom["key"]]["label"], "Learning")
+
+        erase_account(user_id, create_erase_challenge(user_id), ERASE_CONFIRMATION)
+        with db.db_lock:
+            remaining = db.conn.execute(
+                "SELECT COUNT(*) FROM user_categories WHERE user_id=?",
+                (user_id,),
+            ).fetchone()[0]
+        self.assertEqual(remaining, 0)
 
 
 class EnglishLifeWheelTests(unittest.TestCase):
@@ -177,6 +194,11 @@ class DynamicCategoryApiTests(unittest.TestCase):
         deleted = self.client.delete(f"/api/categories/{category['key']}")
         self.assertEqual(deleted.status_code, 200)
         self.assertFalse(deleted.get_json()["events_deleted"])
+
+    def test_invalid_color_payload_is_rejected_without_server_error(self):
+        response = self.client.post("/api/categories", json={"label": "Bad", "color_id": ["9"]})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_category")
 
 
 if __name__ == "__main__":
