@@ -32,7 +32,8 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('/api/library/reminders/${reminderId}/complete', self.unified)
         self.assertIn('/api/library/reminders/${reminderId}/reschedule', self.unified)
         self.assertIn('/api/mobile/reminders/details', self.unified)
-        self.assertIn('<script src="/tasks-unified.js"></script>', self.api)
+        self.assertIn('<script defer src="/tasks.js"></script>', self.api)
+        self.assertIn('<script defer src="/tasks-unified.js"></script>', self.api)
         self.assertIn('@task_api.get("/tasks-unified.js")', self.api)
 
     def test_pwa_shell_cannot_fall_back_to_pre_tasks_assets(self):
