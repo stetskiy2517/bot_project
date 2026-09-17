@@ -12,6 +12,7 @@
   let taskCategory = "";
   let taskPriority = "";
   let searchTimer = null;
+  let feedbackTimer = null;
 
   function api(path, options) {
     if (typeof window.api !== "function") throw new Error("API недоступен");
@@ -25,9 +26,38 @@
     return date.toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
   }
 
+  function promptDateTime(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    const pad = number => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   function notify(text) {
-    if (typeof window.msg === "function") window.msg(text);
-    else console.info(text);
+    const message = String(text || "").trim();
+    const list = document.getElementById("libraryList");
+    if (taskMode && list && message) {
+      let box = document.getElementById("plannerTaskFeedback");
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "plannerTaskFeedback";
+        box.className = "planner-task-feedback";
+        const toolbar = list.querySelector(".planner-task-toolbar");
+        if (toolbar) toolbar.insertAdjacentElement("afterend", box);
+        else list.prepend(box);
+      }
+      box.textContent = message;
+      box.hidden = false;
+      clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => {
+        const current = document.getElementById("plannerTaskFeedback");
+        if (current) current.remove();
+      }, 7000);
+      return;
+    }
+    if (typeof window.msg === "function") window.msg(message);
+    else if (message) alert(message);
   }
 
   async function createSubtask(parent) {
@@ -109,6 +139,7 @@
     if (!title?.trim()) return;
     const estimateRaw = prompt("Сколько времени нужно, минут? Можно оставить пустым.", "60");
     const estimate = estimateRaw?.trim() ? Number(estimateRaw) : null;
+    if (estimate !== null && (!Number.isFinite(estimate) || estimate < 5)) throw new Error("Укажи длительность задачи в минутах, минимум 5.");
     const dueRaw = prompt("Срок. Формат: 2026-09-18T18:00. Можно оставить пустым.");
     let dueAt = null;
     if (dueRaw?.trim()) {
@@ -136,6 +167,14 @@
     if (!title?.trim()) return;
     const estimateRaw = prompt("Длительность, минут", task.estimate_minutes || "");
     const estimate = estimateRaw?.trim() ? Number(estimateRaw) : null;
+    if (estimate !== null && (!Number.isFinite(estimate) || estimate < 5)) throw new Error("Укажи длительность задачи в минутах, минимум 5.");
+    const dueRaw = prompt("Срок. Формат: 2026-09-18T18:00. Пусто — без срока.", promptDateTime(task.due_at));
+    let dueAt = null;
+    if (dueRaw?.trim()) {
+      const local = new Date(dueRaw.trim());
+      if (!Number.isFinite(local.getTime())) throw new Error("Некорректный срок задачи");
+      dueAt = local.toISOString();
+    }
     const priority = (prompt("Приоритет: high / normal / low", task.priority || "normal") || task.priority || "normal").trim().toLowerCase();
     const category = (prompt("Категория: work / health / rest / travel / family / personal / other", task.category || "other") || task.category || "other").trim().toLowerCase();
     const repeatRule = (prompt("Повтор: daily / weekly / monthly. Пусто — без повтора.", task.repeat_rule || "") || "").trim().toLowerCase();
@@ -144,16 +183,35 @@
     if (repeatRule && !repeatLabels[repeatRule]) throw new Error("Повтор может быть daily, weekly или monthly");
     await api(`/api/tasks/${task.task_id}`, {
       method: "PATCH",
-      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, priority, category, repeat_rule: repeatRule || null}),
+      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, due_at: dueAt, priority, category, repeat_rule: repeatRule || null}),
     });
     await renderTasks();
+  }
+
+  function skippedSummary(skipped) {
+    const counts = {};
+    for (const item of skipped || []) {
+      const reason = String(item?.reason || "unknown");
+      counts[reason] = (counts[reason] || 0) + 1;
+    }
+    const parts = [];
+    if (counts.missing_estimate) parts.push(`без длительности: ${counts.missing_estimate}`);
+    if (counts.missing_deadline) parts.push(`без срока: ${counts.missing_deadline}`);
+    if (counts.overdue) parts.push(`просрочено: ${counts.overdue}`);
+    if (counts.no_slot_before_deadline) parts.push(`нет свободного окна до срока: ${counts.no_slot_before_deadline}`);
+    if (counts.fixed) parts.push(`фиксированные: ${counts.fixed}`);
+    if (counts.already_scheduled) parts.push(`уже в календаре: ${counts.already_scheduled}`);
+    if (!parts.length) return "Не нашёл задач, которые можно безопасно поставить в календарь.";
+    const needsData = Boolean(counts.missing_estimate || counts.missing_deadline);
+    const hint = needsData ? " Открой «Изменить» у задачи и добавь срок и длительность." : "";
+    return `Не удалось распланировать: ${parts.join(" · ")}.${hint}`;
   }
 
   async function planTasks() {
     const preview = await api("/api/tasks/schedule/preview");
     const proposals = preview.proposals || [];
     if (!proposals.length) {
-      notify("Не нашёл задач, которые можно безопасно поставить в календарь. Для автопланирования нужны срок и оценка длительности.");
+      notify(skippedSummary(preview.skipped));
       return;
     }
     const lines = proposals.map((item, index) => {
@@ -166,12 +224,12 @@
       method: "POST",
       body: JSON.stringify({proposals}),
     });
+    await renderTasks();
     if (result.errors?.length) {
       notify(`В календарь добавлено: ${result.applied_count}. Часть окон успела измениться — обнови план.`);
     } else {
       notify(`Готово. В календарь добавлено задач: ${result.applied_count}.`);
     }
-    await renderTasks();
   }
 
   function appendTaskTree(list, tasks) {
@@ -306,6 +364,7 @@
       .planner-task-primary{min-height:40px;padding:0 12px;border-radius:12px;background:#2d2d2c;color:#fff;font-weight:650;cursor:pointer}
       .planner-task-primary.secondary{background:#ececea;color:#222}
       .planner-task-summary{text-align:right;color:#888883;font-size:12px}
+      .planner-task-feedback{margin:0 0 10px;padding:10px 12px;border:1px solid #dddcd8;border-radius:12px;background:#f0f0ed;color:#353533;font-size:12px;line-height:1.4}
       .planner-task-filters{display:grid;grid-template-columns:minmax(0,1.4fr) 1fr 1fr;gap:7px;margin:0 0 12px}
       .planner-task-filter{min-width:0;min-height:38px;padding:0 9px;border:1px solid #dededb;border-radius:11px;background:#fff;color:#333;font:inherit;font-size:12px;outline:0}
       .planner-task-card{padding:15px 16px;margin:0 0 10px;border:1px solid #e5e5e2;border-radius:18px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.035)}
