@@ -103,7 +103,7 @@ def main() -> None:
             expect(edit_button).to_be_visible()
             edit_button.click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
-            expect(page.locator(".reminder-edit-title")).to_have_text("Задача с уведомлением")
+            expect(page.locator(".task-notification-edit-title")).to_have_text("Задача с уведомлением")
 
             page.locator("#reminderEditText").fill("Принять лекарство")
             page.locator("#reminderEditCategory").select_option("personal")
