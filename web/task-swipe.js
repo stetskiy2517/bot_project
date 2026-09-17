@@ -96,14 +96,16 @@
     row.dataset.busy = "1";
     setOffset(row, 98);
     haptic();
-    setTimeout(() => {
-      try {
-        button.click();
-      } finally {
-        setOffset(row, 0);
-        setTimeout(() => { delete row.dataset.busy; }, 250);
-      }
-    }, 100);
+    try {
+      // Start the action immediately. Delaying the click can lose the command if
+      // another async library refresh replaces the row during the animation.
+      button.click();
+    } finally {
+      setTimeout(() => {
+        if (row.isConnected) setOffset(row, 0);
+        delete row.dataset.busy;
+      }, 220);
+    }
   }
 
   function revealActions(row) {
