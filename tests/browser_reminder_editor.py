@@ -88,17 +88,22 @@ def main() -> None:
             expect(page.locator("#mobileMoreScreen")).to_be_visible()
             page.locator('[data-more="saved"]').click()
             expect(page.locator("#libraryScreen")).to_be_visible()
-            page.locator("#libraryRemindersTab").click()
-            expect(page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')).to_be_visible()
 
-            edit_button = page.locator(f'[data-reminder-edit="{reminder_id}"]')
-            page.wait_for_selector(f'[data-reminder-edit="{reminder_id}"]', state="attached")
-            row = page.locator(f'.reminder-swipe-row[data-id="{reminder_id}"]')
-            expect(row.locator(".reminder-category-chip")).to_have_text("Работа")
-            # The edit action sits under the reminder card until the row is swiped open.
-            # Calling DOM click here tests the editor action itself without faking gesture geometry.
-            edit_button.evaluate("button => button.click()")
+            # Reminders are no longer a separate user-facing section. They are
+            # lightweight tasks with an attached notification inside Tasks.
+            expect(page.locator("#libraryRemindersTab")).to_be_hidden()
+            page.locator("#libraryTasksTab").click()
+            card = page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"]')
+            expect(card).to_be_visible()
+            expect(card).to_contain_text("Позвонить клиенту")
+            expect(card).to_contain_text("Уведомление")
+            expect(card).to_contain_text("Работа")
+
+            edit_button = card.locator(f'[data-reminder-edit="{reminder_id}"]')
+            expect(edit_button).to_be_visible()
+            edit_button.click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
+            expect(page.locator(".reminder-edit-title")).to_have_text("Задача с уведомлением")
 
             page.locator("#reminderEditText").fill("Принять лекарство")
             page.locator("#reminderEditCategory").select_option("personal")
@@ -106,7 +111,7 @@ def main() -> None:
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
             page.wait_for_function(
-                f"document.querySelector('.reminder-swipe-row[data-id=\"{reminder_id}\"] .reminder-category-chip')?.textContent === 'Личное'"
+                f"document.querySelector('.planner-reminder-task[data-reminder-id=\"{reminder_id}\"]')?.textContent.includes('Личное')"
             )
 
             stored = get_saved_reminder(user_id, reminder_id)
@@ -114,12 +119,12 @@ def main() -> None:
             assert stored["repeat_rule"] == "daily", stored
             assert reminder_category(stored) == "personal", stored
 
-            page.locator(f'[data-reminder-edit="{reminder_id}"]').evaluate("button => button.click()")
+            page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"] [data-reminder-edit]').click()
             page.locator("#reminderEditCategory").select_option("auto")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
             page.wait_for_function(
-                f"document.querySelector('.reminder-swipe-row[data-id=\"{reminder_id}\"] .reminder-category-chip')?.textContent === 'Здоровье'"
+                f"document.querySelector('.planner-reminder-task[data-reminder-id=\"{reminder_id}\"]')?.textContent.includes('Здоровье')"
             )
             assert reminder_category(get_saved_reminder(user_id, reminder_id)) == "health"
 
