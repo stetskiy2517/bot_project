@@ -32,15 +32,25 @@ def _user() -> int:
 def task_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
         html = response.get_data(as_text=True)
-        script = '<script src="/tasks.js"></script>'
-        if script not in html and "</body>" in html:
-            response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+        scripts = []
+        if '<script src="/tasks.js"></script>' not in html:
+            scripts.append('<script src="/tasks.js"></script>')
+        if '<script src="/tasks-unified.js"></script>' not in html:
+            scripts.append('<script src="/tasks-unified.js"></script>')
+        if scripts and "</body>" in html:
+            block = "\n    ".join(scripts)
+            response.set_data(html.replace("</body>", f"    {block}\n  </body>", 1))
     return response
 
 
 @task_api.get("/tasks.js")
 def tasks_js():
     return send_from_directory(WEB_DIR, "tasks.js", mimetype="application/javascript")
+
+
+@task_api.get("/tasks-unified.js")
+def tasks_unified_js():
+    return send_from_directory(WEB_DIR, "tasks-unified.js", mimetype="application/javascript")
 
 
 @task_api.get("/api/tasks")
