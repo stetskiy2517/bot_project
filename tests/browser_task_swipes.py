@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
@@ -18,6 +19,10 @@ os.environ["WEB_SESSION_SECRET"] = secrets.token_hex(32)
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium")
+    args = parser.parse_args()
+
     temporary = tempfile.TemporaryDirectory()
     os.environ["DB_PATH"] = str(Path(temporary.name) / "task-swipes-browser.db")
 
@@ -59,12 +64,19 @@ def main() -> None:
         })
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=True,
-                executable_path=os.environ.get("CHROMIUM_PATH") or None,
-                args=["--no-sandbox"],
+            if args.engine == "webkit":
+                browser = playwright.webkit.launch(headless=True)
+            else:
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    executable_path=os.environ.get("CHROMIUM_PATH") or None,
+                    args=["--no-sandbox"],
+                )
+            context = browser.new_context(
+                viewport={"width": 390, "height": 844},
+                is_mobile=args.engine == "webkit",
+                has_touch=args.engine == "webkit",
             )
-            context = browser.new_context(viewport={"width": 390, "height": 844})
             context.add_cookies([{
                 "name": "session",
                 "value": session_value,
@@ -87,7 +99,6 @@ def main() -> None:
             reminder_card = page.locator(
                 f'.planner-reminder-task[data-reminder-id="{reminder["reminder_id"]}"]'
             )
-            reminder_row = reminder_card.locator("xpath=..")
             expect(planner_row).to_be_visible()
             expect(reminder_card).to_be_visible()
             expect(page.locator("#libraryList .planner-task-actions")).to_have_count(0)
