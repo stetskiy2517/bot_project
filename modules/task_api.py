@@ -31,6 +31,10 @@ def _user() -> int:
 @task_api.after_app_request
 def task_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
+        # The PWA shell changes frequently during beta. Never let Safari keep an
+        # obsolete HTML shell that can reference an older library/task bundle.
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
         html = response.get_data(as_text=True)
         scripts = []
         if '<script src="/tasks.js"></script>' not in html:
