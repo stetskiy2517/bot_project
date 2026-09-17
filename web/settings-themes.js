@@ -34,12 +34,20 @@
   ];
 
   function ensureRoot() {
+    const assistantRoot = document.getElementById("assistantSettings");
     let root = document.getElementById("settingsThemes");
-    if (root) return root;
+    if (root) {
+      if (assistantRoot && root.parentElement !== assistantRoot) assistantRoot.prepend(root);
+      return root;
+    }
 
     root = document.createElement("div");
     root.id = "settingsThemes";
     root.className = "settings-themes";
+    if (assistantRoot) {
+      assistantRoot.prepend(root);
+      return root;
+    }
     const onboarding = document.getElementById("onboardingNotice");
     if (onboarding) onboarding.insertAdjacentElement("afterend", root);
     else sheet.querySelector(".account-card")?.insertAdjacentElement("afterend", root);
