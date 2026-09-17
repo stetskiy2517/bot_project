@@ -5,59 +5,91 @@ import unittest
 class TaskPlanningUiTests(unittest.TestCase):
     def setUp(self):
         self.script = Path("web/tasks.js").read_text(encoding="utf-8")
+        self.editor = Path("web/task-editor.js").read_text(encoding="utf-8")
         self.unified = Path("web/tasks-unified.js").read_text(encoding="utf-8")
+        self.reminder_editor = Path("web/reminder-editor.js").read_text(encoding="utf-8")
         self.swipes = Path("web/task-swipe.js").read_text(encoding="utf-8")
         self.api = Path("modules/task_api.py").read_text(encoding="utf-8")
         self.worker = Path("web/sw.js").read_text(encoding="utf-8")
+        self.prebeta = Path("web/prebeta-polish.js").read_text(encoding="utf-8")
+        self.ux = Path("web/ux-polish.js").read_text(encoding="utf-8")
 
     def test_planning_feedback_is_visible_inside_tasks_view(self):
-        self.assertIn('plannerTaskFeedback', self.script)
-        self.assertIn('planner-task-feedback', self.script)
-        self.assertIn('skippedSummary(preview.skipped)', self.script)
-        self.assertIn('нет свободного окна до срока', self.script)
+        self.assertIn("plannerTaskFeedback", self.script)
+        self.assertIn("planner-task-feedback", self.script)
+        self.assertIn("skippedSummary(preview.skipped)", self.script)
+        self.assertIn("нет свободного окна до срока", self.script)
 
-    def test_task_edit_can_add_or_change_deadline(self):
-        self.assertIn('promptDateTime(task.due_at)', self.script)
-        self.assertIn('due_at: dueAt', self.script)
-        self.assertIn('длительность задачи в минутах, минимум 5', self.script)
+    def test_tasks_use_native_editor_not_browser_prompts(self):
+        self.assertNotIn("prompt(", self.script)
+        self.assertNotIn("confirm(", self.script)
+        self.assertNotIn("prompt(", self.unified)
+        self.assertNotIn("confirm(", self.unified)
+        self.assertIn("PlannerTaskEditor", self.script)
+        self.assertIn('type="datetime-local"', self.editor)
+        self.assertIn('id="taskEditEstimate"', self.editor)
+        self.assertIn('id="taskEditCategory"', self.editor)
+        self.assertIn('id="taskEditPriority"', self.editor)
+        self.assertIn('id="taskEditRepeat"', self.editor)
+        self.assertIn("offerUndo", self.editor)
+        self.assertIn("confirmPlan", self.editor)
+
+    def test_notification_tasks_edit_time_in_same_sheet(self):
+        self.assertIn('id="reminderEditAt"', self.reminder_editor)
+        self.assertIn('type="datetime-local"', self.reminder_editor)
+        self.assertIn("remind_at: at.toISOString()", self.reminder_editor)
+        self.assertIn("PlannerReminderEditor.open(reminderId, {focusTime: true})", self.unified)
 
     def test_reminders_are_presented_inside_tasks_not_as_a_separate_tab(self):
-        self.assertIn('libraryRemindersTab', self.unified)
-        self.assertIn('reminders.hidden = true', self.unified)
-        self.assertIn('repeat(2, minmax(0, 1fr))', self.unified)
-        self.assertIn('planner-reminder-task', self.unified)
-        self.assertIn('Уведомление ${formatDate(item.remind_at)}', self.unified)
-        self.assertIn('data-reminder-edit', self.unified)
+        self.assertIn("libraryRemindersTab", self.unified)
+        self.assertIn("reminders.hidden = true", self.unified)
+        self.assertIn("repeat(2, minmax(0, 1fr))", self.unified)
+        self.assertIn("planner-reminder-task", self.unified)
+        self.assertIn("Уведомление ${formatDate(item.remind_at)}", self.unified)
+        self.assertIn("data-reminder-edit", self.unified)
 
     def test_reminder_engine_stays_available_behind_unified_tasks_view(self):
-        self.assertIn('/api/library/reminders/${reminderId}/complete', self.unified)
-        self.assertIn('/api/library/reminders/${reminderId}/reschedule', self.unified)
-        self.assertIn('/api/mobile/reminders/details', self.unified)
+        self.assertIn("/api/library/reminders/${reminderId}/complete", self.unified)
+        self.assertIn("/api/mobile/reminders/details", self.unified)
+        self.assertIn("/api/mobile/reminders/${Number(reminderId)}/details", self.reminder_editor)
+        self.assertIn('<script defer src="/task-editor.js"></script>', self.api)
         self.assertIn('<script defer src="/tasks.js"></script>', self.api)
         self.assertIn('<script defer src="/tasks-unified.js"></script>', self.api)
         self.assertIn('<script defer src="/task-swipe.js"></script>', self.api)
-        self.assertIn('@task_api.get("/tasks-unified.js")', self.api)
-        self.assertIn('@task_api.get("/task-swipe.js")', self.api)
+        self.assertIn('@task_api.get("/task-editor.js")', self.api)
 
-    def test_pwa_shell_cannot_fall_back_to_pre_tasks_assets(self):
-        self.assertIn('personal-secretary-v13-task-swipes', self.worker)
-        self.assertIn('"/tasks.js"', self.worker)
-        self.assertIn('"/tasks-unified.js"', self.worker)
-        self.assertIn('"/task-swipe.js"', self.worker)
-        self.assertIn('fetch(request, { cache: "no-store" })', self.worker)
-        self.assertIn('cache.put(request, response.clone())', self.worker)
+    def test_pwa_shell_uses_controlled_prebeta_update(self):
+        self.assertIn("personal-secretary-v14-prebeta-polish", self.worker)
+        for asset in ("/task-editor.js", "/tasks.js", "/tasks-unified.js", "/task-swipe.js", "/prebeta-polish.js", "/ux-polish.js"):
+            self.assertIn(f'"{asset}"', self.worker)
+        self.assertIn('event.data?.type === "SKIP_WAITING"', self.worker)
+        self.assertNotIn("self.skipWaiting();\n});\n\nself.addEventListener(\"activate\"", self.worker)
+        self.assertIn('fetch(request, {cache: "no-store"})', self.worker)
+        self.assertIn("cache.put(request, response.clone())", self.worker)
         self.assertIn('response.headers["Cache-Control"] = "no-store, max-age=0"', self.api)
+        self.assertIn("Доступно обновление приложения", self.prebeta)
+        self.assertIn("UPDATE_PENDING_KEY", self.prebeta)
 
     def test_task_cards_use_swipe_first_controls_and_notification_bell(self):
-        self.assertIn('planner-task-swipe-row', self.swipes)
-        self.assertIn('triggerPrimary', self.swipes)
-        self.assertIn('revealActions', self.swipes)
-        self.assertIn('planner-task-bell', self.swipes)
-        self.assertIn('Настроить уведомление', self.swipes)
-        self.assertIn('navigator.vibrate', self.swipes)
-        self.assertIn('Смахните карточку вправо — выполнить. Влево — действия.', self.swipes)
-        self.assertIn('Поиск по задачам', self.swipes)
-        self.assertIn('notesProductToolbarWrap', self.swipes)
+        self.assertIn("planner-task-swipe-row", self.swipes)
+        self.assertIn("triggerPrimary", self.swipes)
+        self.assertIn("revealActions", self.swipes)
+        self.assertIn("planner-task-bell", self.swipes)
+        self.assertIn("Настроить уведомление", self.swipes)
+        self.assertIn("navigator.vibrate", self.swipes)
+        self.assertIn("Смахните карточку вправо — выполнить. Влево — действия.", self.swipes)
+        self.assertIn("Поиск по задачам", self.swipes)
+        self.assertIn("notesProductToolbarWrap", self.swipes)
+
+    def test_prebeta_reliability_and_polish_are_present(self):
+        self.assertIn("Нет соединения", self.prebeta)
+        self.assertIn("Соединение восстановлено", self.prebeta)
+        self.assertIn("friendlyError", self.prebeta)
+        self.assertIn("diagnosticsGroup", self.prebeta)
+        self.assertIn("copyDiagnostics", self.prebeta)
+        self.assertIn("settings-theme-flat-group", self.ux)
+        self.assertIn("Заметок пока нет", self.ux)
+        self.assertIn("В календаре свободно", self.ux)
 
 
 if __name__ == "__main__":
