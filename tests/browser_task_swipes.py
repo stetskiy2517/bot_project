@@ -29,7 +29,7 @@ def main() -> None:
     import web_app
     from core.db import get_or_create_google_user, save_user_timezone
     from core.reminder_store import create_reminder
-    from core.task_planner_store import create_planner_task, get_planner_task
+    from core.task_planner_store import create_planner_task, get_planner_task, list_planner_tasks
     from playwright.sync_api import expect, sync_playwright
     from werkzeug.serving import make_server
 
@@ -86,11 +86,14 @@ def main() -> None:
             }])
             page = context.new_page()
             errors: list[str] = []
+            dialogs: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
 
             page.goto(base)
             page.wait_for_function(
-                "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
+                "window.PlannerRequests && window.PlannerTaskEditor && "
+                "!document.getElementById('login').classList.contains('open')"
             )
             page.locator("#libraryOpenBtn").click()
             page.locator("#libraryTasksTab").click()
@@ -117,6 +120,18 @@ def main() -> None:
             expect(hint).to_contain_text("вправо — выполнить")
             expect(hint).to_contain_text("Влево — действия")
 
+            # Creation/editing is an app-native sheet, never a browser prompt.
+            page.locator(".planner-task-primary", has_text="+ Задача").click()
+            expect(page.locator("#taskEditorBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            page.locator("#taskEditTitle").fill("Новая задача из редактора")
+            page.locator("#taskEditEstimate").fill("35")
+            page.locator("#taskEditCategory").select_option("work")
+            page.locator("#taskEditPriority").select_option("high")
+            page.locator("[data-task-editor-save]").click()
+            page.wait_for_function("!document.getElementById('taskEditorBackdrop').classList.contains('open')")
+            expect(page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first).to_be_visible()
+
+            planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
             planner_row.evaluate(
                 "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: 120, deltaY: 0, bubbles: true, cancelable: true}))"
             )
@@ -129,7 +144,20 @@ def main() -> None:
 
             reminder_card.locator(".planner-task-bell").click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#reminderEditAt")).to_be_visible()
             page.locator("[data-reminder-edit-cancel]").click()
+
+            # Delete uses snackbar undo instead of confirm().
+            created_row = page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first
+            created_row.evaluate(
+                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: 120, deltaY: 0, bubbles: true, cancelable: true}))"
+            )
+            page.wait_for_function("el => Number(el.dataset.offset || 0) < -20", arg=created_row.element_handle())
+            created_row.locator(".planner-task-swipe-action.danger", has_text="Удалить").click()
+            expect(page.locator("#plannerSnackbar")).to_have_class(__import__("re").compile(r"\bshow\b"))
+            page.locator("#plannerSnackbar .planner-snackbar-action").click()
+            page.wait_for_timeout(250)
+            assert any(item["title"] == "Новая задача из редактора" for item in list_planner_tasks(user_id, status=None, limit=50))
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
             planner_row.evaluate(
@@ -138,6 +166,7 @@ def main() -> None:
             page.wait_for_timeout(450)
             assert get_planner_task(user_id, int(task["task_id"]))["status"] == "done"
 
+            assert not dialogs, dialogs
             assert not errors, errors
             context.close()
             browser.close()
