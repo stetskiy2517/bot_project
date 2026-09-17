@@ -105,7 +105,40 @@ def main() -> int:
                     "document.getElementById('accountEmail').textContent.includes('@example.test')",
                     timeout=10000,
                 )
+                page.wait_for_function(
+                    "!document.getElementById('mobileBottomNav').hidden && "
+                    "document.getElementById('mobileBottomNav').getBoundingClientRect().height > 0",
+                    timeout=10000,
+                )
                 _checkpoint("authenticated mobile shell ready")
+
+                _checkpoint("checking unified tasks library on WebKit")
+                page.locator('#mobileBottomNav [data-view="more"]').click()
+                page.locator('[data-more="saved"]').click()
+                page.wait_for_function(
+                    "document.getElementById('libraryTasksTab') && "
+                    "document.getElementById('libraryScreen').classList.contains('library-screen')",
+                    timeout=10000,
+                )
+                reminders_display = page.locator("#libraryRemindersTab").evaluate(
+                    "element => getComputedStyle(element).display"
+                )
+                tasks_display = page.locator("#libraryTasksTab").evaluate(
+                    "element => getComputedStyle(element).display"
+                )
+                if reminders_display != "none":
+                    raise AssertionError(
+                        f"Reminder tab must be hidden in unified tasks view, got display={reminders_display!r}"
+                    )
+                if tasks_display == "none":
+                    raise AssertionError("Tasks tab is hidden in unified tasks view")
+                page.locator("#libraryTasksTab").click()
+                page.wait_for_function(
+                    "document.querySelector('#libraryList .planner-task-toolbar')",
+                    timeout=10000,
+                )
+                page.locator("#libraryBackBtn").click()
+                _checkpoint("unified tasks library verified")
 
                 page.evaluate("showChat()")
                 page.locator("#message").fill("заметка: WebKit smoke")
