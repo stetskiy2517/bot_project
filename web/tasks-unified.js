@@ -30,19 +30,7 @@
     if (!value) return "без времени";
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return "без времени";
-    return date.toLocaleString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function promptDateTime(value) {
-    const date = new Date(value || Date.now() + 60 * 60 * 1000);
-    if (!Number.isFinite(date.getTime())) return "";
-    const pad = number => String(number).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    return date.toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
   }
 
   function repeatLabel(rule) {
@@ -83,8 +71,6 @@
   function visibleReminder(item, filters) {
     if (filters.query && !String(item.text || "").toLocaleLowerCase("ru-RU").includes(filters.query)) return false;
     if (filters.category && String(item.category || "") !== filters.category) return false;
-    // Lightweight tasks with a notification do not have a priority. A priority filter
-    // therefore intentionally shows only planner tasks with an explicit priority.
     if (filters.priority) return false;
     return true;
   }
@@ -151,13 +137,11 @@
     try {
       const reminders = (await loadReminders()).filter(item => visibleReminder(item, currentFilters()));
       if (!taskTabActive() || !list.querySelector(".planner-task-toolbar")) return;
-
       list.querySelectorAll(".planner-reminder-task, .planner-task-reminder-summary").forEach(node => node.remove());
       if (reminders.length) {
         const empty = list.querySelector(".library-empty");
         if (empty && empty.textContent?.includes("Задач")) empty.remove();
       }
-
       const summary = document.createElement("div");
       summary.className = "planner-task-reminder-summary";
       summary.textContent = `С уведомлением ${reminders.filter(item => item.status !== "completed").length}`;
@@ -166,7 +150,7 @@
       else list.append(summary);
       for (const reminder of reminders) list.append(reminderCard(reminder));
     } catch (error) {
-      notify(error?.message || "Не удалось загрузить задачи с уведомлением.");
+      notify(window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось загрузить задачи с уведомлением.");
     } finally {
       syncing = false;
     }
@@ -196,6 +180,13 @@
     if (tab && taskTabActive()) tab.click();
   }
 
+  function actionContext(button) {
+    const row = button.closest(".planner-task-swipe-row");
+    const card = row?.querySelector(":scope > .planner-task-card") || button.closest(".planner-reminder-task");
+    const title = card?.querySelector(".planner-task-title-text, .planner-task-title")?.textContent?.trim() || "задача";
+    return {row, card, title};
+  }
+
   async function runReminderAction(button) {
     const reminderId = Number(button.dataset.reminderId || 0);
     const actionName = button.dataset.unifiedReminderAction;
@@ -208,24 +199,34 @@
           body: JSON.stringify({completed: actionName === "complete"}),
         });
       } else if (actionName === "reschedule") {
-        const raw = prompt("Новое время", promptDateTime(Date.now() + 60 * 60 * 1000));
-        if (!raw?.trim()) return;
-        const parsed = new Date(raw.trim());
-        if (!Number.isFinite(parsed.getTime())) throw new Error("Некорректная дата или время");
-        if (parsed.getTime() <= Date.now()) throw new Error("Новое время должно быть в будущем");
-        await api(`/api/library/reminders/${reminderId}/reschedule`, {
-          method: "POST",
-          body: JSON.stringify({remind_at: parsed.toISOString()}),
-        });
+        if (!window.PlannerReminderEditor?.open) throw new Error("Редактор уведомления ещё загружается.");
+        await window.PlannerReminderEditor.open(reminderId, {focusTime: true});
+        return;
       } else if (actionName === "delete") {
-        const title = button.closest(".planner-reminder-task")?.querySelector(".planner-task-title")?.textContent || "эту задачу";
-        if (!confirm(`Удалить задачу «${title}»?`)) return;
-        await api(`/api/library/reminders/${reminderId}`, {method: "DELETE"});
+        const {row, card, title} = actionContext(button);
+        const target = row || card;
+        if (target) target.hidden = true;
+        let undone = false;
+        if (window.PlannerTaskEditor?.offerUndo) {
+          undone = await window.PlannerTaskEditor.offerUndo(`Задача «${title}» удалена`);
+        } else if (window.PlannerPolish?.confirmAction) {
+          undone = !(await window.PlannerPolish.confirmAction({title: "Удалить задачу?", text: title, confirmLabel: "Удалить", danger: true}));
+        }
+        if (undone) {
+          if (target) target.hidden = false;
+          return;
+        }
+        try {
+          await api(`/api/library/reminders/${reminderId}`, {method: "DELETE"});
+        } catch (error) {
+          if (target) target.hidden = false;
+          throw error;
+        }
       }
       document.dispatchEvent(new Event("planner-library-changed"));
       setTimeout(refreshTaskView, 20);
     } catch (error) {
-      notify(error?.message || "Не удалось изменить задачу.");
+      notify(window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось изменить задачу.");
     } finally {
       button.disabled = false;
     }
@@ -291,31 +292,26 @@
           try {
             await api(`/api/assistant/reminders/${reminderId}/notifications`, {
               method: "POST",
-              body: JSON.stringify({
-                interval_minutes: Number(interval.value),
-                max_repeats: Number(count.value),
-              }),
+              body: JSON.stringify({interval_minutes: Number(interval.value), max_repeats: Number(count.value)}),
             });
             explanation.textContent = "Сохранено. Тихие часы задаются в настройках уведомлений.";
           } catch (error) {
-            explanation.textContent = error?.message || "Не удалось сохранить повторные уведомления.";
+            explanation.textContent = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось сохранить повторные уведомления.";
           } finally {
             saveRepeats.disabled = false;
           }
         });
         body.append(explanation, intervalLabel, countLabel, saveRepeats);
       } catch (error) {
-        body.textContent = error?.message || "Не удалось загрузить повторные уведомления.";
+        body.textContent = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось загрузить повторные уведомления.";
       }
     });
   }
 
-  function relabelReminderEditor() {
+  function enhanceReminderEditor() {
     const backdrop = document.getElementById("reminderEditBackdrop");
     if (!backdrop?.classList.contains("open")) return;
-    const title = backdrop.querySelector(".reminder-edit-title");
     const sheet = backdrop.querySelector(".reminder-edit-sheet");
-    if (title) title.textContent = "Задача с уведомлением";
     if (sheet) sheet.setAttribute("aria-label", "Изменить задачу с уведомлением");
     ensureNotificationRepeatEditor(backdrop);
   }
@@ -338,14 +334,8 @@
     const style = document.createElement("style");
     style.id = "unifiedTaskReminderStyles";
     style.textContent = `
-      .planner-task-reminder-summary{margin:-3px 0 10px;color:#8d8d88;font-size:12px}
-      .planner-reminder-task{border-color:#ddddda}
-      #libraryRemindersTab{display:none!important}
-      .unified-notification-repeat{margin:2px 0 14px;padding:11px 0;border-top:1px solid #ecece8;border-bottom:1px solid #ecece8}
-      .unified-notification-repeat summary{cursor:pointer;font-size:13px;font-weight:650;color:#4a4a47}
-      .unified-notification-repeat-body{padding-top:12px}
-      .unified-notification-repeat .reminder-edit-field{margin-bottom:10px}
-      .unified-notification-repeat-save{width:100%;margin-top:2px}
+      .planner-task-reminder-summary{margin:-3px 0 10px;color:#8d8d88;font-size:12px}.planner-reminder-task{border-color:#ddddda}#libraryRemindersTab{display:none!important}
+      .unified-notification-repeat{margin:2px 0 14px;padding:11px 0;border-top:1px solid #ecece8;border-bottom:1px solid #ecece8}.unified-notification-repeat summary{cursor:pointer;font-size:13px;font-weight:650;color:#4a4a47}.unified-notification-repeat-body{padding-top:12px}.unified-notification-repeat .reminder-edit-field{margin-bottom:10px}.unified-notification-repeat-save{width:100%;margin-top:2px}
     `;
     document.head.appendChild(style);
 
@@ -358,25 +348,22 @@
       runReminderAction(button);
     });
 
-    const listObserver = new MutationObserver(() => {
+    new MutationObserver(() => {
       if (!taskTabActive()) return;
       if (list.querySelector(".planner-task-toolbar")) {
         if (!list.querySelector(".planner-task-reminder-summary")) scheduleSync(40);
         return;
       }
       repairTaskView(tasks, list);
-    });
-    listObserver.observe(list, {childList: true, subtree: true});
+    }).observe(list, {childList: true, subtree: true});
 
-    const editor = document.getElementById("reminderEditBackdrop");
-    if (editor) {
-      const editorObserver = new MutationObserver(relabelReminderEditor);
-      editorObserver.observe(editor, {childList: true, subtree: true, attributes: true, attributeFilter: ["class"]});
+    const reminderEditor = document.getElementById("reminderEditBackdrop");
+    if (reminderEditor) {
+      new MutationObserver(enhanceReminderEditor).observe(reminderEditor, {childList: true, subtree: true, attributes: true, attributeFilter: ["class"]});
     }
 
-    document.addEventListener("planner-library-changed", () => {
-      if (taskTabActive()) setTimeout(refreshTaskView, 30);
-    });
+    document.addEventListener("planner-library-changed", () => { if (taskTabActive()) setTimeout(refreshTaskView, 30); });
+    document.addEventListener("planner-task-rendered", () => { if (taskTabActive()) scheduleSync(40); });
     if (taskTabActive()) scheduleSync(50);
     return true;
   }
@@ -387,9 +374,6 @@
   }
 
   document.addEventListener("planner-ready", installSoon);
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installSoon, {once: true});
-  } else {
-    installSoon();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", installSoon, {once: true});
+  else installSoon();
 })();
