@@ -27,6 +27,7 @@ const STATIC = [
   "/reminder-editor.js",
   "/settings-themes.js",
   "/prebeta-polish.js",
+  "/ux-polish.js",
 ];
 
 async function refreshStaticCache() {
@@ -52,23 +53,16 @@ self.addEventListener("message", event => {
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))),
-  );
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))));
   self.clients.claim();
 });
 
 self.addEventListener("push", event => {
   let payload = {};
-  try {
-    payload = event.data ? event.data.json() : {};
-  } catch (_error) {
-    payload = {body: event.data ? event.data.text() : ""};
-  }
+  try { payload = event.data ? event.data.json() : {}; }
+  catch (_error) { payload = {body: event.data ? event.data.text() : ""}; }
 
-  const notification = payload && payload.web_push === 8030 && payload.notification
-    ? payload.notification
-    : payload;
+  const notification = payload && payload.web_push === 8030 && payload.notification ? payload.notification : payload;
   const notificationData = notification.data || {};
   const title = notification.title || "Напоминание";
   const body = notification.body || "У тебя есть напоминание.";
@@ -84,14 +78,12 @@ self.addEventListener("push", event => {
       }))
     : [];
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      tag,
-      data: {url, reminderId, actionUrls},
-      ...(actions.length ? {actions} : {}),
-    }),
-  );
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    tag,
+    data: {url, reminderId, actionUrls},
+    ...(actions.length ? {actions} : {}),
+  }));
 });
 
 function notificationTargetUrl(notification, action) {
@@ -109,17 +101,15 @@ function notificationTargetUrl(notification, action) {
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const targetUrl = notificationTargetUrl(event.notification, event.action || "");
-  event.waitUntil(
-    self.clients.matchAll({type: "window", includeUncontrolled: true}).then(clients => {
-      for (const client of clients) {
-        if ("focus" in client) {
-          if ("navigate" in client) client.navigate(targetUrl).catch(() => {});
-          return client.focus();
-        }
+  event.waitUntil(self.clients.matchAll({type: "window", includeUncontrolled: true}).then(clients => {
+    for (const client of clients) {
+      if ("focus" in client) {
+        if ("navigate" in client) client.navigate(targetUrl).catch(() => {});
+        return client.focus();
       }
-      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
-    }),
-  );
+    }
+    return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+  }));
 });
 
 async function networkFirst(request) {
@@ -141,11 +131,6 @@ async function networkFirst(request) {
 
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
-  if (
-    event.request.method !== "GET" ||
-    url.origin !== self.location.origin ||
-    url.pathname.startsWith("/api/") ||
-    url.pathname === "/oauth2callback"
-  ) return;
+  if (event.request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/") || url.pathname === "/oauth2callback") return;
   event.respondWith(networkFirst(event.request));
 });
