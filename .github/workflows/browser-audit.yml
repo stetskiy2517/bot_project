@@ -26,6 +26,8 @@ jobs:
         run: python tests/browser_features.py --output evidence/browser-features
       - name: Test swipe-first tasks
         run: python tests/browser_task_swipes.py
+      - name: Test pre-beta polish flow
+        run: python tests/browser_prebeta_polish.py
       - name: Test home composer and file import
         run: python tests/browser_file_ingest.py
       - name: Test email settings initialization
@@ -82,6 +84,8 @@ jobs:
           PY
       - name: Test swipe-first tasks in WebKit
         run: python tests/browser_task_swipes.py --engine webkit
+      - name: Test pre-beta polish in WebKit
+        run: python tests/browser_prebeta_polish.py --engine webkit
       - name: Upload WebKit evidence
         if: always()
         continue-on-error: true
