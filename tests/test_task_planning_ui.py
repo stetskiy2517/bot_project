@@ -53,7 +53,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('triggerPrimary', self.swipes)
         self.assertIn('revealActions', self.swipes)
         self.assertIn('planner-task-bell', self.swipes)
-        self.assertIn('С уведомлением', self.swipes)
+        self.assertIn('Настроить уведомление', self.swipes)
         self.assertIn('navigator.vibrate', self.swipes)
         self.assertIn('Смахните карточку вправо — выполнить. Влево — действия.', self.swipes)
         self.assertIn('Поиск по задачам', self.swipes)
