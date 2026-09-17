@@ -86,8 +86,9 @@
     if (resolve) resolve(result);
   }
 
-  function show(html, label) {
+  function show(html, label, resolve) {
     if (activeResolve) close(null);
+    activeResolve = resolve || null;
     backdrop.innerHTML = `<section class="task-editor-sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="task-editor-handle"></div>${html}</section>`;
     backdrop.classList.add("open");
   }
@@ -105,7 +106,6 @@
     const flexible = editing ? Boolean(draft.flexible) : !subtask;
 
     return new Promise(resolve => {
-      activeResolve = resolve;
       show(`
         <div class="task-editor-head"><h2 class="task-editor-title">${title}</h2><button class="task-editor-close" type="button" data-task-editor-cancel aria-label="Закрыть">×</button></div>
         <div class="task-editor-grid">
@@ -123,7 +123,7 @@
           <div class="task-editor-help">Для «Распланировать» нужны срок и длительность. Задачи с уведомлением создаются командой «напомни…» и отмечаются колокольчиком.</div>
           <div id="taskEditError" class="task-editor-error" aria-live="polite"></div>
           <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Отмена</button><button class="task-editor-button primary" type="button" data-task-editor-save>Сохранить</button></div>
-        </div>`, title);
+        </div>`, title, resolve);
 
       const input = backdrop.querySelector("#taskEditTitle");
       requestAnimationFrame(() => input?.focus());
@@ -160,18 +160,16 @@
 
   function confirmAction({title = "Подтвердить", text = "", confirmLabel = "Продолжить", danger = false} = {}) {
     return new Promise(resolve => {
-      activeResolve = resolve;
       show(`
         <div class="task-editor-head"><h2 class="task-editor-title">${esc(title)}</h2><button class="task-editor-close" type="button" data-task-editor-cancel aria-label="Закрыть">×</button></div>
         <p class="task-editor-copy">${esc(text)}</p>
-        <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Отмена</button><button class="task-editor-button ${danger ? "danger" : "primary"}" type="button" data-task-confirm>${esc(confirmLabel)}</button></div>`, title);
+        <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Отмена</button><button class="task-editor-button ${danger ? "danger" : "primary"}" type="button" data-task-confirm>${esc(confirmLabel)}</button></div>`, title, resolve);
       backdrop.querySelector("[data-task-confirm]").onclick = () => close(true);
     });
   }
 
   function confirmPlan(proposals = []) {
     return new Promise(resolve => {
-      activeResolve = resolve;
       const rows = proposals.map(item => {
         const when = new Date(item.start);
         const human = Number.isFinite(when.getTime()) ? when.toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : String(item.start || "");
@@ -181,7 +179,7 @@
         <div class="task-editor-head"><h2 class="task-editor-title">План задач</h2><button class="task-editor-close" type="button" data-task-editor-cancel aria-label="Закрыть">×</button></div>
         <p class="task-editor-copy">Нашёл свободные окна. Проверьте план перед добавлением в календарь.</p>
         <div class="task-plan-list">${rows}</div>
-        <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Не сейчас</button><button class="task-editor-button primary" type="button" data-task-confirm>Добавить в календарь</button></div>`, "План задач");
+        <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Не сейчас</button><button class="task-editor-button primary" type="button" data-task-confirm>Добавить в календарь</button></div>`, "План задач", resolve);
       backdrop.querySelector("[data-task-confirm]").onclick = () => close(true);
     });
   }
