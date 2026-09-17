@@ -25,7 +25,9 @@ def _user() -> int:
 
 
 def _payload() -> dict:
-    value = request.get_json(silent=True) or {}
+    value = request.get_json(silent=True)
+    if value is None:
+        return {}
     if not isinstance(value, dict):
         raise ValueError("Ожидается JSON-объект")
     return value
@@ -55,8 +57,8 @@ def list_categories():
 
 @category_api.post("/api/categories")
 def create_category():
-    payload = _payload()
     try:
+        payload = _payload()
         category = create_user_category(_user(), payload.get("label"), payload.get("color_id"))
     except ValueError as exc:
         return jsonify(error="invalid_category", message=str(exc)), 400
@@ -65,7 +67,10 @@ def create_category():
 
 @category_api.patch("/api/categories/<category_key>")
 def update_category(category_key: str):
-    payload = _payload()
+    try:
+        payload = _payload()
+    except ValueError as exc:
+        return jsonify(error="invalid_category", message=str(exc)), 400
     kwargs = {}
     if "label" in payload:
         kwargs["label"] = payload.get("label")
