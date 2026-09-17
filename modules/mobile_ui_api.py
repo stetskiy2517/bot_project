@@ -95,6 +95,7 @@ def inject_mobile_ui(response):
         '<script src="/file-ingest.js"></script>',
         '<script src="/attention-center.js"></script>',
         '<script src="/reminder-editor.js"></script>',
+        '<script src="/settings-themes.js"></script>',
     )
     if "</head>" in html:
         for stylesheet in stylesheets:
@@ -146,6 +147,11 @@ def event_editor_js():
 @mobile_ui_api.get("/attention-center.js")
 def attention_center_js():
     return send_from_directory(WEB_DIR, "attention-center.js", mimetype="application/javascript")
+
+
+@mobile_ui_api.get("/settings-themes.js")
+def settings_themes_js():
+    return send_from_directory(WEB_DIR, "settings-themes.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/api/mobile/attention")
