@@ -187,12 +187,11 @@
 
   function showHintOnce() {
     if (!taskTabActive() || document.getElementById("plannerTaskSwipeHint")) return;
-    try {
-      if (localStorage.getItem(HINT_KEY) === "1") return;
-      localStorage.setItem(HINT_KEY, "1");
-    } catch (_error) {}
     const list = document.getElementById("libraryList");
     if (!list?.querySelector(".planner-task-card")) return;
+    try {
+      if (localStorage.getItem(HINT_KEY) === "1") return;
+    } catch (_error) {}
     const hint = document.createElement("div");
     hint.id = "plannerTaskSwipeHint";
     hint.className = "planner-task-swipe-hint";
@@ -202,6 +201,9 @@
     if (filters) filters.insertAdjacentElement("afterend", hint);
     else if (toolbar) toolbar.insertAdjacentElement("afterend", hint);
     else list.prepend(hint);
+    try {
+      localStorage.setItem(HINT_KEY, "1");
+    } catch (_error) {}
     setTimeout(() => {
       hint.classList.add("hide");
       setTimeout(() => hint.remove(), 220);
