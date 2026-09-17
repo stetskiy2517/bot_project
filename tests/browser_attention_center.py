@@ -159,8 +159,12 @@ def main() -> None:
             assert get_attention_item(user_id, email_item["attention_id"])["dismissed_at"] is not None
 
             page.locator("#accountBtn").click()
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+            page.locator('[data-settings-open="assistant"]').click()
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Ассистент")
             proactive = page.locator("#assistantSettings details.assistant-section", has_text="Проактивный помощник")
             expect(proactive).to_have_count(1)
+            expect(proactive.locator("summary")).to_be_visible()
             proactive.locator("summary").click()
             expect(page.locator("#attentionPushEnabled")).to_be_visible()
             expect(page.get_by_text("Важные push-уведомления", exact=False)).to_be_visible()
