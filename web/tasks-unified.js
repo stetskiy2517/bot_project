@@ -232,6 +232,85 @@
     ));
   }
 
+  function ensureNotificationRepeatEditor(backdrop) {
+    const sheet = backdrop.querySelector(".reminder-edit-sheet");
+    const actions = backdrop.querySelector(".reminder-edit-actions");
+    const save = backdrop.querySelector("[data-reminder-edit-save]");
+    const reminderId = Number(save?.dataset.reminderEditSave || 0);
+    if (!sheet || !actions || !reminderId || sheet.querySelector(".unified-notification-repeat")) return;
+
+    const details = document.createElement("details");
+    details.className = "unified-notification-repeat";
+    const summary = document.createElement("summary");
+    summary.textContent = "Повторные уведомления";
+    const body = document.createElement("div");
+    body.className = "unified-notification-repeat-body";
+    details.append(summary, body);
+    actions.insertAdjacentElement("beforebegin", details);
+
+    details.addEventListener("toggle", async () => {
+      if (!details.open || details.dataset.loaded === "true") return;
+      details.dataset.loaded = "true";
+      body.textContent = "Загружаю…";
+      try {
+        const payload = await api(`/api/assistant/reminders/${reminderId}/notifications`);
+        const policy = payload.policy || {};
+        body.replaceChildren();
+
+        const explanation = document.createElement("p");
+        explanation.className = "reminder-edit-help unified-notification-repeat-status";
+        explanation.textContent = "Повтор доставки, если задача ещё не выполнена. 0 повторов — выключено.";
+
+        const intervalLabel = document.createElement("label");
+        intervalLabel.className = "reminder-edit-field";
+        intervalLabel.textContent = "Интервал, минут";
+        const interval = document.createElement("input");
+        interval.type = "number";
+        interval.min = "5";
+        interval.max = "1440";
+        interval.value = String(policy.interval_minutes ?? 30);
+        interval.setAttribute("aria-label", "Интервал повторов в минутах");
+        intervalLabel.appendChild(interval);
+
+        const countLabel = document.createElement("label");
+        countLabel.className = "reminder-edit-field";
+        countLabel.textContent = "Количество повторов";
+        const count = document.createElement("input");
+        count.type = "number";
+        count.min = "0";
+        count.max = "5";
+        count.value = String(policy.max_repeats ?? 0);
+        count.setAttribute("aria-label", "Число повторов, максимум 5");
+        countLabel.appendChild(count);
+
+        const saveRepeats = document.createElement("button");
+        saveRepeats.type = "button";
+        saveRepeats.className = "reminder-edit-button cancel unified-notification-repeat-save";
+        saveRepeats.textContent = "Сохранить повторы";
+        saveRepeats.addEventListener("click", async () => {
+          saveRepeats.disabled = true;
+          try {
+            await api(`/api/assistant/reminders/${reminderId}/notifications`, {
+              method: "POST",
+              body: JSON.stringify({
+                interval_minutes: Number(interval.value),
+                max_repeats: Number(count.value),
+              }),
+            });
+            explanation.textContent = "Сохранено. Тихие часы задаются в настройках уведомлений.";
+          } catch (error) {
+            explanation.textContent = error?.message || "Не удалось сохранить повторные уведомления.";
+          } finally {
+            saveRepeats.disabled = false;
+          }
+        });
+        body.append(explanation, intervalLabel, countLabel, saveRepeats);
+      } catch (error) {
+        body.textContent = error?.message || "Не удалось загрузить повторные уведомления.";
+      }
+    });
+  }
+
   function relabelReminderEditor() {
     const backdrop = document.getElementById("reminderEditBackdrop");
     if (!backdrop?.classList.contains("open")) return;
@@ -239,6 +318,7 @@
     const sheet = backdrop.querySelector(".reminder-edit-sheet");
     if (title) title.textContent = "Задача с уведомлением";
     if (sheet) sheet.setAttribute("aria-label", "Изменить задачу с уведомлением");
+    ensureNotificationRepeatEditor(backdrop);
   }
 
   function install() {
@@ -262,6 +342,11 @@
       .planner-task-reminder-summary{margin:-3px 0 10px;color:#8d8d88;font-size:12px}
       .planner-reminder-task{border-color:#ddddda}
       #libraryRemindersTab{display:none!important}
+      .unified-notification-repeat{margin:2px 0 14px;padding:11px 0;border-top:1px solid #ecece8;border-bottom:1px solid #ecece8}
+      .unified-notification-repeat summary{cursor:pointer;font-size:13px;font-weight:650;color:#4a4a47}
+      .unified-notification-repeat-body{padding-top:12px}
+      .unified-notification-repeat .reminder-edit-field{margin-bottom:10px}
+      .unified-notification-repeat-save{width:100%;margin-top:2px}
     `;
     document.head.appendChild(style);
 
