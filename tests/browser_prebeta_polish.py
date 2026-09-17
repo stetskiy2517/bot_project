@@ -95,18 +95,20 @@ def main() -> None:
             page.wait_for_timeout(250)
             assert page.evaluate("window.__claimSentinel") == "alive"
 
-            # Document -> right/back semantics: trackpad gesture returns one level to Saved.
+            # Note detail -> right/back semantics: close one sheet and stay in Saved.
             page.locator('#mobileBottomNav [data-view="more"]').click()
             page.locator('[data-more="saved"]').click()
             expect(page.locator("#libraryScreen")).to_be_visible()
             note = page.locator(".library-card", has_text="Тестовая заметка").first
             expect(note).to_be_visible()
             note.click()
-            page.wait_for_function("document.getElementById('app').classList.contains('chat-active')")
-            page.locator("#app").evaluate(
+            note_sheet = page.locator("#noteWindowBackdrop")
+            expect(note_sheet).to_have_class(__import__("re").compile(r"\bopen\b"))
+            page.locator(".note-window").evaluate(
                 "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
             )
-            page.wait_for_function("document.getElementById('app').classList.contains('library-active')")
+            expect(note_sheet).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#libraryScreen")).to_be_visible()
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
 
