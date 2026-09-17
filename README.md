@@ -1,7 +1,5 @@
 # AI Personal Secretary
 
-Web-first personal assistant with calendar, reminders, notes, tasks, voice input, navigation helpers, email tools, memory, and life-balance analytics.
-
 ## Language support
 
 Planner input accepts Russian and English text. AssemblyAI voice recognition uses automatic Russian/English language detection. English commands are normalized into the same deterministic planner pipeline used for Russian commands, so both languages share the same validation and action logic.
