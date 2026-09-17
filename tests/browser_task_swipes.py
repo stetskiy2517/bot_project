@@ -160,11 +160,21 @@ def main() -> None:
             assert any(item["title"] == "Новая задача из редактора" for item in list_planner_tasks(user_id, status=None, limit=50))
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
-            planner_row.evaluate(
-                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
-            )
-            page.wait_for_timeout(450)
-            assert get_planner_task(user_id, int(task["task_id"]))["status"] == "done"
+            task_id = int(task["task_id"])
+            with page.expect_response(
+                lambda response: response.request.method == "PATCH" and response.url.endswith(f"/api/tasks/{task_id}"),
+                timeout=3000,
+            ) as completion_response:
+                planner_row.evaluate(
+                    "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
+                )
+            assert completion_response.value.ok
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                if get_planner_task(user_id, task_id)["status"] == "done":
+                    break
+                page.wait_for_timeout(80)
+            assert get_planner_task(user_id, task_id)["status"] == "done"
 
             assert not dialogs, dialogs
             assert not errors, errors
