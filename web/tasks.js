@@ -1,11 +1,13 @@
 (() => {
   "use strict";
+
   const categoryLabels = {
     work: "Работа", health: "Здоровье", rest: "Отдых", travel: "Поездки",
     family: "Семья", personal: "Личное", other: "Прочее",
   };
   const priorityLabels = {high: "Высокий", normal: "Обычный", low: "Низкий"};
   const repeatLabels = {daily: "ежедневно", weekly: "еженедельно", monthly: "ежемесячно"};
+
   let installed = false;
   let taskMode = false;
   let taskQuery = "";
@@ -19,6 +21,11 @@
     return window.api(path, options);
   }
 
+  function editor() {
+    if (!window.PlannerTaskEditor) throw new Error("Редактор задач ещё загружается. Повторите через секунду.");
+    return window.PlannerTaskEditor;
+  }
+
   function formatDate(value) {
     if (!value) return "без срока";
     const date = new Date(value);
@@ -26,18 +33,11 @@
     return date.toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
   }
 
-  function promptDateTime(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return "";
-    const pad = number => String(number).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  }
-
   function notify(text) {
     const message = String(text || "").trim();
+    if (!message) return;
     const list = document.getElementById("libraryList");
-    if (taskMode && list && message) {
+    if (taskMode && list) {
       let box = document.getElementById("plannerTaskFeedback");
       if (!box) {
         box = document.createElement("div");
@@ -50,62 +50,82 @@
       box.textContent = message;
       box.hidden = false;
       clearTimeout(feedbackTimer);
-      feedbackTimer = setTimeout(() => {
-        const current = document.getElementById("plannerTaskFeedback");
-        if (current) current.remove();
-      }, 7000);
+      feedbackTimer = setTimeout(() => document.getElementById("plannerTaskFeedback")?.remove(), 6500);
       return;
     }
     if (typeof window.msg === "function") window.msg(message);
-    else if (message) alert(message);
+  }
+
+  async function createTask() {
+    const payload = await editor().openTask();
+    if (!payload) return;
+    await api("/api/tasks", {method: "POST", body: JSON.stringify(payload)});
+    await renderTasks();
   }
 
   async function createSubtask(parent) {
-    const title = prompt(`Подзадача для «${parent.title}»`);
-    if (!title?.trim()) return;
-    await api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        title: title.trim(),
-        parent_task_id: parent.task_id,
-        priority: parent.priority || "normal",
-        category: parent.category || "other",
-        flexible: false,
-      }),
-    });
+    const payload = await editor().openTask({parent});
+    if (!payload) return;
+    await api("/api/tasks", {method: "POST", body: JSON.stringify(payload)});
     await renderTasks();
+  }
+
+  async function editTask(task) {
+    const payload = await editor().openTask({task});
+    if (!payload) return;
+    await api(`/api/tasks/${task.task_id}`, {method: "PATCH", body: JSON.stringify(payload)});
+    await renderTasks();
+  }
+
+  async function deleteTask(task, card) {
+    const row = card?.closest(".planner-task-swipe-row") || card;
+    if (row) row.hidden = true;
+    const undone = await editor().offerUndo(`Задача «${task.title}» удалена`);
+    if (undone) {
+      if (row) row.hidden = false;
+      return;
+    }
+    try {
+      const result = await api(`/api/tasks/${task.task_id}`, {method: "DELETE"});
+      if (result.detached_subtasks) notify(`Подзадачи сохранены отдельно: ${result.detached_subtasks}.`);
+      await renderTasks();
+    } catch (error) {
+      if (row) row.hidden = false;
+      throw error;
+    }
   }
 
   function taskCard(task, depth = 0) {
     const card = document.createElement("div");
     card.className = "planner-task-card" + (task.status === "done" ? " completed" : "") + (depth ? " subtask" : "");
+    card.dataset.taskId = String(task.task_id);
     card.style.setProperty("--task-depth", String(Math.min(depth, 3)));
+
     const title = document.createElement("div");
     title.className = "planner-task-title";
     title.textContent = task.title;
+
     const meta = document.createElement("div");
     meta.className = "planner-task-meta";
-    const parts = [
-      categoryLabels[task.category] || "Прочее",
-      priorityLabels[task.priority] || "Обычный",
-      formatDate(task.due_at),
-    ];
+    const parts = [categoryLabels[task.category] || "Прочее", priorityLabels[task.priority] || "Обычный", formatDate(task.due_at)];
     if (task.estimate_minutes) parts.push(`${task.estimate_minutes} мин`);
     if (task.repeat_rule && repeatLabels[task.repeat_rule]) parts.push(repeatLabels[task.repeat_rule]);
     if (task.calendar_event_id) parts.push("в календаре");
     meta.textContent = parts.join(" · ");
+
     const actions = document.createElement("div");
     actions.className = "planner-task-actions";
-
     const action = (label, handler, className = "") => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "planner-task-action " + className;
+      button.className = `planner-task-action ${className}`.trim();
       button.textContent = label;
-      button.onclick = async (event) => {
+      button.onclick = async event => {
         event.stopPropagation();
         button.disabled = true;
-        try { await handler(); } catch (error) { notify(error.message || String(error)); } finally { button.disabled = false; }
+        try { await handler(); }
+        catch (error) { notify(error?.message || String(error)); }
+        finally { button.disabled = false; }
       };
       return button;
     };
@@ -124,68 +144,9 @@
         await renderTasks();
       }));
     }
-    actions.append(action("Удалить", async () => {
-      if (!confirm(`Удалить задачу «${task.title}»?`)) return;
-      const result = await api(`/api/tasks/${task.task_id}`, {method: "DELETE"});
-      if (result.detached_subtasks) notify(`Подзадачи сохранены отдельно: ${result.detached_subtasks}.`);
-      await renderTasks();
-    }, "danger"));
+    actions.append(action("Удалить", async () => deleteTask(task, card), "danger"));
     card.append(title, meta, actions);
     return card;
-  }
-
-  async function createTask() {
-    const title = prompt("Название задачи");
-    if (!title?.trim()) return;
-    const estimateRaw = prompt("Сколько времени нужно, минут? Можно оставить пустым.", "60");
-    const estimate = estimateRaw?.trim() ? Number(estimateRaw) : null;
-    if (estimate !== null && (!Number.isFinite(estimate) || estimate < 5)) throw new Error("Укажи длительность задачи в минутах, минимум 5.");
-    const dueRaw = prompt("Срок. Формат: 2026-09-18T18:00. Можно оставить пустым.");
-    let dueAt = null;
-    if (dueRaw?.trim()) {
-      const local = new Date(dueRaw.trim());
-      if (!Number.isFinite(local.getTime())) throw new Error("Некорректный срок задачи");
-      dueAt = local.toISOString();
-    }
-    const repeatRaw = (prompt("Повтор: daily / weekly / monthly. Пусто — без повтора.", "") || "").trim().toLowerCase();
-    if (repeatRaw && !repeatLabels[repeatRaw]) throw new Error("Повтор может быть daily, weekly или monthly");
-    await api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        title: title.trim(),
-        estimate_minutes: estimate,
-        due_at: dueAt,
-        flexible: true,
-        repeat_rule: repeatRaw || null,
-      }),
-    });
-    await renderTasks();
-  }
-
-  async function editTask(task) {
-    const title = prompt("Название задачи", task.title);
-    if (!title?.trim()) return;
-    const estimateRaw = prompt("Длительность, минут", task.estimate_minutes || "");
-    const estimate = estimateRaw?.trim() ? Number(estimateRaw) : null;
-    if (estimate !== null && (!Number.isFinite(estimate) || estimate < 5)) throw new Error("Укажи длительность задачи в минутах, минимум 5.");
-    const dueRaw = prompt("Срок. Формат: 2026-09-18T18:00. Пусто — без срока.", promptDateTime(task.due_at));
-    let dueAt = null;
-    if (dueRaw?.trim()) {
-      const local = new Date(dueRaw.trim());
-      if (!Number.isFinite(local.getTime())) throw new Error("Некорректный срок задачи");
-      dueAt = local.toISOString();
-    }
-    const priority = (prompt("Приоритет: high / normal / low", task.priority || "normal") || task.priority || "normal").trim().toLowerCase();
-    const category = (prompt("Категория: work / health / rest / travel / family / personal / other", task.category || "other") || task.category || "other").trim().toLowerCase();
-    const repeatRule = (prompt("Повтор: daily / weekly / monthly. Пусто — без повтора.", task.repeat_rule || "") || "").trim().toLowerCase();
-    if (!priorityLabels[priority]) throw new Error("Некорректный приоритет");
-    if (!categoryLabels[category]) throw new Error("Некорректная категория");
-    if (repeatRule && !repeatLabels[repeatRule]) throw new Error("Повтор может быть daily, weekly или monthly");
-    await api(`/api/tasks/${task.task_id}`, {
-      method: "PATCH",
-      body: JSON.stringify({title: title.trim(), estimate_minutes: estimate, due_at: dueAt, priority, category, repeat_rule: repeatRule || null}),
-    });
-    await renderTasks();
   }
 
   function skippedSummary(skipped) {
@@ -203,7 +164,7 @@
     if (counts.already_scheduled) parts.push(`уже в календаре: ${counts.already_scheduled}`);
     if (!parts.length) return "Не нашёл задач, которые можно безопасно поставить в календарь.";
     const needsData = Boolean(counts.missing_estimate || counts.missing_deadline);
-    const hint = needsData ? " Открой «Изменить» у задачи и добавь срок и длительность." : "";
+    const hint = needsData ? " Добавьте срок и длительность через свайп влево → «Изменить»." : "";
     return `Не удалось распланировать: ${parts.join(" · ")}.${hint}`;
   }
 
@@ -214,22 +175,12 @@
       notify(skippedSummary(preview.skipped));
       return;
     }
-    const lines = proposals.map((item, index) => {
-      const start = new Date(item.start).toLocaleString("ru-RU", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
-      return `${index + 1}. ${item.title} — ${start}, ${item.estimate_minutes} мин`;
-    });
-    const approved = confirm(`Предлагаю поставить в календарь:\n\n${lines.join("\n")}\n\nПрименить этот план?`);
+    const approved = await editor().confirmPlan(proposals);
     if (!approved) return;
-    const result = await api("/api/tasks/schedule/apply", {
-      method: "POST",
-      body: JSON.stringify({proposals}),
-    });
+    const result = await api("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals})});
     await renderTasks();
-    if (result.errors?.length) {
-      notify(`В календарь добавлено: ${result.applied_count}. Часть окон успела измениться — обнови план.`);
-    } else {
-      notify(`Готово. В календарь добавлено задач: ${result.applied_count}.`);
-    }
+    if (result.errors?.length) notify(`В календарь добавлено: ${result.applied_count}. Часть окон успела измениться — обновите план.`);
+    else notify(`Готово. В календарь добавлено задач: ${result.applied_count}.`);
   }
 
   function appendTaskTree(list, tasks) {
@@ -240,17 +191,17 @@
       if (!byParent.has(parent)) byParent.set(parent, []);
       byParent.get(parent).push(task);
     }
-    const renderBranch = (task, depth, visited) => {
+    const visited = new Set();
+    const renderBranch = (task, depth) => {
       const id = Number(task.task_id);
       if (visited.has(id)) return;
       visited.add(id);
       list.append(taskCard(task, depth));
-      for (const child of byParent.get(id) || []) renderBranch(child, depth + 1, visited);
+      for (const child of byParent.get(id) || []) renderBranch(child, depth + 1);
     };
     const roots = tasks.filter(task => !task.parent_task_id || !ids.has(Number(task.parent_task_id)));
-    const visited = new Set();
-    for (const root of roots) renderBranch(root, 0, visited);
-    for (const task of tasks) renderBranch(task, task.parent_task_id ? 1 : 0, visited);
+    for (const root of roots) renderBranch(root, 0);
+    for (const task of tasks) renderBranch(task, task.parent_task_id ? 1 : 0);
   }
 
   function filterRow() {
@@ -258,13 +209,13 @@
     filters.className = "planner-task-filters";
     const search = document.createElement("input");
     search.type = "search";
-    search.placeholder = "Поиск задач";
+    search.placeholder = "Поиск по задачам";
     search.value = taskQuery;
     search.className = "planner-task-filter";
     search.oninput = () => {
       taskQuery = search.value.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => renderTasks(), 350);
+      searchTimer = setTimeout(renderTasks, 350);
     };
     const category = document.createElement("select");
     category.className = "planner-task-filter";
@@ -280,6 +231,17 @@
     return filters;
   }
 
+  function emptyState(filtered) {
+    const empty = document.createElement("div");
+    empty.className = "library-empty planner-task-empty";
+    if (filtered) {
+      empty.innerHTML = '<strong>Ничего не найдено</strong><span>Измените поиск или сбросьте фильтры.</span>';
+    } else {
+      empty.innerHTML = '<strong>Задач пока нет</strong><span>Добавьте первую или скажите секретарю: «напомни завтра…».</span>';
+    }
+    return empty;
+  }
+
   async function renderTasks() {
     if (!taskMode) return;
     const list = document.getElementById("libraryList");
@@ -293,33 +255,35 @@
       const data = await api(`/api/tasks?${params.toString()}`);
       const tasks = data.tasks || [];
       list.replaceChildren();
+
       const toolbar = document.createElement("div");
       toolbar.className = "planner-task-toolbar";
       const create = document.createElement("button");
       create.type = "button";
       create.className = "planner-task-primary";
       create.textContent = "+ Задача";
-      create.onclick = () => createTask().catch((error) => notify(error.message));
+      create.onclick = () => createTask().catch(error => notify(error?.message));
       const plan = document.createElement("button");
       plan.type = "button";
       plan.className = "planner-task-primary secondary";
       plan.textContent = "Распланировать";
-      plan.onclick = () => planTasks().catch((error) => notify(error.message));
+      plan.onclick = () => planTasks().catch(error => notify(error?.message));
       const summary = document.createElement("div");
       summary.className = "planner-task-summary";
       summary.textContent = `Открыто ${data.summary?.open || 0} · просрочено ${data.summary?.overdue || 0}`;
       toolbar.append(create, plan, summary);
       list.append(toolbar, filterRow());
+
       if (!tasks.length) {
-        const empty = document.createElement("div");
-        empty.className = "library-empty";
-        empty.textContent = taskQuery || taskCategory || taskPriority ? "По фильтрам задач не найдено." : "Задач пока нет.";
-        list.append(empty);
+        list.append(emptyState(Boolean(taskQuery || taskCategory || taskPriority)));
+        document.dispatchEvent(new Event("planner-task-rendered"));
         return;
       }
       appendTaskTree(list, tasks);
+      document.dispatchEvent(new Event("planner-task-rendered"));
     } catch (error) {
-      list.innerHTML = `<div class="library-error">${String(error.message || error)}</div>`;
+      const friendly = window.PlannerPolish?.friendlyError?.(error) || "Не удалось загрузить задачи. Проверьте соединение и попробуйте ещё раз.";
+      list.innerHTML = `<div class="library-error">${friendly}</div>`;
     }
   }
 
@@ -331,6 +295,7 @@
     if (!notes || !reminders || !tabs) return;
     installed = true;
     tabs.style.gridTemplateColumns = "1fr 1fr 1fr";
+
     const button = document.createElement("button");
     button.id = "libraryTasksTab";
     button.className = "library-tab";
@@ -361,20 +326,13 @@
     const style = document.createElement("style");
     style.textContent = `
       .planner-task-toolbar{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:center;margin:0 0 10px}
-      .planner-task-primary{min-height:40px;padding:0 12px;border-radius:12px;background:#2d2d2c;color:#fff;font-weight:650;cursor:pointer}
-      .planner-task-primary.secondary{background:#ececea;color:#222}
-      .planner-task-summary{text-align:right;color:#888883;font-size:12px}
-      .planner-task-feedback{margin:0 0 10px;padding:10px 12px;border:1px solid #dddcd8;border-radius:12px;background:#f0f0ed;color:#353533;font-size:12px;line-height:1.4}
-      .planner-task-filters{display:grid;grid-template-columns:minmax(0,1.4fr) 1fr 1fr;gap:7px;margin:0 0 12px}
-      .planner-task-filter{min-width:0;min-height:38px;padding:0 9px;border:1px solid #dededb;border-radius:11px;background:#fff;color:#333;font:inherit;font-size:12px;outline:0}
-      .planner-task-card{padding:15px 16px;margin:0 0 10px;border:1px solid #e5e5e2;border-radius:18px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.035)}
-      .planner-task-card.subtask{margin-left:calc(min(var(--task-depth),3) * 18px);padding:12px 14px;border-radius:15px;background:#fafaf8}
-      .planner-task-card.completed .planner-task-title{text-decoration:line-through;color:#777773}
-      .planner-task-title{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}
-      .planner-task-meta{margin-top:7px;color:#8d8d88;font-size:12px;line-height:1.35}
-      .planner-task-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
-      .planner-task-action{min-height:34px;padding:0 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}
-      .planner-task-action.danger{background:#f2dddd;color:#8a2d2d}
+      .planner-task-primary{min-height:40px;padding:0 12px;border-radius:12px;background:#2d2d2c;color:#fff;font-weight:650;cursor:pointer}.planner-task-primary.secondary{background:#ececea;color:#222}
+      .planner-task-summary{text-align:right;color:#888883;font-size:12px}.planner-task-feedback{margin:0 0 10px;padding:10px 12px;border:1px solid #dddcd8;border-radius:12px;background:#f0f0ed;color:#353533;font-size:12px;line-height:1.4}
+      .planner-task-filters{display:grid;grid-template-columns:minmax(0,1.4fr) 1fr 1fr;gap:7px;margin:0 0 12px}.planner-task-filter{min-width:0;min-height:38px;padding:0 9px;border:1px solid #dededb;border-radius:11px;background:#fff;color:#333;font:inherit;font-size:12px;outline:0}
+      .planner-task-card{padding:15px 16px;margin:0 0 10px;border:1px solid #e5e5e2;border-radius:18px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.035)}.planner-task-card.subtask{margin-left:calc(min(var(--task-depth),3) * 18px);padding:12px 14px;border-radius:15px;background:#fafaf8}
+      .planner-task-card.completed .planner-task-title{text-decoration:line-through;color:#777773}.planner-task-title{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}.planner-task-meta{margin-top:7px;color:#8d8d88;font-size:12px;line-height:1.35}
+      .planner-task-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}.planner-task-action{min-height:34px;padding:0 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}.planner-task-action.danger{background:#f2dddd;color:#8a2d2d}
+      .planner-task-empty{display:grid;gap:7px}.planner-task-empty strong{color:#555550;font-size:16px}.planner-task-empty span{font-size:13px}
       @media(max-width:520px){.planner-task-toolbar{grid-template-columns:1fr 1fr}.planner-task-summary{grid-column:1/-1;text-align:left}.planner-task-filters{grid-template-columns:1fr 1fr}.planner-task-filter:first-child{grid-column:1/-1}}
     `;
     document.head.append(style);
