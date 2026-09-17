@@ -12,6 +12,7 @@
   let connectionHideTimer = null;
   let updateReloading = false;
   let diagnosticsBusy = false;
+  let diagnosticsTimer = null;
 
   const style = document.createElement("style");
   style.id = "prebetaPolishStyles";
@@ -60,6 +61,14 @@
     connectionBanner.classList.toggle("offline", offline);
     connectionBanner.classList.add("show");
     if (temporary) connectionHideTimer = setTimeout(() => connectionBanner.classList.remove("show"), 2200);
+  }
+
+  function refreshDiagnosticsSoon() {
+    if (diagnosticsBusy) return;
+    clearTimeout(diagnosticsTimer);
+    diagnosticsTimer = setTimeout(() => {
+      if (document.getElementById("diagnosticsGroup")?.open) refreshDiagnostics();
+    }, 150);
   }
 
   function markSuccess() {
@@ -119,7 +128,7 @@
   }
 
   window.addEventListener("offline", markNetworkError);
-  window.addEventListener("online", () => retryConnection());
+  window.addEventListener("online", retryConnection);
   if (!navigator.onLine) markNetworkError();
   waitForRequests();
 
@@ -224,24 +233,23 @@
     diagnosticsBusy = true;
     const statusEl = group.querySelector("#diagnosticsStatus");
     statusEl.textContent = "Проверяю…";
-    let statusData = null;
-    let assistantData = null;
-    let subscription = null;
     try {
       const results = await Promise.allSettled([
         window.PlannerRequests?.status?.(),
         window.PlannerRequests?.request?.("/api/assistant"),
         navigator.serviceWorker?.getRegistration?.().then(reg => reg?.pushManager?.getSubscription?.()),
       ]);
-      statusData = results[0]?.status === "fulfilled" ? results[0].value : null;
-      assistantData = results[1]?.status === "fulfilled" ? results[1].value : null;
-      subscription = results[2]?.status === "fulfilled" ? results[2].value : null;
+      const statusData = results[0]?.status === "fulfilled" ? results[0].value : null;
+      const assistantData = results[1]?.status === "fulfilled" ? results[1].value : null;
+      const subscription = results[2]?.status === "fulfilled" ? results[2].value : null;
       group.querySelector("#diagVersion").textContent = String(statusData?.app_version || "неизвестна");
       group.querySelector("#diagNetwork").textContent = navigator.onLine && statusData ? "Онлайн" : navigator.onLine ? "Сервер недоступен" : "Нет сети";
       group.querySelector("#diagPush").textContent = pushState(subscription);
       const ai = assistantData?.ai || {};
       const access = assistantData?.access || {};
-      group.querySelector("#diagAi").textContent = ai.configured || ai.enabled ? `${ai.provider || "AI"}${ai.model ? ` · ${ai.model}` : ""}${access.allowed === false ? " · нет доступа" : ""}` : "Не настроен";
+      group.querySelector("#diagAi").textContent = ai.configured || ai.enabled
+        ? `${ai.provider || "AI"}${ai.model ? ` · ${ai.model}` : ""}${access.allowed === false ? " · нет доступа" : ""}`
+        : "Не настроен";
       group.querySelector("#diagLastSync").textContent = formatLastSync();
       statusEl.textContent = statusData ? "Проверка завершена." : "Сервер не ответил. Остальные статусы показаны локально.";
     } catch (error) {
@@ -283,14 +291,6 @@
     } catch (_) {
       if (statusEl) statusEl.textContent = "Не удалось скопировать. Попробуйте ещё раз.";
     }
-  }
-
-  let diagnosticsTimer = null;
-  function refreshDiagnosticsSoon() {
-    clearTimeout(diagnosticsTimer);
-    diagnosticsTimer = setTimeout(() => {
-      if (document.getElementById("diagnosticsGroup")?.open) refreshDiagnostics();
-    }, 150);
   }
 
   function installDiagnostics() {
