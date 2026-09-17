@@ -77,6 +77,10 @@ def main() -> None:
             expect(page.locator("#emailAutoAnalysis")).to_have_count(1)
 
             page.locator("#accountBtn").click()
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+            expect(page.locator("#emailGroup summary")).to_be_hidden()
+            page.locator('[data-settings-open="integrations"]').click()
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Интеграции")
             expect(page.locator("#emailGroup summary")).to_be_visible()
             expect(page.locator("#emailGroup summary")).to_contain_text("Почта")
             page.locator("#emailGroup summary").click()
