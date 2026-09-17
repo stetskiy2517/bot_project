@@ -25,8 +25,14 @@
     );
   }
 
+  function activeBackSheet() {
+    return document.querySelector(
+      "#mobileSheetBackdrop.open, #noteWindowBackdrop.open, #reminderEditBackdrop.open"
+    );
+  }
+
   function topSheetOpen() {
-    return Boolean(document.getElementById("mobileSheetBackdrop")?.classList.contains("open"));
+    return Boolean(activeBackSheet());
   }
 
   function blockedGestureTarget(target) {
@@ -53,8 +59,8 @@
   }
 
   function closeTopSheet() {
-    const backdrop = document.getElementById("mobileSheetBackdrop");
-    if (!backdrop?.classList.contains("open")) return false;
+    const backdrop = activeBackSheet();
+    if (!backdrop) return false;
     backdrop.dispatchEvent(new MouseEvent("click", {bubbles: true}));
     return true;
   }
@@ -212,7 +218,6 @@
     if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
 
     if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
-    if (app.classList.contains("library-active")) return;
 
     event.preventDefault();
     wheelX += event.deltaX;
@@ -221,6 +226,11 @@
 
     if (topSheetOpen()) {
       if (wheelX < 0 && closeTopSheet()) suppressNextClick();
+      wheelX = 0;
+      return;
+    }
+
+    if (app.classList.contains("library-active")) {
       wheelX = 0;
       return;
     }
