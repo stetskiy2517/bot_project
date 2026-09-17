@@ -234,13 +234,18 @@ def main():
         reminder = create_reminder(user, "Повтор проверки", datetime.now(timezone.utc) + timedelta(hours=3))
         loaded(page)
         page.locator("#libraryOpenBtn").click()
-        page.locator("#libraryRemindersTab").click()
-        page.locator(f'.library-card[data-type=reminder][data-id="{reminder["reminder_id"]}"]').click()
-        page.locator(".assistant-repeat summary").click()
+        expect(page.locator("#libraryRemindersTab")).to_have_attribute("aria-hidden", "true")
+        page.locator("#libraryTasksTab").click()
+        card = page.locator(f'.planner-reminder-task[data-reminder-id="{reminder["reminder_id"]}"]')
+        expect(card).to_be_visible()
+        card.locator("[data-reminder-edit]").click()
+        repeats = page.locator(".unified-notification-repeat")
+        expect(repeats).to_be_visible()
+        repeats.locator("summary").click()
         page.get_by_label("Интервал повторов в минутах").fill("20")
         page.get_by_label("Число повторов, максимум 5").fill("2")
-        page.locator(".assistant-repeat").get_by_role("button", name="Сохранить", exact=True).click()
-        expect(page.locator(".assistant-repeat")).to_contain_text("Сохранено.")
+        repeats.get_by_role("button", name="Сохранить повторы", exact=True).click()
+        expect(repeats).to_contain_text("Сохранено.")
         assert get_policy(user, reminder["reminder_id"])["max_repeats"] == 2
 
     def undo(page, user):
