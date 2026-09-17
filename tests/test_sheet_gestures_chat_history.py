@@ -14,7 +14,7 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
     def test_handle_sheets_support_downward_dismiss(self):
         self.assertIn("const SWIPE_DOWN_MIN_Y = 72", self.script)
         self.assertIn("const SHEET_TOP_GRAB_ZONE = 88", self.script)
-        self.assertIn(".handle, .mobile-sheet-handle, .note-window-handle, .reminder-edit-handle", self.script)
+        self.assertIn("const SHEET_HANDLE_SELECTOR = \".handle, [class*='-handle']\"", self.script)
         self.assertIn('document.addEventListener("touchmove"', self.script)
         self.assertIn("dy >= SWIPE_DOWN_MIN_Y", self.script)
         self.assertIn("closeSheetRoot(start.root)", self.script)
@@ -24,6 +24,7 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
             "[data-note-close]",
             "[data-note-editor-cancel]",
             "[data-reminder-edit-cancel]",
+            "[data-task-editor-cancel]",
             "#closeLifeWheel",
             "#closeSettings",
             ".event-detail-close",
