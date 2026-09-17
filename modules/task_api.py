@@ -31,12 +31,12 @@ def _user() -> int:
 @task_api.after_app_request
 def task_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
-        # The PWA shell changes frequently during beta. Never let Safari keep an
-        # obsolete HTML shell that can reference an older library/task bundle.
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
         html = response.get_data(as_text=True)
         scripts = []
+        if 'src="/task-editor.js"' not in html:
+            scripts.append('<script defer src="/task-editor.js"></script>')
         if 'src="/tasks.js"' not in html:
             scripts.append('<script defer src="/tasks.js"></script>')
         if 'src="/tasks-unified.js"' not in html:
@@ -47,6 +47,11 @@ def task_ui_hook(response):
             block = "\n    ".join(scripts)
             response.set_data(html.replace("</body>", f"    {block}\n  </body>", 1))
     return response
+
+
+@task_api.get("/task-editor.js")
+def task_editor_js():
+    return send_from_directory(WEB_DIR, "task-editor.js", mimetype="application/javascript")
 
 
 @task_api.get("/tasks.js")
@@ -87,10 +92,7 @@ def tasks_list():
             raise ValueError("Некорректный идентификатор родительской задачи") from exc
         tasks = [task for task in tasks if task.get("parent_task_id") == parent_id]
 
-    return {
-        "tasks": tasks,
-        "summary": task_summary(_user()),
-    }
+    return {"tasks": tasks, "summary": task_summary(_user())}
 
 
 @task_api.get("/api/tasks/<int:task_id>")
