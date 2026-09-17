@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from core.category_store import install_dynamic_category_support
+from modules.category_runtime import install_category_detector_guard
 from modules.language_support import (
     canonicalize_english,
     detect_input_language,
@@ -18,9 +19,12 @@ from modules.language_support import (
 
 logger = logging.getLogger(__name__)
 
-# Patch the shared category lookup before planner modules bind it at import time.
+# Patch shared category lookups before planner modules bind them, then wrap the
+# bilingual classifier so deleted categories are not silently resurrected.
 install_dynamic_category_support()
 install_english_category_support()
+install_dynamic_category_support()
+install_category_detector_guard()
 
 from modules import router_core as _impl  # noqa: E402
 
