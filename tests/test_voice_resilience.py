@@ -90,13 +90,14 @@ class SpeechIntegrationTests(unittest.TestCase):
 
 
 class TelegramVoiceAdapterTests(unittest.IsolatedAsyncioTestCase):
-    async def test_telegram_voice_routes_transcript_through_central_router(self):
+    async def test_telegram_voice_routes_transcript_through_shared_assistant_flow(self):
         reply_text = AsyncMock()
         update = SimpleNamespace(
             message=SimpleNamespace(
                 voice=SimpleNamespace(file_id="voice-1"),
                 reply_text=reply_text,
-            )
+            ),
+            effective_user=SimpleNamespace(id=42),
         )
         telegram_file = SimpleNamespace(download_to_drive=AsyncMock())
         context = SimpleNamespace(
@@ -104,10 +105,14 @@ class TelegramVoiceAdapterTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("handlers.voice.transcribe_audio", return_value="встреча завтра в 19.30"):
-            with patch("handlers.voice.route_text", new=AsyncMock(return_value=True)) as route:
+            with patch("handlers.text.route_text", new=AsyncMock(return_value=True)) as route:
                 await handle_voice(update, context)
 
-        route.assert_awaited_once_with(update, context, text="встреча завтра в 19:30")
+        route.assert_awaited_once()
+        routed_update, routed_context = route.await_args.args
+        self.assertIs(routed_context, context)
+        self.assertEqual(route.await_args.kwargs["text"], "встреча завтра в 19:30")
+        self.assertEqual(routed_update.message.text, "встреча завтра в 19:30")
         reply_text.assert_any_await("Распознано: встреча завтра в 19:30")
 
     async def test_unknown_voice_command_uses_transport_neutral_fallback(self):
@@ -116,7 +121,8 @@ class TelegramVoiceAdapterTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(
                 voice=SimpleNamespace(file_id="voice-2"),
                 reply_text=reply_text,
-            )
+            ),
+            effective_user=SimpleNamespace(id=42),
         )
         telegram_file = SimpleNamespace(download_to_drive=AsyncMock())
         context = SimpleNamespace(
@@ -124,7 +130,10 @@ class TelegramVoiceAdapterTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("handlers.voice.transcribe_audio", return_value="сделай что-нибудь"):
-            with patch("handlers.voice.route_text", new=AsyncMock(return_value=False)):
+            with (
+                patch("handlers.text.route_text", new=AsyncMock(return_value=False)),
+                patch("handlers.text.answer_unhandled", return_value=None),
+            ):
                 await handle_voice(update, context)
 
         reply_text.assert_any_await(
