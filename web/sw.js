@@ -1,8 +1,47 @@
-const CACHE = "personal-secretary-v11-life-wheel-reminders";
-const STATIC = ["/", "/manifest.webmanifest", "/icon.svg", "/reminders.js", "/library.js", "/reliability.js", "/voice-gesture.js", "/assistant.js", "/life-wheel.js"];
+const CACHE = "personal-secretary-v12-unified-tasks";
+const STATIC = [
+  "/",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/reliability.js",
+  "/reminders.js",
+  "/library.js",
+  "/tasks.js",
+  "/tasks-unified.js",
+  "/voice-gesture.js",
+  "/location.js",
+  "/assistant.js",
+  "/life-wheel.js",
+  "/proactive.js",
+  "/mobile-ui.css",
+  "/mobile-ui-overlays.css",
+  "/attention-center.css",
+  "/mobile-ui.js",
+  "/mobile-ui-fixes.js",
+  "/swipe-navigation.js",
+  "/event-editor.js",
+  "/file-ingest.js",
+  "/attention-center.js",
+  "/reminder-editor.js",
+  "/settings-themes.js",
+];
+
+async function refreshStaticCache() {
+  const cache = await caches.open(CACHE);
+  await Promise.all(
+    STATIC.map(async (path) => {
+      try {
+        const response = await fetch(path, { cache: "reload" });
+        if (response.ok) await cache.put(path, response);
+      } catch (_error) {
+        // One optional asset must not prevent the new worker from activating.
+      }
+    }),
+  );
+}
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC)));
+  event.waitUntil(refreshStaticCache());
   self.skipWaiting();
 });
 
@@ -83,14 +122,34 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE);
+  try {
+    const response = await fetch(request, { cache: "no-store" });
+    if (response.ok) {
+      cache.put(request, response.clone()).catch(() => {});
+    }
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    if (request.mode === "navigate") {
+      const shell = await cache.match("/");
+      if (shell) return shell;
+    }
+    throw error;
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (
     event.request.method !== "GET" ||
+    url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/") ||
     url.pathname === "/oauth2callback"
   ) {
     return;
   }
-  event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+  event.respondWith(networkFirst(event.request));
 });
