@@ -47,7 +47,7 @@ def _init_table() -> None:
 
 
 def _valid_color(value: object) -> str | None:
-    if value in {None, ""}:
+    if value is None or value == "":
         return None
     color = str(value)
     if color not in db.GOOGLE_EVENT_COLOR_IDS:
@@ -81,7 +81,7 @@ def _legacy_colors_locked(user_id: int) -> dict[str, str | None]:
     for key, value in stored.items():
         if key not in colors:
             continue
-        if value in {None, ""}:
+        if value is None or value == "":
             colors[key] = None
         elif str(value) in db.GOOGLE_EVENT_COLOR_IDS:
             colors[key] = str(value)
