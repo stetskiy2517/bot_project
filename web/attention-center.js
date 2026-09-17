@@ -7,6 +7,8 @@
   let loading = false;
   let initialized = false;
   let observer = null;
+  let reviewContext = null;
+  let reviewRefreshedAt = 0;
 
   function esc(value) {
     return String(value ?? "")
@@ -33,12 +35,25 @@
     return "Понятно";
   }
 
-  function render(items) {
+  async function refreshReviewContext() {
+    if (reviewContext && Date.now() - reviewRefreshedAt < 60000) return reviewContext;
+    try {
+      const today = await api("/api/mobile/today");
+      reviewContext = today?.review || null;
+      reviewRefreshedAt = Date.now();
+    } catch (_error) {
+      // Attention remains usable even if the daily briefing cannot be refreshed.
+    }
+    return reviewContext;
+  }
+
+  function render(items, review = null) {
     const content = document.getElementById("mobileTodayContent");
     if (!content) return;
     content.querySelector(".mobile-attention-card")?.remove();
 
     const normalized = Array.isArray(items) ? items : [];
+    const aiReview = review?.presentation === "ai";
     const card = document.createElement("div");
     card.className = `mobile-card mobile-attention-card${normalized.length ? "" : " is-empty"}`;
     card.innerHTML = `
@@ -47,18 +62,24 @@
         <span class="mobile-attention-count">${normalized.length}</span>
       </div>
       <div class="mobile-attention-list">
-        ${normalized.length ? normalized.slice(0, 5).map(item => `
+        ${normalized.length ? normalized.slice(0, 5).map(item => {
+          const showAiBadge = aiReview && item.source_type === "daily_review";
+          return `
           <div class="mobile-attention-item${item.unseen ? "" : " seen"}" data-attention-id="${Number(item.attention_id)}">
             <span class="mobile-attention-dot ${esc(item.priority || "normal")}"></span>
             <div class="mobile-attention-main">
-              <div class="mobile-attention-title">${esc(item.title)}</div>
+              <div class="mobile-attention-heading">
+                <div class="mobile-attention-title">${esc(item.title)}</div>
+                ${showAiBadge ? '<span class="mobile-attention-ai-badge">AI-сводка</span>' : ""}
+              </div>
               ${item.body ? `<div class="mobile-attention-body">${esc(item.body)}</div>` : ""}
               <div class="mobile-attention-actions">
                 <button type="button" data-attention-action="primary">${mainActionLabel(item)}</button>
                 <button type="button" class="secondary" data-attention-action="dismiss">Скрыть</button>
               </div>
             </div>
-          </div>`).join("") : `
+          </div>`;
+        }).join("") : `
           <div class="mobile-attention-empty">
             Сейчас ничего не требует внимания.
           </div>`}
@@ -72,8 +93,9 @@
     if (!content) return;
     loading = true;
     try {
+      await refreshReviewContext();
       const data = await api("/api/mobile/attention");
-      render(data.items || []);
+      render(data.items || [], reviewContext);
       focusDeepLink();
     } catch (_error) {
       // The Today screen must remain usable if the attention subsystem is temporarily unavailable.
