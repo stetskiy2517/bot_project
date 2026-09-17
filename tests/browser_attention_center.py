@@ -165,7 +165,8 @@ def main() -> None:
             proactive = page.locator("#assistantSettings details.assistant-section", has_text="Проактивный помощник")
             expect(proactive).to_have_count(1)
             expect(proactive.locator("summary")).to_be_visible()
-            proactive.locator("summary").click()
+            expect(proactive).to_have_attribute("open", "")
+            expect(proactive).to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
             expect(page.locator("#attentionPushEnabled")).to_be_visible()
             expect(page.get_by_text("Важные push-уведомления", exact=False)).to_be_visible()
 
