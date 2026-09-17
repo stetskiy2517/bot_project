@@ -24,6 +24,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Run browser feature regression
         run: python tests/browser_features.py --output evidence/browser-features
+      - name: Test swipe-first tasks
+        run: python tests/browser_task_swipes.py
       - name: Test home composer and file import
         run: python tests/browser_file_ingest.py
       - name: Test email settings initialization
