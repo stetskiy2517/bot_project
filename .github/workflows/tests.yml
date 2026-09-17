@@ -43,7 +43,12 @@ jobs:
           node --check web/assistant.js &&
           node --check web/life-wheel.js &&
           node --check web/life-balance.js &&
+          node --check web/task-editor.js &&
           node --check web/tasks.js &&
+          node --check web/tasks-unified.js &&
+          node --check web/task-swipe.js &&
+          node --check web/prebeta-polish.js &&
+          node --check web/ux-polish.js &&
           node --check web/memory-controls.js &&
           node --check web/email-actions.js &&
           node --check web/navigation-extra.js &&
