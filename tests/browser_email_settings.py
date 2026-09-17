@@ -60,8 +60,6 @@ def main() -> None:
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
-            # Reproduce the real race: the inline app can finish /api/status and fire
-            # planner-ready while the dynamically injected email.js is still loading.
             def delay_email_script(route):
                 time.sleep(0.8)
                 route.continue_()
@@ -83,7 +81,8 @@ def main() -> None:
             expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Интеграции")
             expect(page.locator("#emailGroup summary")).to_be_visible()
             expect(page.locator("#emailGroup summary")).to_contain_text("Почта")
-            page.locator("#emailGroup summary").click()
+            expect(page.locator("#emailGroup")).to_have_attribute("open", "")
+            expect(page.locator("#emailGroup")).to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
             expect(page.locator("#emailAutoAnalysis")).to_be_visible()
             expect(page.locator("#emailGroup")).to_contain_text("Автоматически разбирать новые письма")
             expect(page.locator("#emailAutoStatus")).to_contain_text("Выключено")
