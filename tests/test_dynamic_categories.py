@@ -218,7 +218,7 @@ class DynamicCategoryApiTests(unittest.TestCase):
             headers={"Content-Type": "application/json"},
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"], "invalid_category")
+        self.assertEqual(response.get_json()["error"], "invalid_json")
 
 
 if __name__ == "__main__":
