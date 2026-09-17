@@ -11,6 +11,7 @@ from core.category_store import (
     get_user_categories,
     update_user_category,
 )
+from modules import calendar as calendar_module
 from modules.account_privacy import ERASE_CONFIRMATION, create_erase_challenge, erase_account, export_account
 from modules.category_runtime import install_category_detector_guard
 from modules.event_detail_api import _event_payload
@@ -33,6 +34,16 @@ class DynamicCategoryStoreTests(unittest.TestCase):
         self.assertEqual(updated["key"], "work")
         self.assertEqual(updated["semantic_key"], "work")
         self.assertEqual(updated["label"], "Business")
+
+        install_english_category_support()
+        install_category_detector_guard()
+        category, _ = calendar_module._detect_category(
+            "Client meeting in the office",
+            get_category_colors(user_id),
+        )
+        self.assertEqual(category, "work")
+        labels = {item["key"]: item["label"] for item in get_user_categories(user_id)}
+        self.assertEqual(labels[category], "Business")
 
     def test_custom_category_can_be_created_colored_and_deleted(self):
         user_id = self.user("custom")
