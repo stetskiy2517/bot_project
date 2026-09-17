@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v12-unified-tasks";
+const CACHE = "personal-secretary-v13-task-swipes";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
@@ -8,6 +8,7 @@ const STATIC = [
   "/library.js",
   "/tasks.js",
   "/tasks-unified.js",
+  "/task-swipe.js",
   "/voice-gesture.js",
   "/location.js",
   "/assistant.js",
