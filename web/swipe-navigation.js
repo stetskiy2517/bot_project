@@ -225,7 +225,7 @@
     if (Math.abs(wheelX) < WHEEL_MIN_X) return;
 
     if (topSheetOpen()) {
-      if (wheelX < 0 && closeTopSheet()) suppressNextClick();
+      if (wheelX < 0) closeTopSheet();
       wheelX = 0;
       return;
     }
@@ -236,7 +236,7 @@
     }
 
     const changed = wheelX > 0 ? switchView(1) : switchView(-1);
-    if (changed) suppressNextClick();
     wheelX = 0;
+    if (!changed) return;
   }, {capture: true, passive: false});
 })();
