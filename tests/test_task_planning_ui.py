@@ -15,7 +15,7 @@ class TaskPlanningUiTests(unittest.TestCase):
     def test_task_edit_can_add_or_change_deadline(self):
         self.assertIn('promptDateTime(task.due_at)', self.script)
         self.assertIn('due_at: dueAt', self.script)
-        self.assertIn('Длительность задачи в минутах', self.script)
+        self.assertIn('длительность задачи в минутах, минимум 5', self.script)
 
 
 if __name__ == "__main__":
