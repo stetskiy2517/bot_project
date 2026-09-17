@@ -122,7 +122,7 @@ class EnglishSpeechConfigurationTests(unittest.TestCase):
         self.assertTrue(payload["language_detection"])
         self.assertEqual(payload["language_detection_options"]["expected_languages"], ["ru", "en"])
         self.assertEqual(payload["language_detection_options"]["fallback_language"], "auto")
-        self.assertEqual(payload["speech_models"], ["universal"])
+        self.assertEqual(payload["speech_models"], ["universal-3-pro", "universal-2"])
 
 
 if __name__ == "__main__":

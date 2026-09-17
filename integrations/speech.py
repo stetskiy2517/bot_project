@@ -24,7 +24,7 @@ def _start_transcription(audio_url: str) -> str:
         },
         json={
             "audio_url": audio_url,
-            "speech_models": ["universal"],
+            "speech_models": ["universal-3-pro", "universal-2"],
             "language_detection": True,
             "language_detection_options": {
                 "expected_languages": ["ru", "en"],
