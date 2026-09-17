@@ -50,10 +50,12 @@
     const text = document.createElement("span");
     text.className = "planner-task-title-text";
     text.textContent = title.textContent || "Без названия";
-    const bell = document.createElement("span");
+    const bell = document.createElement("button");
+    bell.type = "button";
     bell.className = "planner-task-bell";
-    bell.setAttribute("aria-label", "С уведомлением");
-    bell.title = "С уведомлением";
+    bell.dataset.reminderEdit = String(card.dataset.reminderId || "");
+    bell.setAttribute("aria-label", "Настроить уведомление");
+    bell.title = "Настроить уведомление";
     bell.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>';
     title.replaceChildren(text, bell);
   }
@@ -223,7 +225,8 @@
       .planner-task-primary-proxy{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
       .planner-task-title{display:flex;align-items:center;gap:7px}
       .planner-task-title-text{min-width:0;overflow-wrap:anywhere}
-      .planner-task-bell{display:inline-flex;flex:0 0 auto;width:18px;height:18px;align-items:center;justify-content:center;color:#777772}
+      .planner-task-bell{display:inline-flex;flex:0 0 auto;width:22px;height:22px;padding:2px;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:#777772;cursor:pointer;touch-action:manipulation}
+      .planner-task-bell:active{background:#ececea}
       .planner-task-bell svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
       .planner-reminder-task.completed .planner-task-title{text-decoration:none!important;color:#777773}
       .planner-reminder-task.completed .planner-task-title-text{text-decoration:line-through;text-decoration-thickness:1.5px;text-decoration-color:#8c8c88}
