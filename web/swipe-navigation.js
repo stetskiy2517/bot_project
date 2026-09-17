@@ -16,7 +16,7 @@
   const WHEEL_RESET_MS = 180;
   const CHAT_HISTORY_MAX_MESSAGES = 14;
   const CHAT_HISTORY_KEY_PREFIX = "personal-secretary-chat-history-v1";
-  const SHEET_HANDLE_SELECTOR = ".handle, .mobile-sheet-handle, .note-window-handle, .reminder-edit-handle";
+  const SHEET_HANDLE_SELECTOR = ".handle, [class*='-handle']";
   const SHEET_SELECTOR = ".sheet, [class*='-sheet']";
   const SHEET_ROOT_SELECTOR = [
     "#settingsPanel.open",
@@ -32,6 +32,7 @@
     "[data-note-close]",
     "[data-note-editor-cancel]",
     "[data-reminder-edit-cancel]",
+    "[data-task-editor-cancel]",
     "#closeLifeWheel",
     "#closeSettings",
     ".event-detail-close",
@@ -60,7 +61,7 @@
 
   function activeBackSheet() {
     return document.querySelector(
-      "#mobileSheetBackdrop.open, #noteWindowBackdrop.open, #reminderEditBackdrop.open"
+      "#mobileSheetBackdrop.open, #noteWindowBackdrop.open, #reminderEditBackdrop.open, #taskEditorBackdrop.open"
     );
   }
 
