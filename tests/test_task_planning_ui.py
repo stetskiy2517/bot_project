@@ -7,6 +7,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.script = Path("web/tasks.js").read_text(encoding="utf-8")
         self.unified = Path("web/tasks-unified.js").read_text(encoding="utf-8")
         self.api = Path("modules/task_api.py").read_text(encoding="utf-8")
+        self.worker = Path("web/sw.js").read_text(encoding="utf-8")
 
     def test_planning_feedback_is_visible_inside_tasks_view(self):
         self.assertIn('plannerTaskFeedback', self.script)
@@ -33,6 +34,14 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('/api/mobile/reminders/details', self.unified)
         self.assertIn('<script src="/tasks-unified.js"></script>', self.api)
         self.assertIn('@task_api.get("/tasks-unified.js")', self.api)
+
+    def test_pwa_shell_cannot_fall_back_to_pre_tasks_assets(self):
+        self.assertIn('personal-secretary-v12-unified-tasks', self.worker)
+        self.assertIn('"/tasks.js"', self.worker)
+        self.assertIn('"/tasks-unified.js"', self.worker)
+        self.assertIn('fetch(request, { cache: "no-store" })', self.worker)
+        self.assertIn('cache.put(request, response.clone())', self.worker)
+        self.assertIn('response.headers["Cache-Control"] = "no-store, max-age=0"', self.api)
 
 
 if __name__ == "__main__":
