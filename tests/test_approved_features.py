@@ -54,7 +54,7 @@ class QuietFallbackTests(FeatureCase):
         now = datetime(2026, 9, 14, 8, 0, tzinfo=ZoneInfo("Europe/Moscow"))
         with patch.object(daily_review, "_list_events", return_value=[]):
             report = daily_review.build_day_review(self.user, now=now)
-        self.assertIn("Окна по 30 минут", report["text"])
+        self.assertIn("Ближайшее свободное время", report["text"])
         self.assertTrue(report["calendar_ok"])
 
     def test_quiet_hours_suppress_foreground_polling(self):
