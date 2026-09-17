@@ -46,7 +46,7 @@
     <div class="mobile-screen-head"><div><h1 class="mobile-screen-title">Ещё</h1><div class="mobile-screen-subtitle">Только нужные разделы</div></div></div>
     <div class="mobile-more-group">
       <button class="mobile-more-row" type="button" data-more="tasks"><span class="mobile-more-icon">✓</span><span><span class="mobile-more-title">Задачи</span><span class="mobile-more-meta">Сроки, подзадачи и планирование</span></span><span class="mobile-row-chevron">›</span></button>
-      <button class="mobile-more-row" type="button" data-more="saved"><span class="mobile-more-icon">▤</span><span><span class="mobile-more-title">Заметки и напоминания</span><span class="mobile-more-meta">Сохранённое</span></span><span class="mobile-row-chevron">›</span></button>
+      <button class="mobile-more-row" type="button" data-more="saved"><span class="mobile-more-icon">▤</span><span><span class="mobile-more-title">Заметки</span><span class="mobile-more-meta">Сохранённые заметки</span></span><span class="mobile-row-chevron">›</span></button>
       <button class="mobile-more-row" type="button" data-more="life"><span class="mobile-more-icon">◇</span><span><span class="mobile-more-title">Баланс жизни</span><span class="mobile-more-meta">Активность и личная оценка</span></span><span class="mobile-row-chevron">›</span></button>
       <button class="mobile-more-row" type="button" data-more="route"><span class="mobile-more-icon">↗</span><span><span class="mobile-more-title">Маршрут</span><span class="mobile-more-meta">К следующей встрече</span></span><span class="mobile-row-chevron">›</span></button>
     </div>
@@ -352,10 +352,16 @@
     if (name === "route") return openRoute();
     const library = document.getElementById("libraryOpenBtn");
     if (!library) return showToast("Раздел ещё загружается");
+    if (name === "saved") {
+      const notes = document.getElementById("libraryNotesTab");
+      if (!notes) return showToast("Раздел ещё загружается");
+      notes.click();
+      library.click();
+      return;
+    }
     library.click();
     requestAnimationFrame(() => {
       if (name === "tasks") document.getElementById("libraryTasksTab")?.click();
-      if (name === "saved") document.getElementById("libraryNotesTab")?.click();
     });
   }
 
