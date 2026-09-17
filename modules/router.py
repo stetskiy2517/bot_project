@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from core.category_store import install_dynamic_category_support
 from modules.language_support import (
     canonicalize_english,
     detect_input_language,
@@ -17,8 +18,8 @@ from modules.language_support import (
 
 logger = logging.getLogger(__name__)
 
-# Install category support before router_core imports reminder/event helpers that
-# may bind calendar._detect_category at import time.
+# Patch the shared category lookup before planner modules bind it at import time.
+install_dynamic_category_support()
 install_english_category_support()
 
 from modules import router_core as _impl  # noqa: E402
@@ -63,6 +64,7 @@ BARE_CREATE_EVENT_WORDS = _impl.BARE_CREATE_EVENT_WORDS
 ACTION_WORDS = _impl.ACTION_WORDS
 
 _original_detect_intent = _impl.detect_intent
+_original_resume_pending = _impl._resume_pending
 
 
 def detect_intent(text: str):
@@ -91,6 +93,17 @@ def _sync_runtime_overrides() -> None:
         value = globals()[name]
         if getattr(_impl, name, None) is not value:
             setattr(_impl, name, value)
+
+
+async def _resume_pending(update, context, text: str) -> bool:
+    """Compatibility bridge for tests/transports patching modules.router."""
+    _sync_runtime_overrides()
+    return await _original_resume_pending(update, context, canonicalize_english(text))
+
+
+# The core router must resolve pending dialogs through the facade so patches on
+# modules.router still affect the same call path as before the bilingual split.
+_impl._resume_pending = _resume_pending
 
 
 async def route_text(update, context, text: str | None = None) -> bool:
