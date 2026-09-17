@@ -307,10 +307,16 @@ def main():
                             assert not errors, errors
                             record["passed"] = True
                         except Exception as exc:
-                            record["error"] = str(exc)
-                            record["page_errors"] = errors
-                            record["visible_text"] = page.locator("body").inner_text()[-1500:]
-                            page.screenshot(path=str(output / f"{case.__name__}-{viewport['width']}.png"), full_page=True)
+                            record["error"] = f"{type(exc).__name__}: {exc}"
+                            record["page_errors"] = list(errors)
+                            try:
+                                record["visible_text"] = page.locator("body").inner_text(timeout=1000)[-1500:]
+                            except Exception as diagnostic_exc:
+                                record["diagnostic_error"] = f"{type(diagnostic_exc).__name__}: {diagnostic_exc}"
+                            try:
+                                page.screenshot(path=str(output / f"{case.__name__}-{viewport['width']}.png"), full_page=True)
+                            except Exception as screenshot_exc:
+                                record["screenshot_error"] = f"{type(screenshot_exc).__name__}: {screenshot_exc}"
                         finally:
                             context.close()
                         results.append(record)
