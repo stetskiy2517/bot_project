@@ -132,7 +132,7 @@ self.addEventListener("notificationclick", (event) => {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
-    const response = await fetch(request, { cache: "no-store" });
+    const response = await fetch(request, {cache: "no-store"});
     if (response.ok) {
       cache.put(request, response.clone()).catch(() => {});
     }
