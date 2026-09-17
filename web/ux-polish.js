@@ -3,6 +3,7 @@
 
   if (window.__plannerUxPolish) return;
   window.__plannerUxPolish = true;
+  const CLIENT_BUILD = "prebeta-v14";
 
   const style = document.createElement("style");
   style.id = "uxPolishStyles";
@@ -26,10 +27,17 @@
     document.querySelectorAll("#settingsPanel .settings-theme-body > details.settings-group").forEach(group => {
       group.open = true;
       group.classList.add("settings-theme-flat-group");
+      if (group.dataset.flatSettingsBound === "1") return;
+      group.dataset.flatSettingsBound = "1";
       group.addEventListener("toggle", () => {
         if (!group.open) requestAnimationFrame(() => { group.open = true; });
       });
     });
+
+    const version = document.getElementById("diagVersion");
+    if (version && (!version.textContent?.trim() || ["—", "неизвестна"].includes(version.textContent.trim()))) {
+      version.textContent = CLIENT_BUILD;
+    }
   }
 
   function setEmpty(node, title, text) {
