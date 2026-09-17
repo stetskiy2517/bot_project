@@ -37,10 +37,10 @@ def task_ui_hook(response):
         response.headers["Pragma"] = "no-cache"
         html = response.get_data(as_text=True)
         scripts = []
-        if '<script src="/tasks.js"></script>' not in html:
-            scripts.append('<script src="/tasks.js"></script>')
-        if '<script src="/tasks-unified.js"></script>' not in html:
-            scripts.append('<script src="/tasks-unified.js"></script>')
+        if 'src="/tasks.js"' not in html:
+            scripts.append('<script defer src="/tasks.js"></script>')
+        if 'src="/tasks-unified.js"' not in html:
+            scripts.append('<script defer src="/tasks-unified.js"></script>')
         if scripts and "</body>" in html:
             block = "\n    ".join(scripts)
             response.set_data(html.replace("</body>", f"    {block}\n  </body>", 1))
