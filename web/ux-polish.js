@@ -8,30 +8,23 @@
   const style = document.createElement("style");
   style.id = "uxPolishStyles";
   style.textContent = `
-    #settingsPanel .settings-theme-flat-group{padding-bottom:12px!important}
-    #settingsPanel .settings-theme-flat-group>summary{pointer-events:none;cursor:default!important;list-style:none!important}
-    #settingsPanel .settings-theme-flat-group>summary::-webkit-details-marker{display:none}
-    #settingsPanel .settings-theme-flat-group>summary .settings-group-chevron{display:none!important}
-    #settingsPanel .settings-theme-flat-group>summary .settings-group-meta{max-width:52%}
     .library-empty.polished-empty,.mobile-empty.polished-empty{display:grid;gap:7px;align-content:center}
     .library-empty.polished-empty strong,.mobile-empty.polished-empty strong{color:#555550;font-size:15px;font-weight:650}
     .library-empty.polished-empty span,.mobile-empty.polished-empty span{color:#92928e;font-size:12px;line-height:1.45}
   `;
   document.head.appendChild(style);
 
-  function flattenSettings() {
+  function polishSettings() {
     const accountBody = document.querySelector("#settingsTheme-account .settings-theme-body");
     const diagnostics = document.getElementById("diagnosticsGroup");
     if (accountBody && diagnostics && diagnostics.parentElement !== accountBody) accountBody.appendChild(diagnostics);
 
+    // Keep the existing settings groups as real accordions inside each theme.
+    // Turning <details> into permanently open visual sections leaves their
+    // <summary> elements in the accessibility tree with broken hit targets.
     document.querySelectorAll("#settingsPanel .settings-theme-body > details.settings-group").forEach(group => {
-      group.open = true;
-      group.classList.add("settings-theme-flat-group");
-      if (group.dataset.flatSettingsBound === "1") return;
-      group.dataset.flatSettingsBound = "1";
-      group.addEventListener("toggle", () => {
-        if (!group.open) requestAnimationFrame(() => { group.open = true; });
-      });
+      group.classList.remove("settings-theme-flat-group");
+      delete group.dataset.flatSettingsBound;
     });
 
     const version = document.getElementById("diagVersion");
@@ -77,7 +70,7 @@
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      flattenSettings();
+      polishSettings();
       polishEmptyStates();
     });
   }
