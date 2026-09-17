@@ -103,6 +103,17 @@ def main() -> None:
             expect(page.locator(".task-notification-edit-title")).to_have_text("Задача с уведомлением")
             expect(page.locator("#reminderEditAt")).to_be_visible()
 
+            # A horizontal back gesture closes exactly one level and keeps Tasks visible.
+            page.locator(".reminder-edit-sheet").evaluate(
+                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
+            )
+            expect(page.locator("#reminderEditBackdrop")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#libraryScreen")).to_be_visible()
+            expect(page.locator("#libraryTasksTab")).to_have_attribute("aria-selected", "true")
+
+            page.locator(f'.planner-reminder-task[data-reminder-id="{reminder_id}"] .planner-task-bell').click()
+            expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
+
             new_when = datetime.now() + timedelta(days=1, hours=1)
             page.locator("#reminderEditText").fill("Принять лекарство")
             page.locator("#reminderEditAt").fill(new_when.strftime("%Y-%m-%dT%H:%M"))
