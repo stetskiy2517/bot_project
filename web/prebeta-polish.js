@@ -11,6 +11,7 @@
   let lastSuccessAt = 0;
   let connectionHideTimer = null;
   let updateReloading = false;
+  let updateActivationRequested = false;
   let pendingUpdateRegistration = null;
   let diagnosticsBusy = false;
   let diagnosticsTimer = null;
@@ -136,6 +137,7 @@
   function activateWaitingWorker(registration, automatic = false) {
     const worker = registration?.waiting;
     if (!worker) return false;
+    updateActivationRequested = true;
     if (automatic) updateBanner.querySelector(".planner-system-banner-text").textContent = "Обновление применится при следующем открытии";
     worker.postMessage({type: "SKIP_WAITING"});
     pendingUpdateRegistration = null;
@@ -182,7 +184,7 @@
   }
 
   navigator.serviceWorker?.addEventListener("controllerchange", () => {
-    if (updateReloading) return;
+    if (!updateActivationRequested || updateReloading) return;
     updateReloading = true;
     try { localStorage.removeItem(UPDATE_PENDING_KEY); } catch (_) {}
     if (document.visibilityState === "visible") location.reload();
