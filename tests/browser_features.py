@@ -112,7 +112,10 @@ def main():
         web = Path(__file__).resolve().parents[1] / "web"
         helper = "<script>" + (web / "reliability.js").read_text() + "</script>"
         html = html.replace("    <script>\n", helper + "    <script>\n", 1)
-        scripts = "".join("<script>" + (web / name).read_text() + "</script>" for name in ("reminders.js", "library.js", "voice_gesture.js", "assistant.js"))
+        scripts = "".join(
+            "<script>" + (web / name).read_text() + "</script>"
+            for name in ("reminders.js", "library.js", "voice_gesture.js", "assistant.js", "settings-themes.js")
+        )
         page.set_content(html.replace("</body>", scripts + "</body>"), wait_until="load")
 
     def loaded(page):
@@ -128,7 +131,12 @@ def main():
 
     def settings(page, summary):
         page.locator("#accountBtn").click()
-        page.locator("#assistantSettings summary", has_text=summary).click()
+        target = page.locator("#assistantSettings summary", has_text=summary).first
+        theme = target.evaluate("el => el.closest('[data-settings-theme]')?.dataset.settingsTheme || ''")
+        assert theme, f"No settings theme found for {summary}"
+        page.locator(f'[data-settings-open="{theme}"]').click()
+        expect(page.locator("#settingsPanel .sheet-head h2")).not_to_have_text("Настройки")
+        target.click()
         page.wait_for_function("document.getElementById('privacyNotice').textContent.length > 0")
 
     def draft_retry(page, user):
@@ -167,6 +175,21 @@ def main():
         assert len(events) == previous + 1
         event = events[-1][1]
         assert datetime.fromisoformat(event["end"]["dateTime"]) - datetime.fromisoformat(event["start"]["dateTime"]) == timedelta(minutes=40)
+
+    def settings_navigation(page, user):
+        loaded(page)
+        page.locator("#accountBtn").click()
+        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(5)
+        expect(page.locator("#settingsTheme-planning")).to_be_hidden()
+        page.locator('[data-settings-open="planning"]').click()
+        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")
+        expect(page.locator("#settingsTheme-planning")).to_be_visible()
+        expect(page.locator("#settingsThemes")).to_be_hidden()
+        page.locator("#settingsThemeBack").click()
+        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+        expect(page.locator("#settingsThemes")).to_be_visible()
+        expect(page.locator("#settingsTheme-planning")).to_be_hidden()
 
     def templates(page, user):
         loaded(page)
@@ -253,7 +276,7 @@ def main():
         assert not get_google_account(user)
         assert not list_notes(user)
 
-    cases = [draft_retry, free_window, templates, review_preferences, reminder_policy, undo, export_and_erase]
+    cases = [draft_retry, free_window, settings_navigation, templates, review_preferences, reminder_policy, undo, export_and_erase]
     if args.case:
         cases = [case for case in cases if case.__name__ == args.case]
     viewports = [{"width": 1280, "height": 900}] if args.desktop_only else [{"width": 1280, "height": 900}, {"width": 390, "height": 844}]
