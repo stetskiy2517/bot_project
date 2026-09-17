@@ -53,7 +53,7 @@
     }
     .reminder-edit-backdrop.open .reminder-edit-sheet { transform:translateY(0); }
     .reminder-edit-handle { width:38px; height:4px; border-radius:99px; background:#d2d2cf; margin:0 auto 14px; }
-    .reminder-edit-title { margin:0 0 16px; font-size:18px; font-weight:650; }
+    .task-notification-edit-title { margin:0 0 16px; font-size:18px; font-weight:650; }
     .reminder-edit-field { display:grid; gap:7px; margin:0 0 13px; color:#696965; font-size:12px; }
     .reminder-edit-field input, .reminder-edit-field select {
       width:100%; min-width:0; min-height:44px; padding:10px 12px; border:1px solid #dededb;
@@ -122,9 +122,9 @@
     }
 
     backdrop.innerHTML = `
-      <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить напоминание">
+      <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить задачу с уведомлением">
         <div class="reminder-edit-handle"></div>
-        <h2 class="reminder-edit-title">Напоминание</h2>
+        <h2 class="task-notification-edit-title">Задача с уведомлением</h2>
         <label class="reminder-edit-field">Текст
           <input id="reminderEditText" maxlength="500" autocomplete="off" />
         </label>
