@@ -11,6 +11,7 @@
   let lastSuccessAt = 0;
   let connectionHideTimer = null;
   let updateReloading = false;
+  let pendingUpdateRegistration = null;
   let diagnosticsBusy = false;
   let diagnosticsTimer = null;
 
@@ -135,26 +136,27 @@
   function activateWaitingWorker(registration, automatic = false) {
     const worker = registration?.waiting;
     if (!worker) return false;
-    if (automatic) updateBanner.querySelector(".planner-system-banner-text").textContent = "Обновляю приложение…";
+    if (automatic) updateBanner.querySelector(".planner-system-banner-text").textContent = "Обновление применится при следующем открытии";
     worker.postMessage({type: "SKIP_WAITING"});
+    pendingUpdateRegistration = null;
     return true;
   }
 
   function showUpdate(registration) {
     if (!registration?.waiting || !navigator.serviceWorker?.controller) return;
-    let seen = false;
-    try { seen = localStorage.getItem(UPDATE_PENDING_KEY) === "1"; } catch (_) {}
-    if (seen) {
-      activateWaitingWorker(registration, true);
-      return;
-    }
+    pendingUpdateRegistration = registration;
     try { localStorage.setItem(UPDATE_PENDING_KEY, "1"); } catch (_) {}
     updateBanner.querySelector(".planner-system-banner-text").textContent = "Доступно обновление приложения";
     const button = updateBanner.querySelector(".planner-system-banner-action");
     button.hidden = false;
     button.textContent = "Обновить";
-    button.onclick = () => activateWaitingWorker(registration, true);
+    button.onclick = () => activateWaitingWorker(registration, false);
     updateBanner.classList.add("show");
+  }
+
+  function activatePendingUpdateOnBackground() {
+    if (!pendingUpdateRegistration?.waiting) return;
+    activateWaitingWorker(pendingUpdateRegistration, true);
   }
 
   async function watchServiceWorker() {
@@ -170,7 +172,11 @@
         });
       });
       const check = () => registration.update().catch(() => {});
-      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") activatePendingUpdateOnBackground();
+        else check();
+      });
+      window.addEventListener("pagehide", activatePendingUpdateOnBackground);
       setInterval(check, 15 * 60 * 1000);
     } catch (_) {}
   }
@@ -179,7 +185,7 @@
     if (updateReloading) return;
     updateReloading = true;
     try { localStorage.removeItem(UPDATE_PENDING_KEY); } catch (_) {}
-    location.reload();
+    if (document.visibilityState === "visible") location.reload();
   });
   setTimeout(watchServiceWorker, 300);
 
