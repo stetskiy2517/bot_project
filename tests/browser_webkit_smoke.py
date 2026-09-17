@@ -140,15 +140,15 @@ def main() -> int:
                 page.locator("#libraryBackBtn").click()
                 _checkpoint("unified tasks library verified")
 
-                page.evaluate("showChat()")
-                page.locator("#message").fill("заметка: WebKit smoke")
-                _checkpoint("submitting deterministic note")
-                page.locator("#message").press("Enter")
-                page.wait_for_function("!sendingChat", timeout=15000)
+                page.locator('#mobileBottomNav [data-view="chat"]').click()
                 page.wait_for_function(
                     "document.getElementById('app').classList.contains('mobile-view-chat')",
                     timeout=5000,
                 )
+                page.locator("#message").fill("заметка: WebKit smoke")
+                _checkpoint("submitting deterministic note")
+                page.locator("#message").press("Enter")
+                page.wait_for_function("!sendingChat", timeout=15000)
 
                 notes = list_notes(user_id)
                 if len(notes) != 1 or "WebKit smoke" not in str(notes[0].get("text") or ""):
