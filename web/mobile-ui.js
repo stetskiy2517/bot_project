@@ -14,7 +14,7 @@
   let loadingToday = false;
   let toastTimer = null;
 
-  const icon = (name) => {
+  const icon = name => {
     const paths = {
       home: '<path d="M4 11.5 12 5l8 6.5V20h-5v-5H9v5H4z"/>',
       chat: '<path d="M5 5h14v10H9l-4 4z"/>',
@@ -61,10 +61,7 @@
   nav.hidden = true;
   nav.setAttribute("aria-label", "Основная навигация");
   nav.innerHTML = [
-    ["home", "Главная", "home"],
-    ["chat", "Чат", "chat"],
-    ["today", "Сегодня", "today"],
-    ["more", "Ещё", "more"],
+    ["home", "Главная", "home"], ["chat", "Чат", "chat"], ["today", "Сегодня", "today"], ["more", "Ещё", "more"],
   ].map(([view, label, iconName]) => `
     <button class="mobile-nav-button${view === "home" ? " active" : ""}" type="button" data-view="${view}" aria-label="${label}">
       ${icon(iconName)}<span class="mobile-nav-label">${label}</span>
@@ -85,6 +82,10 @@
     toast.textContent = String(text || "");
     toast.classList.add("show");
     toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  }
+
+  function friendly(error) {
+    return window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось выполнить действие";
   }
 
   function request(path, options = {}) {
@@ -110,7 +111,6 @@
     app.classList.remove("mobile-view-home", "mobile-view-chat", "mobile-view-today", "mobile-view-more");
     app.classList.add(`mobile-view-${view}`);
     setActiveNav(view);
-
     if (view === "chat") {
       if (!app.classList.contains("chat-active")) app.classList.add("chat-active");
       requestAnimationFrame(() => {
@@ -131,12 +131,7 @@
   }
 
   function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
 
   function eventRow(event) {
@@ -174,7 +169,6 @@
     if (!content) return;
     const date = new Date(`${data.date}T12:00:00`);
     document.getElementById("mobileTodayDate").textContent = date.toLocaleDateString("ru-RU", {weekday: "long", day: "numeric", month: "long"});
-
     const summary = data.task_summary || {};
     const upcoming = (data.events || []).filter(item => item.is_travel || !item.starts_at || new Date(item.starts_at).getTime() >= Date.now()).slice(0, 5);
     const tasks = (data.tasks || []).slice(0, 3);
@@ -191,11 +185,11 @@
         <div class="mobile-summary-item"><div class="mobile-summary-number">${(data.events || []).filter(item => !item.is_travel).length}</div><div class="mobile-summary-label">событий</div></div>
       </div>
       <div class="mobile-card"><div class="mobile-card-title"><span>Главные задачи</span><button class="mobile-action-button secondary" type="button" data-plan-tasks>Распланировать</button></div>
-        ${tasks.length ? `<div class="mobile-list">${tasks.map(taskRow).join("")}</div>` : '<div class="mobile-empty">На сегодня критичных задач нет.</div>'}
+        ${tasks.length ? `<div class="mobile-list">${tasks.map(taskRow).join("")}</div>` : '<div class="mobile-empty"><strong>Срочных задач нет</strong><span>Можно добавить новую задачу или спокойно заняться планом на день.</span></div>'}
       </div>
       ${routeCard}
       <div class="mobile-card"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "календарь недоступен"}</span></div>
-        ${upcoming.length ? `<div class="mobile-list">${upcoming.map(eventRow).join("")}</div>` : '<div class="mobile-empty">Ближайших событий нет.</div>'}
+        ${upcoming.length ? `<div class="mobile-list">${upcoming.map(eventRow).join("")}</div>` : '<div class="mobile-empty"><strong>В календаре свободно</strong><span>Добавьте встречу кнопкой «+» или скажите секретарю голосом.</span></div>'}
       </div>
       <div class="mobile-card"><div class="mobile-card-title"><span>Утренняя сводка</span><button class="mobile-icon-button" type="button" data-refresh-today aria-label="Обновить">${icon("refresh")}</button></div><div class="mobile-review-text">${escapeHtml(compactReview(data.review?.text))}</div></div>`;
   }
@@ -209,16 +203,13 @@
     const content = document.getElementById("mobileTodayContent");
     if (content) content.innerHTML = '<div class="mobile-loading">Собираю день…</div>';
     try {
-      const [todayResult, routeResult] = await Promise.allSettled([
-        request("/api/mobile/today"),
-        request("/api/navigation/next-route"),
-      ]);
+      const [todayResult, routeResult] = await Promise.allSettled([request("/api/mobile/today"), request("/api/navigation/next-route")]);
       if (todayResult.status !== "fulfilled") throw todayResult.reason;
       todayPayload = todayResult.value;
       routePayload = routeResult.status === "fulfilled" ? routeResult.value : null;
       renderToday(todayPayload, routePayload);
     } catch (error) {
-      if (content) content.innerHTML = `<div class="mobile-error">Не удалось собрать день.<br>${escapeHtml(error?.message || "Ошибка")}</div>`;
+      if (content) content.innerHTML = `<div class="mobile-error">${escapeHtml(friendly(error))}</div>`;
     } finally {
       loadingToday = false;
     }
@@ -308,15 +299,19 @@
     showToast("Задача выполнена");
   }
 
+  async function approvePlan(proposals) {
+    if (!window.PlannerTaskEditor?.confirmPlan) {
+      showToast("Редактор плана ещё загружается");
+      return false;
+    }
+    return window.PlannerTaskEditor.confirmPlan(proposals);
+  }
+
   async function scheduleTask(taskId) {
     const preview = await request("/api/tasks/schedule/preview");
     const proposal = (preview.proposals || []).find(item => Number(item.task_id) === Number(taskId));
-    if (!proposal) {
-      showToast("Нужны срок, длительность и свободное окно");
-      return;
-    }
-    const when = formatDate(proposal.start, {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
-    if (!confirm(`Поставить «${proposal.title}» в календарь на ${when}?`)) return;
+    if (!proposal) return showToast("Нужны срок, длительность и свободное окно");
+    if (!(await approvePlan([proposal]))) return;
     const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: [proposal]})});
     if (!result.applied_count) throw new Error(result.errors?.[0]?.error || "Окно уже занято");
     closeSheet();
@@ -329,8 +324,7 @@
     const preview = await request("/api/tasks/schedule/preview");
     const proposals = preview.proposals || [];
     if (!proposals.length) return showToast("Нет задач, которые можно безопасно распланировать");
-    const text = proposals.slice(0, 5).map(item => `${item.title} — ${formatDate(item.start, {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}`).join("\n");
-    if (!confirm(`Предлагаю:\n\n${text}\n\nПрименить план?`)) return;
+    if (!(await approvePlan(proposals))) return;
     const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals})});
     todayPayload = null;
     await loadToday(true);
@@ -341,7 +335,7 @@
     let route = routePayload;
     if (!route) {
       try { route = await request("/api/navigation/next-route"); }
-      catch (error) { return showToast(error?.message || "Маршрут пока недоступен"); }
+      catch (error) { return showToast(friendly(error)); }
     }
     if (route?.url) window.open(route.url, "_blank", "noopener,noreferrer");
   }
@@ -360,9 +354,7 @@
       return;
     }
     library.click();
-    requestAnimationFrame(() => {
-      if (name === "tasks") document.getElementById("libraryTasksTab")?.click();
-    });
+    requestAnimationFrame(() => { if (name === "tasks") document.getElementById("libraryTasksTab")?.click(); });
   }
 
   nav.addEventListener("click", event => {
@@ -374,7 +366,7 @@
     const task = event.target.closest("[data-task-id]");
     if (task) return openTask(task.dataset.taskId);
     if (event.target.closest("[data-open-route]")) return openRoute();
-    if (event.target.closest("[data-plan-tasks]")) return planTasks().catch(error => showToast(error.message));
+    if (event.target.closest("[data-plan-tasks]")) return planTasks().catch(error => showToast(friendly(error)));
     if (event.target.closest("[data-refresh-today]")) {
       todayPayload = null;
       routePayload = null;
@@ -392,20 +384,15 @@
     if (event.target === sheetBackdrop) return closeSheet();
     const quick = event.target.closest("[data-quick]");
     if (quick) {
-      const prefix = {
-        event: "Добавь в календарь ",
-        task: "Добавь задачу ",
-        reminder: "Напомни мне ",
-        note: "Сохрани заметку: ",
-      }[quick.dataset.quick] || "";
+      const prefix = {event: "Добавь в календарь ", task: "Добавь задачу ", reminder: "Напомни мне ", note: "Сохрани заметку: "}[quick.dataset.quick] || "";
       return startChat(prefix);
     }
     const save = event.target.closest("[data-task-save]");
-    if (save) return saveTask(Number(save.dataset.taskSave)).catch(error => showToast(error.message));
+    if (save) return saveTask(Number(save.dataset.taskSave)).catch(error => showToast(friendly(error)));
     const done = event.target.closest("[data-task-done]");
-    if (done) return completeTask(Number(done.dataset.taskDone)).catch(error => showToast(error.message));
+    if (done) return completeTask(Number(done.dataset.taskDone)).catch(error => showToast(friendly(error)));
     const schedule = event.target.closest("[data-task-schedule]");
-    if (schedule && !schedule.disabled) return scheduleTask(Number(schedule.dataset.taskSchedule)).catch(error => showToast(error.message));
+    if (schedule && !schedule.disabled) return scheduleTask(Number(schedule.dataset.taskSchedule)).catch(error => showToast(friendly(error)));
   });
 
   document.addEventListener("planner-ready", () => {
