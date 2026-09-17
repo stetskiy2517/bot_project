@@ -17,13 +17,13 @@
   const CHAT_HISTORY_MAX_MESSAGES = 14;
   const CHAT_HISTORY_KEY_PREFIX = "personal-secretary-chat-history-v1";
   const SHEET_HANDLE_SELECTOR = ".handle, [class*='-handle']";
-  const SHEET_SELECTOR = ".sheet, [class*='-sheet']";
   const SHEET_ROOT_SELECTOR = [
     "#settingsPanel.open",
     "#lifeWheelPanel.open",
     "#mobileSheetBackdrop.open",
     "#noteWindowBackdrop.open",
     "#reminderEditBackdrop.open",
+    "#taskEditorBackdrop.open",
     ".panel.open",
     "[class*='backdrop'].open",
     "[class*='overlay'].open",
@@ -114,12 +114,21 @@
     return closeSheetRoot(activeBackSheet());
   }
 
+  function handledSheetFromTarget(target) {
+    let node = target?.nodeType === 1 ? target : target?.parentElement;
+    while (node && node !== document.body) {
+      const handle = Array.from(node.children || []).find(child => child.matches?.(SHEET_HANDLE_SELECTOR));
+      if (handle) return {sheet: node, handle};
+      node = node.parentElement;
+    }
+    return null;
+  }
+
   function sheetDismissTarget(target, clientY) {
     if (!target?.closest) return null;
-    const sheet = target.closest(SHEET_SELECTOR);
-    if (!sheet) return null;
-    const handle = sheet.querySelector(SHEET_HANDLE_SELECTOR);
-    if (!handle) return null;
+    const handled = handledSheetFromTarget(target);
+    if (!handled) return null;
+    const {sheet} = handled;
     const root = sheet.closest(SHEET_ROOT_SELECTOR);
     if (!root) return null;
 
