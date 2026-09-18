@@ -131,9 +131,14 @@ async def handle_text(update, context) -> None:
         if handled:
             return
         if getattr(update, "message", None):
+            language = detect_input_language(getattr(update.message, "text", "") or "")
             await update.message.reply_text(
-                "Не понял команду. Например: «врач завтра в 19:00» "
-                "или «напомни через 30 минут позвонить»."
+                "I didn't understand the command. Try rephrasing it or add a date/time."
+                if language == "en"
+                else (
+                    "Не понял команду. Например: «врач завтра в 19:00» "
+                    "или «напомни через 30 минут позвонить»."
+                )
             )
     except Exception:
         logger.exception("Unhandled error in text router")
