@@ -84,9 +84,9 @@ def main() -> None:
                 "document.getElementById('mobileBottomNav').getBoundingClientRect().height > 0"
             )
 
-            page.locator('#mobileBottomNav [data-view="more"]').click()
-            expect(page.locator("#mobileMoreScreen")).to_be_visible()
-            page.locator('[data-more="tasks"]').click()
+            tasks_nav = page.locator('#mobileBottomNav [data-view="tasks"]')
+            expect(tasks_nav).to_be_visible()
+            tasks_nav.click()
             expect(page.locator("#libraryScreen")).to_be_visible()
             expect(page.locator("#libraryRemindersTab")).to_be_hidden()
 
