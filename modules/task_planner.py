@@ -185,9 +185,13 @@ def apply_task_slot(user_id: int, task_id: int, start_value: str) -> dict:
     local_start = start.astimezone(zone)
     local_end = end.astimezone(zone)
     category = task.get("category") or "other"
+    details = str(task.get("description") or "").strip()
+    event_description = f"AI Smart Planner category: {category}\nГибкая задача #{task_id}"
+    if details:
+        event_description += f"\n\n{details[:4000]}"
     event = {
         "summary": task["title"][:200],
-        "description": f"AI Smart Planner category: {category}\nГибкая задача #{task_id}",
+        "description": event_description,
         "start": {"dateTime": local_start.isoformat(), "timeZone": str(zone)},
         "end": {"dateTime": local_end.isoformat(), "timeZone": str(zone)},
         "extendedProperties": {
