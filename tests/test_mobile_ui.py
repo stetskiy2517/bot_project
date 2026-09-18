@@ -54,7 +54,7 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertNotIn('data-more="tasks"', mobile)
         self.assertNotIn('data-more="life"', mobile)
         self.assertNotIn('id = "mobileMoreScreen"', mobile)
-        self.assertIn('data.settingsUtility = name', mobile)
+        self.assertIn('button.dataset.settingsUtility = name', mobile)
         self.assertIn('["saved", "Заметки"', mobile)
         self.assertIn('["route", "Маршрут"', mobile)
         self.assertIn('#lifeWheelBtn {', css)
