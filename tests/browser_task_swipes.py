@@ -171,44 +171,20 @@ def main() -> None:
                       const startX = rect.left + Math.min(48, rect.width * 0.2);
                       const endX = Math.min(rect.right - 18, startX + 130);
                       const y = rect.top + Math.min(64, Math.max(24, rect.height * 0.45));
-                      const touch = (x) => new Touch({
-                        identifier: 77,
-                        target: el,
-                        clientX: x,
-                        clientY: y,
-                        pageX: x,
-                        pageY: y,
-                        screenX: x,
-                        screenY: y,
-                        radiusX: 2,
-                        radiusY: 2,
-                        rotationAngle: 0,
-                        force: 1,
-                      });
-                      const start = touch(startX);
-                      el.dispatchEvent(new TouchEvent("touchstart", {
-                        bubbles: true,
-                        cancelable: true,
-                        touches: [start],
-                        targetTouches: [start],
-                        changedTouches: [start],
-                      }));
-                      const move = touch(endX);
-                      el.dispatchEvent(new TouchEvent("touchmove", {
-                        bubbles: true,
-                        cancelable: true,
-                        touches: [move],
-                        targetTouches: [move],
-                        changedTouches: [move],
-                      }));
-                      const end = touch(endX);
-                      el.dispatchEvent(new TouchEvent("touchend", {
-                        bubbles: true,
-                        cancelable: true,
-                        touches: [],
-                        targetTouches: [],
-                        changedTouches: [end],
-                      }));
+                      const point = (x) => ({identifier: 77, clientX: x, clientY: y});
+                      const fire = (type, touches, changedTouches) => {
+                        const event = new Event(type, {bubbles: true, cancelable: true});
+                        Object.defineProperty(event, "touches", {value: touches});
+                        Object.defineProperty(event, "targetTouches", {value: touches});
+                        Object.defineProperty(event, "changedTouches", {value: changedTouches});
+                        el.dispatchEvent(event);
+                      };
+                      const start = point(startX);
+                      fire("touchstart", [start], [start]);
+                      const move = point(endX);
+                      fire("touchmove", [move], [move]);
+                      const end = point(endX);
+                      fire("touchend", [], [end]);
                     }"""
                 )
             assert completion_response.value.ok
