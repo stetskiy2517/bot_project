@@ -565,7 +565,7 @@
     if (event.key === "Escape" && modal().classList.contains("open")) close();
   });
 
-  window.PlannerNotes = {open, create, semanticSearch, refresh: decorateRows};
+  window.PlannerNotes = {open, close, create, semanticSearch, refresh: decorateRows};
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(install, 0), {once: true});
   else setTimeout(install, 0);
 })();
