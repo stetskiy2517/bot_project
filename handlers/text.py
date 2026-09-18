@@ -59,7 +59,7 @@ async def handle_message_text(update: Any, context: Any, text: str) -> bool:
     if not getattr(update, "message", None) or not getattr(update, "effective_user", None):
         return False
 
-    candidate = " ".join(str(text or "").split()).strip()
+    candidate = str(text or "").strip()
     if not candidate:
         return False
 
