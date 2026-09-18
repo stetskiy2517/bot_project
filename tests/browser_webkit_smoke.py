@@ -121,14 +121,14 @@ def main() -> int:
 
                 settings_button = page.locator("#accountBtn")
                 life_button = page.locator("#lifeWheelBtn")
-                if settings_button.get_attribute("aria-label") != "Настройки":
-                    raise AssertionError("Top-right button must be Settings")
+                if settings_button.get_attribute("aria-label") != "Аккаунт":
+                    raise AssertionError("Top-right button must be Account")
                 if life_button.get_attribute("aria-label") != "Баланс жизни":
                     raise AssertionError("Life balance must have its own top control")
                 settings_box = settings_button.bounding_box()
                 life_box = life_button.bounding_box()
                 if not settings_box or not life_box or life_box["x"] >= settings_box["x"]:
-                    raise AssertionError(f"Life balance must sit immediately left of Settings: {life_box!r}, {settings_box!r}")
+                    raise AssertionError(f"Life balance must sit immediately left of Account: {life_box!r}, {settings_box!r}")
 
                 tasks_button.click()
                 page.wait_for_function(
