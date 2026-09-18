@@ -81,8 +81,13 @@ def main() -> None:
             expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Интеграции")
             expect(page.locator("#emailGroup summary")).to_be_visible()
             expect(page.locator("#emailGroup summary")).to_contain_text("Почта")
+            # Settings groups are real accordions inside each theme. Open the mail
+            # group explicitly instead of relying on the removed flat/open layout.
+            expect(page.locator("#emailGroup")).not_to_have_class(
+                __import__("re").compile(r"settings-theme-flat-group")
+            )
+            page.locator("#emailGroup summary").click()
             expect(page.locator("#emailGroup")).to_have_attribute("open", "")
-            expect(page.locator("#emailGroup")).to_have_class(__import__("re").compile(r"settings-theme-flat-group"))
             expect(page.locator("#emailAutoAnalysis")).to_be_visible()
             expect(page.locator("#emailGroup")).to_contain_text("Автоматически разбирать новые письма")
             expect(page.locator("#emailAutoStatus")).to_contain_text("Выключено")

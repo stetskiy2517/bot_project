@@ -4,7 +4,7 @@
   const backdrop = document.getElementById("mobileSheetBackdrop");
   if (!backdrop || window.PlannerEventEditor) return;
 
-  const categories = {
+  const defaultCategories = {
     work: "Работа",
     health: "Здоровье",
     rest: "Отдых",
@@ -13,6 +13,7 @@
     personal: "Личное",
     other: "Прочее",
   };
+  let categories = {...defaultCategories};
   const recurrenceLabels = {
     none: "Не повторяется",
     daily: "Каждый день",
@@ -101,6 +102,25 @@
       .replaceAll("'", "&#39;");
   }
 
+  function syncCategories(item) {
+    const options = Array.isArray(item?.category_options) ? item.category_options : [];
+    if (options.length) {
+      categories = Object.fromEntries(
+        options.filter(option => option?.key).map(option => [String(option.key), String(option.label || option.key)])
+      );
+    } else {
+      categories = {...defaultCategories};
+    }
+  }
+
+  function categoryOptions(selected) {
+    const missing = selected && !Object.prototype.hasOwnProperty.call(categories, selected);
+    const placeholder = missing ? '<option value="" selected disabled>Выбери категорию</option>' : "";
+    return placeholder + Object.entries(categories)
+      .map(([key, label]) => `<option value="${escapeHtml(key)}"${key === selected ? " selected" : ""}>${escapeHtml(label)}</option>`)
+      .join("");
+  }
+
   function showSheet(html) {
     backdrop.innerHTML = `<section class="mobile-sheet event-detail-sheet" role="dialog" aria-modal="true" aria-label="Событие"><div class="mobile-sheet-handle"></div>${html}</section>`;
     backdrop.classList.add("open");
@@ -156,6 +176,7 @@
 
   function renderDetail(item) {
     current = item;
+    syncCategories(item);
     const when = item.all_day ? formatAllDay(item) : `${formatMoment(item.start, item)} — ${formatMoment(item.end, item)}`;
     const attendees = (item.attendees || []).join(", ");
     const note = item.managed ? `<div class="event-detail-note">${escapeHtml(item.managed_note || "Системное событие управляется автоматически.")}</div>` : "";
@@ -170,7 +191,7 @@
       <div class="event-detail-meta">
         ${detailRow("Когда", when)}
         ${detailRow("Место", item.location)}
-        ${detailRow("Категория", categories[item.category] || categories.other)}
+        ${detailRow("Категория", categories[item.category] || item.category_label || "Без категории")}
         ${detailRow("Повтор", recurrenceLabels[item.recurrence] || recurrenceLabels.custom)}
         ${detailRow("Напоминание", reminderLabels[item.reminder] || reminderLabels.custom)}
         ${detailRow("Участники", attendees)}
@@ -183,7 +204,7 @@
       scope: "this",
       title: item.title || "",
       location: item.location || "",
-      category: item.category || "other",
+      category: item.category || "",
       all_day: Boolean(item.all_day),
       start: String(item.start || "").slice(0, 16),
       end: String(item.end || "").slice(0, 16),
@@ -209,6 +230,7 @@
 
   function renderEditor(item, draft = initialDraft(item), errorText = "") {
     current = item;
+    syncCategories(item);
     const recurringScope = item.recurring_instance ? `
       <label class="event-edit-field">Изменить
         <select id="eventEditScope">${scopeOptions(draft.scope)}</select>
@@ -219,7 +241,7 @@
         ${recurringScope}
         <label class="event-edit-field">Название<input id="eventEditTitle" maxlength="200" autocomplete="off" value="${escapeHtml(draft.title)}" /></label>
         <label class="event-edit-field">Место<input id="eventEditLocation" maxlength="500" autocomplete="off" value="${escapeHtml(draft.location)}" /></label>
-        <label class="event-edit-field">Категория<select id="eventEditCategory">${Object.entries(categories).map(([key, label]) => `<option value="${key}"${key === draft.category ? " selected" : ""}>${label}</option>`).join("")}</select></label>
+        <label class="event-edit-field">Категория<select id="eventEditCategory">${categoryOptions(draft.category)}</select></label>
         <label class="event-edit-check"><span>Весь день</span><input id="eventEditAllDay" type="checkbox"${draft.all_day ? " checked" : ""} /></label>
         <div id="eventTimedFields" class="event-edit-two">
           <label class="event-edit-field">Начало<input id="eventEditStart" type="datetime-local" value="${escapeHtml(draft.start)}" /></label>
@@ -287,7 +309,7 @@
       scope: item.recurring_instance ? value("#eventEditScope") || "this" : "this",
       title: value("#eventEditTitle").trim(),
       location: value("#eventEditLocation").trim(),
-      category: value("#eventEditCategory") || "other",
+      category: value("#eventEditCategory"),
       all_day: allDay,
       start: value("#eventEditStart"),
       end: value("#eventEditEnd"),

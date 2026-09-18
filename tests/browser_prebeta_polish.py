@@ -87,6 +87,74 @@ def main() -> None:
                 arg=email,
             )
 
+            # Every handled bottom sheet can be dismissed by a downward gesture from its grab area.
+            # On the mobile shell the legacy top-bar button is intentionally hidden; open the
+            # same panel through the visible More -> Life balance entry, as a real user does.
+            page.locator('#mobileBottomNav [data-view="more"]').click()
+            life_balance_entry = page.locator('[data-more="life"]')
+            expect(life_balance_entry).to_be_visible()
+            life_balance_entry.click()
+            life_wheel = page.locator("#lifeWheelPanel")
+            expect(life_wheel).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(life_wheel.locator(".life-wheel-sheet")).to_be_visible()
+            page.locator("#lifeWheelPanel .handle").evaluate("""
+                el => {
+                  const rect = el.getBoundingClientRect();
+                  const x = rect.left + rect.width / 2;
+                  const y = rect.top + Math.max(1, rect.height / 2);
+                  const eventWithTouches = (type, property, touches) => {
+                    const event = new Event(type, {bubbles: true, cancelable: true});
+                    Object.defineProperty(event, property, {value: touches});
+                    el.dispatchEvent(event);
+                  };
+                  eventWithTouches('touchstart', 'touches', [{clientX: x, clientY: y}]);
+                  eventWithTouches('touchmove', 'touches', [{clientX: x, clientY: y + 90}]);
+                  eventWithTouches('touchend', 'changedTouches', [{clientX: x, clientY: y + 90}]);
+                }
+            """)
+            expect(life_wheel).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+
+            # Chat keeps exactly the latest 14 messages across auto-collapse and page reload.
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            page.evaluate("""
+                () => {
+                  const chat = document.getElementById('chat');
+                  chat.replaceChildren();
+                  for (let index = 1; index <= 16; index += 1) {
+                    const item = document.createElement('div');
+                    item.className = `msg ${index % 2 ? 'user' : 'assistant'}`;
+                    item.textContent = `history-${index}`;
+                    chat.appendChild(item);
+                  }
+                }
+            """)
+            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
+            assert page.locator("#chat > .msg").first.inner_text() == "history-3"
+            assert page.locator("#chat > .msg").last.inner_text() == "history-16"
+
+            # The desktop collapse control is intentionally hidden by the mobile shell,
+            # but it owns the same force-hide path used by the 30-second idle timer.
+            page.evaluate("document.getElementById('chatCollapseBtn').click()")
+            page.wait_for_function("!document.getElementById('app').classList.contains('chat-active')")
+            assert page.locator("#chat > .msg").count() == 14
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
+            assert page.locator("#chat > .msg").first.inner_text() == "history-3"
+
+            page.reload()
+            page.wait_for_function(
+                "window.PlannerRequests && window.PlannerPolish && window.PlannerSettingsThemes && "
+                "!document.getElementById('login').classList.contains('open')"
+            )
+            page.wait_for_function(
+                "expected => document.getElementById('accountEmail')?.textContent === expected",
+                arg=email,
+            )
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
+            assert page.locator("#chat > .msg").first.inner_text() == "history-3"
+            assert page.locator("#chat > .msg").last.inner_text() == "history-16"
+
             # A first-install clients.claim() controller change must not reload an active screen.
             page.evaluate("""
                 window.__claimSentinel = 'alive';

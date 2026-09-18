@@ -6,27 +6,21 @@ from datetime import datetime, time, timedelta
 import re
 from zoneinfo import ZoneInfo
 
-from core.db import get_category_colors, get_user_timezone
+from core.category_store import DEFAULT_CATEGORY_LABELS, get_category_colors, get_user_categories
+from core.db import get_user_timezone
 from core.life_balance_store import get_life_balance_ratings
 from core.library_store import list_saved_reminders
 from core.task_planner_store import list_planner_tasks
-from modules.calendar import _detect_category
+from modules import calendar as calendar_module
 from modules.calendar_user import _event_start, _list_events
 from modules.reminder_categories import reminder_category
 
 LIFE_WHEEL_PERIODS = {7, 30, 90}
-CATEGORY_ORDER = ("work", "health", "rest", "travel", "family", "personal", "other")
-CATEGORY_LABELS = {
-    "work": "Работа",
-    "health": "Здоровье",
-    "rest": "Отдых",
-    "travel": "Поездки",
-    "family": "Семья",
-    "personal": "Личное",
-    "other": "Прочее",
-}
+# Kept for compatibility with code/tests that use the original default taxonomy.
+CATEGORY_ORDER = tuple(DEFAULT_CATEGORY_LABELS)
+CATEGORY_LABELS = dict(DEFAULT_CATEGORY_LABELS)
 CATEGORY_MARKER_RE = re.compile(
-    r"(?:^|\n)AI Smart Planner category:\s*(work|health|rest|travel|family|personal|other)\b",
+    r"(?:^|\n)AI Smart Planner category:\s*([a-z][a-z0-9_-]{0,63})\b",
     re.IGNORECASE,
 )
 
@@ -59,13 +53,31 @@ def _event_end(event: dict, timezone_name: str) -> datetime | None:
     return None
 
 
-def event_category(event: dict) -> str:
+def event_category(
+    event: dict,
+    category_colors: dict[str, str | None] | None = None,
+    valid_categories: set[str] | None = None,
+) -> str:
+    """Resolve stored marker first, otherwise classify title/description live.
+
+    Using calendar_module._detect_category instead of a copied function keeps
+    English support active even when the classifier is installed after this
+    module was imported.
+    """
     description = str(event.get("description") or "")
     marker = CATEGORY_MARKER_RE.search(description)
     if marker:
-        return marker.group(1).lower()
+        category = marker.group(1).lower()
+        if valid_categories is None or category in valid_categories:
+            return category
+        return "uncategorized"
     text = "\n".join(part for part in (str(event.get("summary") or ""), description) if part.strip())
-    return _detect_category(text)[0] if text else "other"
+    if not text:
+        return "other" if valid_categories is None or "other" in valid_categories else "uncategorized"
+    category = calendar_module._detect_category(text, category_colors)[0]
+    if valid_categories is not None and category not in valid_categories:
+        return "uncategorized"
+    return category
 
 
 def _event_overlap(event: dict, timezone_name: str, period_start: datetime, period_end: datetime) -> tuple[datetime, datetime, bool] | None:
@@ -121,6 +133,18 @@ def _task_activity_at(task: dict, timezone_name: str) -> datetime | None:
     return _parse_local_datetime(task.get("due_at"), timezone_name)
 
 
+def _active_category(
+    candidate: str,
+    text: str,
+    colors: dict[str, str | None],
+    valid_categories: set[str],
+) -> str | None:
+    if candidate in valid_categories:
+        return candidate
+    detected = calendar_module._detect_category(text, colors)[0] if text.strip() else "uncategorized"
+    return detected if detected in valid_categories else None
+
+
 def build_life_wheel_snapshot(
     user_id: int,
     *,
@@ -136,13 +160,15 @@ def build_life_wheel_snapshot(
     saved_reminders = reminders if reminders is not None else list_saved_reminders(user_id, limit=500)
     planner_tasks = tasks if tasks is not None else list_planner_tasks(user_id, status=None, limit=500)
     ratings = get_life_balance_ratings(user_id)
+    user_categories = get_user_categories(user_id)
     colors = get_category_colors(user_id)
+    valid_categories = {item["key"] for item in user_categories}
 
     stats = {
-        key: {
-            "key": key,
-            "label": CATEGORY_LABELS[key],
-            "color_id": colors.get(key),
+        item["key"]: {
+            "key": item["key"],
+            "label": item["label"],
+            "color_id": colors.get(item["key"], item.get("color_id")),
             "events": 0,
             "reminders": 0,
             "tasks": 0,
@@ -151,7 +177,7 @@ def build_life_wheel_snapshot(
             "active_days": set(),
             "activity_units": 0.0,
         }
-        for key in CATEGORY_ORDER
+        for item in user_categories
     }
 
     total_dates: set[str] = set()
@@ -159,6 +185,8 @@ def build_life_wheel_snapshot(
     counted_reminders = 0
     counted_tasks = 0
     skipped_events = 0
+    uncategorized_items = 0
+
     for event in calendar_events:
         if event.get("status") == "cancelled" or event.get("transparency") == "transparent":
             skipped_events += 1
@@ -168,50 +196,55 @@ def build_life_wheel_snapshot(
             skipped_events += 1
             continue
         start, end, all_day = overlap
-        category = event_category(event)
-        if category not in stats:
-            category = "other"
-        units, hours, all_day_days = _event_units(start, end, all_day)
+        counted_events += 1
         dates = _covered_dates(start, end)
+        total_dates.update(dates)
+        category = event_category(event, colors, valid_categories)
+        if category not in stats:
+            uncategorized_items += 1
+            continue
+        units, hours, all_day_days = _event_units(start, end, all_day)
         current = stats[category]
         current["events"] += 1
         current["hours"] += hours
         current["all_day_days"] += all_day_days
         current["active_days"].update(dates)
         current["activity_units"] += units
-        total_dates.update(dates)
-        counted_events += 1
 
     for reminder in saved_reminders:
         due = _reminder_due(reminder, timezone_name)
         if due is None or not period_start <= due < period_end:
             continue
-        category = reminder_category(reminder)
-        if category not in stats:
-            category = "other"
+        counted_reminders += 1
         day = due.date().isoformat()
+        total_dates.add(day)
+        text = str(reminder.get("text") or "")
+        category = _active_category(reminder_category(reminder), text, colors, valid_categories)
+        if category is None:
+            uncategorized_items += 1
+            continue
         current = stats[category]
         current["reminders"] += 1
         current["active_days"].add(day)
         current["activity_units"] += 0.75
-        total_dates.add(day)
-        counted_reminders += 1
 
     for task in planner_tasks:
         activity_at = _task_activity_at(task, timezone_name)
         if activity_at is None or not period_start <= activity_at < period_end:
             continue
-        category = str(task.get("category") or "other")
-        if category not in stats:
-            category = "other"
+        counted_tasks += 1
         day = activity_at.date().isoformat()
+        total_dates.add(day)
+        title = str(task.get("title") or "")
+        category = _active_category(str(task.get("category") or ""), title, colors, valid_categories)
+        if category is None:
+            uncategorized_items += 1
+            continue
         estimate = int(task.get("estimate_minutes") or 0)
         current = stats[category]
         current["tasks"] += 1
         current["active_days"].add(day)
         current["activity_units"] += 0.75 + min(estimate, 240) / 240 if estimate else 0.75
-        total_dates.add(day)
-        counted_tasks += 1
 
     activity_values = {
         key: len(item["active_days"]) + item["activity_units"] * 0.5
@@ -220,7 +253,8 @@ def build_life_wheel_snapshot(
     max_activity = max(activity_values.values(), default=0.0)
 
     categories = []
-    for key in CATEGORY_ORDER:
+    for config in user_categories:
+        key = config["key"]
         item = stats[key]
         activity = activity_values[key]
         objective_score = round((activity / max_activity) * 10, 1) if max_activity > 0 else 0.0
@@ -261,6 +295,7 @@ def build_life_wheel_snapshot(
             "items": counted_events + counted_reminders + counted_tasks,
             "active_days": len(total_dates),
             "skipped_events": skipped_events,
+            "uncategorized_items": uncategorized_items,
         },
         "source": "calendar_reminders_tasks_and_user_ratings",
         "reminders_included": True,

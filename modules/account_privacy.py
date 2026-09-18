@@ -25,7 +25,7 @@ USER_TABLES = (
     "command_templates", "proactive_actions", "proactive_feedback", "attention_items",
     "ai_memory_event_processing", "ai_calendar_sync", "user_memories", "ai_memory_events",
     "daily_review_ai_cache", "feature_entitlements", "notes", "note_metadata", "reminder_details", "reminders", "tasks",
-    "life_balance_ratings", "push_subscriptions", "navigation_preferences", "privacy_challenges",
+    "life_balance_ratings", "user_categories", "push_subscriptions", "navigation_preferences", "privacy_challenges",
     "email_auto_messages", "email_auto_accounts", "email_auto_runs", "email_auto_preferences",
     "email_accounts", "email_oauth_states", "identity_accounts",
     "oauth_states", "users", "google_accounts",
@@ -50,9 +50,9 @@ def privacy_policy() -> dict:
         "minimum_backups_kept": MIN_SNAPSHOTS_TO_KEEP,
         "notice": (
             "Стираются локальная учётная запись, заметки, задачи, напоминания, история, изученная ИИ-память, "
-            "журнал и оценки проактивных действий, центр внимания, настройки, оценки жизненного баланса, доступ к ИИ, "
-            "почтовые подключения и состояние автоматического разбора почты, push-подписки и локальные данные входа. "
-            "События во внешнем календаре и письма в почтовых ящиках остаются. "
+            "журнал и оценки проактивных действий, центр внимания, настройки, пользовательские категории, "
+            "оценки жизненного баланса, доступ к ИИ, почтовые подключения и состояние автоматического разбора почты, "
+            "push-подписки и локальные данные входа. События во внешнем календаре и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -91,6 +91,7 @@ def export_account(user_id: int) -> dict:
                 "reminders": "reminder_id,text,remind_at,status,created_at,delivered_at,completed_at,deleted_at,repeat_rule,repeat_timezone,next_remind_at",
                 "tasks": "task_id,title,due_at,status,priority,created_at,completed_at,category,estimate_minutes,flexible,calendar_event_id,scheduled_start,parent_task_id,repeat_rule,updated_at",
                 "users": "timezone,work_start,work_end,work_days,buffer_minutes,category_colors",
+                "user_categories": "category_key,label,color_id,semantic_key,position",
                 "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes,parking_buffer_minutes,walking_buffer_minutes,pending_origin_json",
                 "assistant_preferences": "settings_json",
                 "life_balance_ratings": "category,rating,target,updated_at",

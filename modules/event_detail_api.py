@@ -8,11 +8,14 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, session
 
-from core.db import get_category_colors, get_user_timezone
+from core.category_store import get_category_colors, get_user_categories
+from core.db import get_user_timezone
+from modules import calendar as calendar_module
 from modules.calendar_actions import _find_conflicts
 from modules.calendar_availability import suggest_alternatives
 from modules.calendar_recurrence import split_recurring_series_for_update, trim_recurring_series_from
 from modules.calendar_user import _get_calendar_service
+from modules.category_api import category_api
 from modules.navigation import (
     is_managed_travel_event,
     safe_delete_travel_for_event,
@@ -22,8 +25,7 @@ from modules.navigation import (
 
 event_detail_api = Blueprint("event_detail_api", __name__)
 
-CATEGORY_KEYS = {"work", "health", "rest", "travel", "family", "personal", "other"}
-CATEGORY_RE = re.compile(r"(?im)^AI Smart Planner category:\s*([a-z_]+)\s*$")
+CATEGORY_RE = re.compile(r"(?im)^AI Smart Planner category:\s*([a-z][a-z0-9_-]{0,63})\s*$")
 RECURRENCE_RULES = {
     "daily": "RRULE:FREQ=DAILY",
     "weekdays": "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
@@ -66,16 +68,24 @@ def _event_interval(event: dict, timezone_name: str) -> tuple[datetime, datetime
 
 
 def _category(event: dict, user_id: int) -> str:
+    categories = get_user_categories(user_id)
+    active = {item["key"] for item in categories}
+    colors = get_category_colors(user_id)
     description = str(event.get("description") or "")
     match = CATEGORY_RE.search(description)
-    if match and match.group(1) in CATEGORY_KEYS:
-        return match.group(1)
+    if match:
+        key = match.group(1).lower()
+        return key if key in active else "uncategorized"
     color_id = str(event.get("colorId") or "")
     if color_id:
-        for key, value in get_category_colors(user_id).items():
+        for key, value in colors.items():
             if value and str(value) == color_id:
                 return key
-    return "other"
+    text = "\n".join(
+        part for part in (str(event.get("summary") or ""), description) if part.strip()
+    )
+    detected = calendar_module._detect_category(text, colors)[0] if text else "uncategorized"
+    return detected if detected in active else "uncategorized"
 
 
 def _description_with_category(description: object, category: str) -> str:
@@ -134,6 +144,9 @@ def _event_payload(event: dict, timezone_name: str, user_id: int, *, parent: dic
     recurrence = list(recurrence_source.get("recurrence") or [])
     private = ((event.get("extendedProperties") or {}).get("private") or {})
     managed = is_managed_travel_event(event)
+    categories = get_user_categories(user_id)
+    category = _category(event, user_id)
+    labels = {item["key"]: item["label"] for item in categories}
     payload = {
         "id": str(event.get("id") or ""),
         "title": str(event.get("summary") or "Событие")[:200],
@@ -143,7 +156,12 @@ def _event_payload(event: dict, timezone_name: str, user_id: int, *, parent: dic
         "end": end.isoformat(),
         "start_date": start.date().isoformat() if all_day else None,
         "end_date": (end.date() - timedelta(days=1)).isoformat() if all_day else None,
-        "category": _category(event, user_id),
+        "category": category,
+        "category_label": labels.get(category, "Без категории"),
+        "category_options": [
+            {"key": item["key"], "label": item["label"], "color_id": item.get("color_id")}
+            for item in categories
+        ],
         "recurrence": _recurrence_key(recurrence),
         "recurrence_raw": recurrence,
         "recurring": bool(event.get("recurringEventId") or recurrence),
@@ -317,9 +335,11 @@ def update_event(event_id: str):
         if len(title) > 200:
             raise ValueError("Сократи название до 200 символов")
         location = " ".join(str(payload.get("location") or "").split()).strip()[:500]
-        category = str(payload.get("category") or "other")
-        if category not in CATEGORY_KEYS:
-            raise ValueError("Неизвестная категория")
+        category = str(payload.get("category") or "").strip().lower()
+        categories = get_user_categories(user_id)
+        active_categories = {item["key"] for item in categories}
+        if category not in active_categories:
+            raise ValueError("Выбери существующую категорию")
 
         desired_start, desired_end, desired_all_day, start_part, end_part = _desired_interval(payload, timezone_name)
         instance_start, instance_end, instance_all_day = _event_interval(event, timezone_name)
@@ -455,3 +475,8 @@ def delete_event(event_id: str):
         return {"error": "calendar_not_connected", "message": "Google Calendar не подключён."}, 409
     except Exception:
         return {"error": "calendar_delete_failed", "message": "Не удалось удалить событие из календаря."}, 500
+
+
+# Category management shares the same authenticated web app and is registered
+# here because this blueprint is already part of the mobile calendar shell.
+event_detail_api.register_blueprint(category_api)

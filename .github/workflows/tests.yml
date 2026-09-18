@@ -43,6 +43,7 @@ jobs:
           node --check web/assistant.js &&
           node --check web/life-wheel.js &&
           node --check web/life-balance.js &&
+          node --check web/category-manager.js &&
           node --check web/task-editor.js &&
           node --check web/tasks.js &&
           node --check web/tasks-unified.js &&

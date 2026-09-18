@@ -133,10 +133,17 @@
     if (syncing || !taskTabActive()) return;
     const list = document.getElementById("libraryList");
     if (!list || !list.querySelector(".planner-task-toolbar")) return;
+    if (document.getElementById("reminderEditBackdrop")?.classList.contains("open")) {
+      scheduleSync(240);
+      return;
+    }
     syncing = true;
     try {
       const reminders = (await loadReminders()).filter(item => visibleReminder(item, currentFilters()));
       if (!taskTabActive() || !list.querySelector(".planner-task-toolbar")) return;
+      list.querySelectorAll(".planner-task-swipe-row").forEach(row => {
+        if (row.querySelector(".planner-reminder-task")) row.remove();
+      });
       list.querySelectorAll(".planner-reminder-task, .planner-task-reminder-summary").forEach(node => node.remove());
       if (reminders.length) {
         const empty = list.querySelector(".library-empty");
