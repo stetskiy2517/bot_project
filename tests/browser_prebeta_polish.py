@@ -185,10 +185,22 @@ def main() -> None:
             note.click()
             note_sheet = page.locator("#noteWindowBackdrop")
             expect(note_sheet).to_have_class(__import__("re").compile(r"\bopen\b"))
-            page.locator(".note-window").evaluate(
-                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
-            )
+            page.locator(".note-window").evaluate("""
+                el => {
+                  const rect = el.getBoundingClientRect();
+                  const x = rect.left + rect.width / 2;
+                  const y = Math.min(rect.bottom - 36, rect.top + 130);
+                  const eventWithTouches = (type, property, touches) => {
+                    const event = new Event(type, {bubbles: true, cancelable: true});
+                    Object.defineProperty(event, property, {value: touches});
+                    el.dispatchEvent(event);
+                  };
+                  eventWithTouches('touchstart', 'touches', [{clientX: x, clientY: y}]);
+                  eventWithTouches('touchend', 'changedTouches', [{clientX: x + 90, clientY: y}]);
+                }
+            """)
             expect(note_sheet).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(note_sheet).to_be_hidden()
             expect(page.locator("#libraryScreen")).to_be_visible()
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
