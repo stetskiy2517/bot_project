@@ -64,6 +64,15 @@ def _navigation_status() -> dict:
     }
 
 
+def _runtime_status() -> dict:
+    version = sys.version_info
+    return {
+        "python": f"{version.major}.{version.minor}.{version.micro}",
+        "implementation": sys.implementation.name,
+        "supported": (version.major, version.minor) >= (3, 11),
+    }
+
+
 def _disk_status() -> dict:
     usage = shutil.disk_usage(PROJECT_ROOT)
     percent = round((usage.used / usage.total) * 100, 1) if usage.total else 0.0
@@ -89,6 +98,11 @@ def build_report(
     expected = (expected_sha or "").strip()
     if expected and actual_sha != expected:
         failures.append(f"deployed SHA {actual_sha} does not match expected {expected}")
+
+    runtime = _runtime_status()
+    report["runtime"] = runtime
+    if not runtime["supported"]:
+        failures.append(f"Python runtime {runtime['python']} is below required 3.11")
 
     try:
         report["database"] = _database_status()

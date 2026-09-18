@@ -22,6 +22,20 @@ class ProductionReliabilityWiringTests(unittest.TestCase):
         self.assertNotIn("personal-secretary-backup.timer", script)
         self.assertNotIn("install_backup_timer.sh", script)
 
+    def test_production_runtime_migrates_without_replacing_system_python(self):
+        update_script = (ROOT / "scripts" / "deploy_update.sh").read_text(encoding="utf-8")
+        full_deploy = (ROOT / "deploy.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+
+        self.assertIn('APP_PYTHON="${APP_PYTHON:-python3.12}"', update_script)
+        self.assertIn("ppa:deadsnakes/ppa", update_script)
+        self.assertIn("python3.12-venv", update_script)
+        self.assertIn("rebuild_runtime_venv", update_script)
+        self.assertIn(".venv.previous-runtime", update_script)
+        self.assertIn("python3.12 -m venv .venv", full_deploy)
+        self.assertIn("python: ['3.11', '3.12', '3.13']", workflow)
+        self.assertNotIn("update-alternatives", update_script + full_deploy)
+
     def test_daily_backup_uses_existing_deploy_ssh_connection(self):
         workflow = (ROOT / ".github" / "workflows" / "production-backup.yml").read_text(encoding="utf-8")
         self.assertIn('cron: "25 1 * * *"', workflow)

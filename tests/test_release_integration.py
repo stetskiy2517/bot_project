@@ -72,7 +72,7 @@ class ReleaseIntegrationTests(unittest.TestCase):
 
     def test_python_matrix_includes_server_compatible_runtime(self):
         workflow = (ROOT / '.github/workflows/tests.yml').read_text()
-        self.assertIn("python: ['3.10', '3.11', '3.13']", workflow)
+        self.assertIn("python: ['3.11', '3.12', '3.13']", workflow)
 
     def test_navigation_and_viewport_from_main_are_preserved(self):
         self.assertTrue((ROOT / 'integrations/navigation_ors.py').is_file())

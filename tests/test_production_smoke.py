@@ -29,6 +29,18 @@ class ProductionSmokeTests(unittest.TestCase):
         self.assertEqual(report["status"], "error")
         self.assertTrue(any("does not match" in item for item in failures))
 
+    @patch("scripts.production_smoke._runtime_status", return_value={"python": "3.10.12", "implementation": "cpython", "supported": False})
+    @patch("scripts.production_smoke._disk_status", return_value={"used_percent": 40.0, "free_mb": 6000})
+    @patch("scripts.production_smoke._navigation_status", return_value={"provider": "OpenRouteService", "configured": True})
+    @patch("scripts.production_smoke._ai_status", return_value={"configured": True, "state": "healthy"})
+    @patch("scripts.production_smoke._database_status", return_value={"status": "ok"})
+    @patch("scripts.production_smoke._git_sha", return_value="abc123")
+    def test_unsupported_python_runtime_is_critical(self, *_mocks):
+        report, failures = production_smoke.build_report("abc123")
+        self.assertEqual(report["status"], "error")
+        self.assertEqual(report["runtime"]["python"], "3.10.12")
+        self.assertTrue(any("below required 3.11" in item for item in failures))
+
     @patch("scripts.production_smoke._disk_status", return_value={"used_percent": 85.8, "free_mb": 891})
     @patch("scripts.production_smoke._navigation_status", return_value={"provider": "OpenRouteService", "configured": True})
     @patch("scripts.production_smoke._ai_status", return_value={"configured": True, "state": "healthy"})
