@@ -183,15 +183,6 @@ def _same_transport_action(left: dict, right: dict) -> bool:
 
     same_route = _same_route(left_event, right_event)
     if left_flight and right_flight:
-        if not same_route and all(
-            (
-                left_event.get("start_location"),
-                right_event.get("start_location"),
-                left_event.get("end_location"),
-                right_event.get("end_location"),
-            )
-        ):
-            return False
         return (
             abs((left_start - right_start).total_seconds()) <= 2 * 60 * 60
             and abs((left_end - right_end).total_seconds()) <= 2 * 60 * 60
