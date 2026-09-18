@@ -104,7 +104,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   python3 curl ca-certificates software-properties-common \
   debian-keyring debian-archive-keyring apt-transport-https gnupg
 
-if ! command -v python3.12 >/dev/null 2>&1; then
+if ! command -v python3.12 >/dev/null 2>&1 ||
+   ! python3.12 -c 'import ensurepip, venv' >/dev/null 2>&1; then
   log "Installing supported Python 3.12 application runtime"
   if ! grep -Rqs "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
     sudo add-apt-repository -y ppa:deadsnakes/ppa
@@ -112,7 +113,7 @@ if ! command -v python3.12 >/dev/null 2>&1; then
   sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv
 fi
-python3.12 -c 'import sys; assert sys.version_info >= (3, 11)'
+python3.12 -c 'import sys, ensurepip, venv; assert sys.version_info >= (3, 11)'
 
 if ! command -v caddy >/dev/null 2>&1; then
   log "Installing Caddy from the official repository"
