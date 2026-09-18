@@ -96,6 +96,92 @@ class EmailTicketAutoCalendarTests(unittest.TestCase):
         self.assertEqual(key_one, key_two)
         self.assertEqual(len(key_one or ""), 40)
 
+    def test_same_flight_from_different_attachments_uses_same_event_key(self):
+        first = self._action(1.0)
+        second = self._action(1.0)
+        second["source"] = {
+            **second["source"],
+            "attachment_id": "att-2",
+            "attachment": "itinerary.pdf",
+        }
+        second["attachment_event"] = {
+            **second["attachment_event"],
+            "title": "Перелёт SU100 Пулково — Шереметьево",
+        }
+
+        key_one = email_actions_api._attachment_event_key(first["source"], first["attachment_event"])
+        key_two = email_actions_api._attachment_event_key(second["source"], second["attachment_event"])
+
+        self.assertEqual(key_one, key_two)
+
+    @patch("modules.email_actions_api._calendar_service")
+    def test_semantic_lookup_matches_same_flight_when_attachment_uses_boarding_time(self, calendar_service):
+        service = MagicMock()
+        calendar_service.return_value = service
+        service.events.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "id": "existing-flight",
+                    "status": "confirmed",
+                    "summary": "Рейс SU100 Санкт-Петербург — Москва",
+                    "description": "Рейс SU100",
+                    "start": {"dateTime": "2099-09-27T18:00:00Z"},
+                    "end": {"dateTime": "2099-09-27T19:20:00Z"},
+                    "location": "Пулково, Санкт-Петербург",
+                    "extendedProperties": {
+                        "private": {
+                            "smartPlannerType": "email_attachment_import",
+                            "smartPlannerStartLocation": "Пулково, Санкт-Петербург",
+                            "smartPlannerEndLocation": "Шереметьево, Москва",
+                        }
+                    },
+                }
+            ]
+        }
+        proposal = {
+            **self._action(1.0)["attachment_event"],
+            "title": "Посадочный талон SU100",
+            "start": "2099-09-27T18:35:00Z",
+            "end": "2099-09-27T19:20:00Z",
+            "start_location": "Санкт-Петербург, аэропорт Пулково, терминал 1",
+            "end_location": "Москва, аэропорт Шереметьево",
+        }
+
+        existing = email_actions_api._existing_semantic_attachment_calendar_event(42, proposal)
+
+        self.assertIsNotNone(existing)
+        self.assertEqual(existing["id"], "existing-flight")
+
+    @patch("modules.email_actions_api._calendar_service")
+    def test_semantic_lookup_rejects_different_flight_number(self, calendar_service):
+        service = MagicMock()
+        calendar_service.return_value = service
+        service.events.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "id": "other-flight",
+                    "status": "confirmed",
+                    "summary": "Рейс SU200 Санкт-Петербург — Москва",
+                    "description": "Рейс SU200",
+                    "start": {"dateTime": "2099-09-27T18:00:00Z"},
+                    "end": {"dateTime": "2099-09-27T19:20:00Z"},
+                    "location": "Пулково, Санкт-Петербург",
+                    "extendedProperties": {
+                        "private": {
+                            "smartPlannerType": "email_attachment_import",
+                            "smartPlannerStartLocation": "Пулково, Санкт-Петербург",
+                            "smartPlannerEndLocation": "Шереметьево, Москва",
+                        }
+                    },
+                }
+            ]
+        }
+        proposal = self._action(1.0)["attachment_event"]
+
+        existing = email_actions_api._existing_semantic_attachment_calendar_event(42, proposal)
+
+        self.assertIsNone(existing)
+
     @patch("modules.email_actions_api._create_event")
     @patch("modules.email_actions_api._existing_semantic_attachment_calendar_event")
     @patch("modules.email_actions_api._existing_attachment_calendar_event")
