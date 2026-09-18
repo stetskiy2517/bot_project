@@ -28,7 +28,7 @@
     .task-editor-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
     .task-editor-backdrop.compact{display:flex;align-items:flex-end;background:rgba(0,0,0,.18);transform:none}
     .task-editor-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
-    .task-editor-handle{display:none}
+    .task-editor-handle{width:38px;height:4px;border-radius:99px;background:#d2d2cf;margin:0 auto 14px}
     .task-editor-head{position:sticky;z-index:3;top:0;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:0 -16px 18px;padding:calc(env(safe-area-inset-top) + 8px) 12px 10px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-bottom:1px solid #eeeeeb}
     .task-editor-title{margin:0;text-align:center;font-size:19px;line-height:1.2;font-weight:700}
     .task-editor-close{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
@@ -117,7 +117,8 @@
     if (activeResolve) close(null);
     activeResolve = resolve || null;
     backdrop.classList.toggle("compact", compact);
-    backdrop.innerHTML = `<section class="task-editor-sheet${compact ? " task-confirm-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="task-editor-handle"></div>${html}</section>`;
+    const handle = compact ? '<div class="task-editor-handle"></div>' : "";
+    backdrop.innerHTML = `<section class="task-editor-sheet${compact ? " task-confirm-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${esc(label)}">${handle}${html}</section>`;
     backdrop.classList.add("open");
   }
 
