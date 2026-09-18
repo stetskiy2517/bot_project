@@ -143,6 +143,12 @@ def main() -> None:
             expect(page.locator("#taskEditDescription")).to_be_visible()
             expect(page.locator("#taskEditDueDate")).to_be_visible()
             expect(page.locator("#taskEditDueTime")).to_be_visible()
+            due_field = page.locator("#taskEditDueDate")
+            due_box = due_field.bounding_box()
+            due_section_box = due_field.locator("xpath=ancestor::section[1]").bounding_box()
+            assert due_box and due_section_box
+            assert due_box["x"] >= due_section_box["x"] - 0.5, (due_box, due_section_box)
+            assert due_box["x"] + due_box["width"] <= due_section_box["x"] + due_section_box["width"] + 0.5, (due_box, due_section_box)
             page.locator("#taskEditDescription").fill("Редактируется с одного экрана")
             page.locator("#taskEditDueDate").fill("2099-09-30")
             page.locator("#taskEditDueTime").fill("18:00")
