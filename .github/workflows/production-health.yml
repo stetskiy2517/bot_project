@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - deploy-production
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -14,11 +19,15 @@ concurrency:
 
 jobs:
   health:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     env:
       HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://213.171.26.210.sslip.io/api/health' }}
-      EXPECTED_SHA: ${{ github.sha }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
