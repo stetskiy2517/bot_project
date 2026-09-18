@@ -60,9 +60,23 @@
   }
 
   function activeBackSheet() {
-    return document.querySelector(
+    const candidates = Array.from(document.querySelectorAll(
       "#mobileSheetBackdrop.open, #noteWindowBackdrop.open, #reminderEditBackdrop.open, #taskEditorBackdrop.open"
-    );
+    )).filter(node => {
+      const style = getComputedStyle(node);
+      return style.display !== "none" && style.visibility !== "hidden" && style.pointerEvents !== "none";
+    });
+    let top = null;
+    let topZ = Number.NEGATIVE_INFINITY;
+    for (const node of candidates) {
+      const parsed = Number.parseInt(getComputedStyle(node).zIndex, 10);
+      const zIndex = Number.isFinite(parsed) ? parsed : 0;
+      if (!top || zIndex >= topZ) {
+        top = node;
+        topZ = zIndex;
+      }
+    }
+    return top;
   }
 
   function topSheetOpen() {
