@@ -32,6 +32,8 @@ class ProductionReliabilityWiringTests(unittest.TestCase):
         self.assertIn("python3.12-venv", update_script)
         self.assertIn("rebuild_runtime_venv", update_script)
         self.assertIn(".venv.previous-runtime", update_script)
+        self.assertIn('"$APP_PYTHON" -m venv .venv', update_script)
+        self.assertNotIn("mv .venv.next .venv", update_script)
         self.assertIn("python3.12 -m venv .venv", full_deploy)
         self.assertIn("python: ['3.11', '3.12', '3.13']", workflow)
         self.assertNotIn("update-alternatives", update_script + full_deploy)
