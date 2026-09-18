@@ -165,6 +165,15 @@ def _same_transport_action(left: dict, right: dict) -> bool:
 
     left_flight = _flight_number(left_event)
     right_flight = _flight_number(right_event)
+    left_type = str(left.get("attachment_document_type") or "").strip().lower()
+    right_type = str(right.get("attachment_document_type") or "").strip().lower()
+    if not (
+        left_type in TRANSPORT_DOCUMENT_TYPES
+        or right_type in TRANSPORT_DOCUMENT_TYPES
+        or left_flight
+        or right_flight
+    ):
+        return False
     if left_flight and right_flight and left_flight != right_flight:
         return False
 
@@ -191,7 +200,7 @@ def _same_transport_action(left: dict, right: dict) -> bool:
     )
 
 
-def _action_quality(action: dict) -> tuple[float, int, int]:
+def _action_quality(action: dict) -> tuple[int, float, int]:
     event = action.get("attachment_event") if isinstance(action.get("attachment_event"), dict) else {}
     try:
         confidence = float(action.get("confidence") or event.get("confidence") or 0)
@@ -210,7 +219,7 @@ def _action_quality(action: dict) -> tuple[float, int, int]:
         )
     )
     recognized = int(str(action.get("attachment_document_type") or "") in TRANSPORT_DOCUMENT_TYPES)
-    return confidence, int(bool(action.get("ready"))), completeness + recognized
+    return int(bool(action.get("ready"))), confidence, completeness + recognized
 
 
 def _append_deduped_action(actions: list[dict], action: dict) -> bool:
