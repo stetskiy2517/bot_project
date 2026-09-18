@@ -97,11 +97,13 @@ def main() -> None:
             life_wheel = page.locator("#lifeWheelPanel")
             expect(life_wheel).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(life_wheel.locator(".life-wheel-sheet")).to_be_visible()
-            page.locator("#lifeWheelPanel .handle").evaluate("""
+            handle = page.locator("#lifeWheelPanel .handle")
+            handle.evaluate("""
                 el => {
                   const rect = el.getBoundingClientRect();
                   const x = rect.left + rect.width / 2;
                   const y = rect.top + Math.max(1, rect.height / 2);
+                  window.__sheetGesturePoint = {x, y};
                   const eventWithTouches = (type, property, touches) => {
                     const event = new Event(type, {bubbles: true, cancelable: true});
                     Object.defineProperty(event, property, {value: touches});
@@ -109,7 +111,16 @@ def main() -> None:
                   };
                   eventWithTouches('touchstart', 'touches', [{clientX: x, clientY: y}]);
                   eventWithTouches('touchmove', 'touches', [{clientX: x, clientY: y + 90}]);
-                  eventWithTouches('touchend', 'changedTouches', [{clientX: x, clientY: y + 90}]);
+                }
+            """)
+            dragged_transform = page.locator("#lifeWheelPanel .life-wheel-sheet").evaluate("el => el.style.transform")
+            assert "translate3d" in dragged_transform and "90" in dragged_transform, dragged_transform
+            handle.evaluate("""
+                el => {
+                  const {x, y} = window.__sheetGesturePoint;
+                  const event = new Event('touchend', {bubbles: true, cancelable: true});
+                  Object.defineProperty(event, 'changedTouches', {value: [{clientX: x, clientY: y + 90}]});
+                  el.dispatchEvent(event);
                 }
             """)
             expect(life_wheel).not_to_have_class(__import__("re").compile(r"\bopen\b"))
