@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from integrations.ai import AIRateLimitError, AIProviderError
-from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, answer_unhandled, replace_unhandled_reply
+from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, UNHANDLED_WEB_MESSAGE_EN, answer_unhandled, replace_unhandled_reply
 
 
 class AIAssistantTests(unittest.TestCase):
@@ -26,6 +26,7 @@ class AIAssistantTests(unittest.TestCase):
         self.assertIn("личный ИИ-секретарь", system_prompt)
         self.assertIn("календарь, напоминания, заметки", system_prompt)
         self.assertIn("Строго соблюдай явные требования пользователя к формату ответа", system_prompt)
+        self.assertIn("языке текущего сообщения пользователя", system_prompt)
         self.assertIn("Не называй себя «ИИ-модулем»", system_prompt)
         self.assertNotIn("модули календаря, напоминаний, заметок и задач", system_prompt)
 
@@ -138,6 +139,10 @@ class AIAssistantTests(unittest.TestCase):
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_provider_failure_falls_back_safely(self, _available, _complete):
         self.assertIsNone(answer_unhandled("Привет"))
+
+    def test_english_router_fallback_is_replaced_too(self):
+        replies = [UNHANDLED_WEB_MESSAGE_EN]
+        self.assertEqual(replace_unhandled_reply(replies, "AI answer"), ["AI answer"])
 
     def test_only_router_fallback_is_replaced(self):
         replies = ["Напоминание · Выпить воду", UNHANDLED_WEB_MESSAGE]
