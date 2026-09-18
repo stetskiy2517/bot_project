@@ -292,11 +292,15 @@
         return;
       }
       event.preventDefault();
-      suppressClickUntil = performance.now() + 400;
       const total = start.startOffset + dx;
+      // Run the primary action before arming ghost-click suppression.
+      // Otherwise the programmatic button.click() from triggerPrimary() is
+      // intercepted by our own capture listener and a real touch swipe does
+      // nothing even though wheel/trackpad tests pass.
       if (total >= COMMIT_X) triggerPrimary(start.row);
       else if (total <= -OPEN_X) revealActions(start.row);
       else setOffset(start.row, 0);
+      suppressClickUntil = performance.now() + 400;
     }, {passive:false});
 
     list.addEventListener("touchcancel", () => {
