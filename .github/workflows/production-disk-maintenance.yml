@@ -1,0 +1,81 @@
+name: production-disk-maintenance
+
+on:
+  schedule:
+    - cron: "45 1 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - deploy-production
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-disk-maintenance
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate SSH maintenance credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_USER" || { echo "DEPLOY_USER is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_SSH_KEY" || { echo "DEPLOY_SSH_KEY is not configured" >&2; exit 1; }
+          test -n "$DEPLOY_KNOWN_HOSTS" || { echo "DEPLOY_KNOWN_HOSTS is not configured" >&2; exit 1; }
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload maintenance script
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/disk_maintenance.sh \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-disk-maintenance.sh"
+
+      - name: Clean production disk safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "PROJECT_DIR=\$HOME/bot_project bash /tmp/personal-secretary-disk-maintenance.sh && cd \$HOME/bot_project && .venv/bin/python scripts/production_smoke.py --expected-sha '$EXPECTED_SHA' --max-disk-percent 90"
