@@ -9,8 +9,10 @@ PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 NAVIGATION_KEY_FILE="${NAVIGATION_KEY_FILE:-}"
 AI_KEY_FILE="${AI_KEY_FILE:-}"
+APP_PYTHON="${APP_PYTHON:-python3.12}"
 PREVIOUS_SHA=""
 PREDEPLOY_BACKUP=""
+OLD_VENV_BACKUP=""
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -35,6 +37,70 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 if [ -z "$TARGET_SHA" ]; then
   fail "Target commit SHA is required"
 fi
+
+python_runtime_supported() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1
+}
+
+venv_matches_app_python() {
+  [ -x .venv/bin/python ] || return 1
+  command -v "$APP_PYTHON" >/dev/null 2>&1 || return 1
+  .venv/bin/python - "$APP_PYTHON" <<'PY'
+import subprocess
+import sys
+
+target = subprocess.check_output(
+    [sys.argv[1], "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+    text=True,
+).strip()
+current = f"{sys.version_info.major}.{sys.version_info.minor}"
+raise SystemExit(0 if current == target else 1)
+PY
+}
+
+ensure_app_python() {
+  if command -v "$APP_PYTHON" >/dev/null 2>&1; then
+    python_runtime_supported "$APP_PYTHON" || fail "$APP_PYTHON is below Python 3.11"
+    return 0
+  fi
+
+  if [ ! -r /etc/os-release ]; then
+    fail "$APP_PYTHON is missing and OS release information is unavailable"
+  fi
+
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  if [ "${ID:-}" != "ubuntu" ] || [ "${VERSION_ID:-}" != "22.04" ]; then
+    fail "$APP_PYTHON is missing; automatic runtime bootstrap is only supported on Ubuntu 22.04"
+  fi
+
+  log "Installing supported application runtime ($APP_PYTHON)"
+  sudo -n apt-get update
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+  if ! grep -Rqs "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+    sudo -n add-apt-repository -y ppa:deadsnakes/ppa
+  fi
+  sudo -n apt-get update
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv
+
+  command -v "$APP_PYTHON" >/dev/null 2>&1 || fail "$APP_PYTHON installation did not provide an executable"
+  python_runtime_supported "$APP_PYTHON" || fail "$APP_PYTHON is below Python 3.11"
+}
+
+rebuild_runtime_venv() {
+  log "Rebuilding application virtual environment with $APP_PYTHON"
+  rm -rf .venv.next .venv.previous-runtime
+  "$APP_PYTHON" -m venv .venv.next
+  .venv.next/bin/python -m pip install --upgrade pip setuptools wheel
+  .venv.next/bin/python -m pip install -r requirements.txt
+  .venv.next/bin/python -c 'import sys; assert sys.version_info >= (3, 11)'
+
+  if [ -d .venv ]; then
+    mv .venv .venv.previous-runtime
+    OLD_VENV_BACKUP="$PROJECT_DIR/.venv.previous-runtime"
+  fi
+  mv .venv.next .venv
+}
 
 navigation_secret_present() {
   [ -n "$NAVIGATION_KEY_FILE" ] && [ -s "$NAVIGATION_KEY_FILE" ]
@@ -165,7 +231,7 @@ git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
   || fail "Target commit $TARGET_SHA is not part of origin/$BRANCH"
 
 PREVIOUS_SHA="$(git rev-parse HEAD)"
-if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
+if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ] && venv_matches_app_python; then
   if navigation_secret_present || ai_secret_present; then
     sync_navigation_config
     sync_ai_config
@@ -180,7 +246,7 @@ if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ]; then
   exit 0
 fi
 
-if git merge-base --is-ancestor "$TARGET_SHA" "$PREVIOUS_SHA" 2>/dev/null; then
+if [ "$PREVIOUS_SHA" != "$TARGET_SHA" ] && git merge-base --is-ancestor "$TARGET_SHA" "$PREVIOUS_SHA" 2>/dev/null; then
   log "Skipping stale deployment $TARGET_SHA; server is already at newer commit $PREVIOUS_SHA"
   exit 0
 fi
@@ -215,6 +281,12 @@ rollback() {
     install -m 600 "$PREDEPLOY_BACKUP/environment.env" .env || true
   fi
 
+  if [ -n "$OLD_VENV_BACKUP" ] && [ -d "$OLD_VENV_BACKUP" ]; then
+    rm -rf .venv
+    mv "$OLD_VENV_BACKUP" .venv || true
+    OLD_VENV_BACKUP=""
+  fi
+
   if [ -x .venv/bin/python ] && [ -f requirements.txt ]; then
     .venv/bin/python -m pip install -r requirements.txt >/dev/null 2>&1 || true
   fi
@@ -237,17 +309,17 @@ sync_navigation_config
 sync_ai_config
 NEW_REQUIREMENTS_HASH="$(requirements_hash)"
 
-if [ ! -x .venv/bin/python ]; then
-  log "Creating Python virtual environment"
-  python3 -m venv .venv
-  .venv/bin/python -m pip install --upgrade pip setuptools wheel
-  .venv/bin/python -m pip install -r requirements.txt
+ensure_app_python
+if ! venv_matches_app_python; then
+  rebuild_runtime_venv
 elif [ "$OLD_REQUIREMENTS_HASH" != "$NEW_REQUIREMENTS_HASH" ]; then
   log "requirements.txt changed; updating Python dependencies"
   .venv/bin/python -m pip install -r requirements.txt
 else
   log "Python dependencies unchanged"
 fi
+
+log "Application runtime: $(.venv/bin/python -c 'import platform; print(platform.python_version())')"
 
 log "Running server preflight"
 .venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts
@@ -268,4 +340,8 @@ log "Creating verified state backup"
 .venv/bin/python scripts/backup_state.py
 
 trap - ERR
+if [ -n "$OLD_VENV_BACKUP" ] && [ -d "$OLD_VENV_BACKUP" ]; then
+  rm -rf "$OLD_VENV_BACKUP"
+  OLD_VENV_BACKUP=""
+fi
 log "Deployment successful: $TARGET_SHA"
