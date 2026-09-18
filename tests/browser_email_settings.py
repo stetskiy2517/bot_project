@@ -75,7 +75,7 @@ def main() -> None:
             expect(page.locator("#emailAutoAnalysis")).to_have_count(1)
 
             page.locator("#accountBtn").click()
-            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
             expect(page.locator("#emailGroup summary")).to_be_hidden()
             page.locator('[data-settings-open="integrations"]').click()
             expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Интеграции")
