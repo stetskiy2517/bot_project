@@ -136,7 +136,7 @@
     repeat.value = item.repeat_rule || "none";
     if (!repeat.value) repeat.value = "none";
     backdrop.classList.add("open");
-    requestAnimationFrame(() => (focusTime ? timeInput : textInput).focus());
+    if (focusTime) requestAnimationFrame(() => timeInput.focus());
   }
 
   async function saveEditor(reminderId) {
