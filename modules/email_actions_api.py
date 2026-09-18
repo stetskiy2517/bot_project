@@ -101,11 +101,12 @@ def _attachment_event_key(source: object, proposal: dict) -> str | None:
     attachment_name = str(source.get("attachment") or "").strip()
     if not message_id:
         return None
+    account_identity = str(source.get("account_id") or source.get("account") or "").strip()
 
     if proposal.get("movement"):
         identity = [
             "v3-movement",
-            str(source.get("account") or "").strip(),
+            account_identity,
             message_id,
             _canonical_event_time(proposal.get("start")),
             _canonical_event_time(proposal.get("end")),
@@ -115,7 +116,7 @@ def _attachment_event_key(source: object, proposal: dict) -> str | None:
             return None
         identity = [
             "v2",
-            str(source.get("account") or "").strip(),
+            account_identity,
             message_id,
             attachment_id or attachment_name,
             _canonical_event_time(proposal.get("start")),
