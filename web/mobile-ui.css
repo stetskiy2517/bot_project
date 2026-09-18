@@ -426,7 +426,16 @@ body {
 
 
 .app.mobile-shell #settingsThemes .settings-utility-link {
+  width: 100%;
+  min-height: 62px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
   gap: 12px;
+  background: #fff;
+  color: #111;
+  text-align: left;
+  cursor: pointer;
 }
 
 .app.mobile-shell #settingsThemes .settings-utility-icon {
