@@ -119,20 +119,9 @@ async def route_text(update, context, text: str | None = None) -> bool:
     if not raw:
         return False
 
-    language = detect_input_language(raw)
     canonical = canonicalize_english(raw)
     _sync_runtime_overrides()
-    handled = await _impl.route_text(update, context, text=canonical)
-
-    # The web transport only adds a Russian fallback after an unhandled command.
-    # Handle the English fallback here so an English user is not answered in
-    # Russian merely because the command was unknown.
-    if not handled and language == "en":
-        await update.message.reply_text(
-            "I didn't understand the command. Try rephrasing it or add a date/time."
-        )
-        return True
-    return handled
+    return await _impl.route_text(update, context, text=canonical)
 
 
 async def handle_text(update, context) -> None:
@@ -142,9 +131,14 @@ async def handle_text(update, context) -> None:
         if handled:
             return
         if getattr(update, "message", None):
+            language = detect_input_language(getattr(update.message, "text", "") or "")
             await update.message.reply_text(
-                "Не понял команду. Например: «врач завтра в 19:00» "
-                "или «напомни через 30 минут позвонить»."
+                "I didn't understand the command. Try rephrasing it or add a date/time."
+                if language == "en"
+                else (
+                    "Не понял команду. Например: «врач завтра в 19:00» "
+                    "или «напомни через 30 минут позвонить»."
+                )
             )
     except Exception:
         logger.exception("Unhandled error in text router")

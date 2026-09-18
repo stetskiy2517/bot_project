@@ -12,6 +12,7 @@ from core.assistant_preferences import get_assistant_preferences
 from core.db import get_user_timezone
 from core.feature_access import has_ai_access
 from core.memory_store import memory_prompt_context
+from modules.language_support import detect_input_language
 from core.reminder_recurrence import repeat_label
 from core.reminder_store import list_active_reminders
 from integrations.ai import AIRateLimitError, AIError, complete, get_ai_status, is_ai_available
@@ -20,6 +21,16 @@ from integrations.navigation_ors import configured as navigation_configured
 logger = logging.getLogger(__name__)
 
 UNHANDLED_WEB_MESSAGE = "Не понял команду. Сформулируй её иначе или уточни, что нужно сделать."
+UNHANDLED_WEB_MESSAGE_EN = "I didn't understand the command. Try rephrasing it or add a date/time."
+UNHANDLED_MESSAGES = frozenset({UNHANDLED_WEB_MESSAGE, UNHANDLED_WEB_MESSAGE_EN})
+
+
+def unhandled_reply_for(text: str) -> str:
+    return UNHANDLED_WEB_MESSAGE_EN if detect_input_language(text) == "en" else UNHANDLED_WEB_MESSAGE
+
+
+def is_unhandled_reply(value: object) -> bool:
+    return isinstance(value, str) and value in UNHANDLED_MESSAGES
 
 
 def ai_status() -> dict:
@@ -169,7 +180,7 @@ def replace_unhandled_reply(replies: list, answer: str) -> list:
     replaced = False
     result = []
     for item in replies:
-        if item == UNHANDLED_WEB_MESSAGE and not replaced:
+        if is_unhandled_reply(item) and not replaced:
             result.append(answer)
             replaced = True
         else:

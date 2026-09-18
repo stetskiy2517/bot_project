@@ -6,7 +6,7 @@ from unittest.mock import patch
 import web_app
 from core.chat_context import clear_chat_context
 from core.db import get_or_create_google_user
-from modules.ai_assistant import UNHANDLED_WEB_MESSAGE
+from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, UNHANDLED_WEB_MESSAGE_EN
 from tests.web_test_support import web_test_app
 
 
@@ -43,6 +43,26 @@ class AIWebFallbackTests(unittest.TestCase):
         self.assertEqual(payload["replies"], ["Тебе лучше назначать встречи после 10 утра."])
         answer.assert_called_once_with(
             "В какое время мне лучше назначать встречи?",
+            user_id=self.user_id,
+            history=[],
+        )
+
+    def test_english_unhandled_chat_reaches_ai_after_bilingual_routing(self):
+        with patch(
+            "modules.assistant_api.answer_unhandled",
+            return_value="You are free after 4 PM.",
+        ) as answer:
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Could you explain that a bit more?"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(payload["replies"], ["You are free after 4 PM."])
+        answer.assert_called_once_with(
+            "Could you explain that a bit more?",
             user_id=self.user_id,
             history=[],
         )
@@ -129,6 +149,24 @@ class AIWebFallbackTests(unittest.TestCase):
         payload = response.get_json()
         self.assertFalse(payload["handled"])
         self.assertEqual(payload["replies"], [UNHANDLED_WEB_MESSAGE])
+
+    def test_unavailable_ai_keeps_localized_english_fallback(self):
+        async def unhandled_route(update, context, text=None):
+            return False
+
+        with patch("web_app.route_text", side_effect=unhandled_route), patch(
+            "modules.assistant_api.answer_unhandled",
+            return_value=None,
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Could you explain that differently?"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertFalse(payload["handled"])
+        self.assertEqual(payload["replies"], [UNHANDLED_WEB_MESSAGE_EN])
 
 
 if __name__ == "__main__":

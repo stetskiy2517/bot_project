@@ -19,7 +19,7 @@ from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.admin_api import admin_api
 from modules.admin_metrics_api import admin_metrics_api
-from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, ai_status, answer_unhandled, replace_unhandled_reply
+from modules.ai_assistant import ai_status, answer_unhandled, is_unhandled_reply, replace_unhandled_reply
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
 from modules.email import detect_email_intent
@@ -100,7 +100,7 @@ def use_ai_for_unhandled_chat(response):
         if not isinstance(payload, dict) or payload.get("handled") is not False:
             return response
         replies = payload.get("replies")
-        if not isinstance(replies, list) or UNHANDLED_WEB_MESSAGE not in replies:
+        if not isinstance(replies, list) or not any(is_unhandled_reply(item) for item in replies):
             return response
         if request.path == "/api/chat":
             request_payload = request.get_json(silent=True) or {}

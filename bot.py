@@ -11,10 +11,10 @@ from telegram.ext import (
 
 from config import TELEGRAM_API_BASE, TELEGRAM_PROXY_URL, TG_TOKEN, validate_config
 from core.db import init_db
+from handlers.text import handle_text
 from handlers.voice import handle_voice
 from logging_config import setup_logging
 from modules.auth import OAuthServer, reconnect_command, start_command
-from modules.router import handle_text
 from modules.settings import (
     buffer_callback,
     buffer_command,
