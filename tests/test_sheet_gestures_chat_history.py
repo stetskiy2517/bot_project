@@ -4,12 +4,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SWIPE_SCRIPT = ROOT / "web" / "swipe-navigation.js"
+NOTE_SCRIPT = ROOT / "web" / "note-tools.js"
 
 
 class SheetGesturesAndChatHistoryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.script = SWIPE_SCRIPT.read_text(encoding="utf-8")
+        cls.note_script = NOTE_SCRIPT.read_text(encoding="utf-8")
 
     def test_handle_sheets_support_downward_dismiss(self):
         self.assertIn("const SWIPE_DOWN_MIN_Y = 72", self.script)
@@ -40,6 +42,13 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
         ):
             self.assertIn(selector, self.script)
         self.assertIn("return closeSheetRoot(activeBackSheet())", self.script)
+        self.assertIn('return !root.classList.contains("open")', self.script)
+
+    def test_note_sheet_has_local_right_swipe_fallback(self):
+        self.assertIn('root.addEventListener("touchstart"', self.note_script)
+        self.assertIn('root.addEventListener("touchend"', self.note_script)
+        self.assertIn("dx < 64", self.note_script)
+        self.assertIn('root.addEventListener("wheel"', self.note_script)
 
     def test_chat_retains_only_last_fourteen_messages(self):
         self.assertIn("const CHAT_HISTORY_MAX_MESSAGES = 14", self.script)
