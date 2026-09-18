@@ -107,7 +107,9 @@ def main() -> None:
             page.locator(".reminder-edit-sheet").evaluate(
                 "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
             )
-            expect(page.locator("#reminderEditBackdrop")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            reminder_backdrop = page.locator("#reminderEditBackdrop")
+            expect(reminder_backdrop).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(reminder_backdrop).to_be_hidden()
             expect(page.locator("#libraryScreen")).to_be_visible()
             expect(page.locator("#libraryTasksTab")).to_have_attribute("aria-selected", "true")
 
@@ -121,6 +123,7 @@ def main() -> None:
             page.locator("#reminderEditRepeat").select_option("daily")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
+            expect(page.locator("#reminderEditBackdrop")).to_be_hidden()
             page.wait_for_function(
                 f"document.querySelector('.planner-reminder-task[data-reminder-id=\"{reminder_id}\"]')?.textContent.includes('Личное')"
             )
@@ -135,6 +138,7 @@ def main() -> None:
             page.locator("#reminderEditCategory").select_option("auto")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()
             page.wait_for_function("!document.getElementById('reminderEditBackdrop').classList.contains('open')")
+            expect(page.locator("#reminderEditBackdrop")).to_be_hidden()
             page.wait_for_function(
                 f"document.querySelector('.planner-reminder-task[data-reminder-id=\"{reminder_id}\"]')?.textContent.includes('Здоровье')"
             )
