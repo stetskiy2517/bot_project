@@ -73,7 +73,11 @@ def _disk_status() -> dict:
     }
 
 
-def build_report(expected_sha: str | None = None, max_disk_percent: float = 95.0) -> tuple[dict, list[str]]:
+def build_report(
+    expected_sha: str | None = None,
+    max_disk_percent: float = 90.0,
+    warn_disk_percent: float = 80.0,
+) -> tuple[dict, list[str]]:
     failures: list[str] = []
     actual_sha = _git_sha()
     report = {
@@ -104,8 +108,11 @@ def build_report(expected_sha: str | None = None, max_disk_percent: float = 95.0
 
     disk = _disk_status()
     report["disk"] = disk
-    if float(disk["used_percent"]) >= max_disk_percent:
+    used_percent = float(disk["used_percent"])
+    if used_percent >= max_disk_percent:
         failures.append(f"disk usage is {disk['used_percent']}%")
+    elif used_percent >= warn_disk_percent:
+        report["warnings"] = [f"disk usage is {disk['used_percent']}%"]
 
     if failures:
         report["status"] = "error"
@@ -116,10 +123,15 @@ def build_report(expected_sha: str | None = None, max_disk_percent: float = 95.0
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-sha", default="")
-    parser.add_argument("--max-disk-percent", type=float, default=95.0)
+    parser.add_argument("--max-disk-percent", type=float, default=90.0)
+    parser.add_argument("--warn-disk-percent", type=float, default=80.0)
     args = parser.parse_args()
 
-    report, failures = build_report(args.expected_sha, args.max_disk_percent)
+    report, failures = build_report(
+        args.expected_sha,
+        args.max_disk_percent,
+        args.warn_disk_percent,
+    )
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 1 if failures else 0
 
