@@ -172,13 +172,11 @@ def main() -> None:
             page.wait_for_timeout(250)
             assert page.evaluate("window.__claimSentinel") == "alive"
 
-            # Note detail -> right/back semantics: close one sheet and stay in Saved.
-            page.locator("#accountBtn").click()
-            expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
-            notes_shortcut = page.locator('[data-settings-utility="saved"]')
-            expect(notes_shortcut).to_be_visible()
-            notes_shortcut.click()
+            # Note detail -> right/back semantics: close one sheet and stay in Notes.
+            page.locator('#mobileBottomNav [data-view="tasks"]').click()
             expect(page.locator("#libraryScreen")).to_be_visible()
+            page.locator("#libraryNotesTab").click()
+            expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             note = page.locator(".library-card", has_text="Тестовая заметка").first
             expect(note).to_be_visible()
             note.click()
@@ -204,12 +202,12 @@ def main() -> None:
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
 
-            # Account menu has five thematic screens plus two promoted shortcuts in the same row style.
+            # Account menu has five thematic screens plus the route shortcut.
             page.locator("#accountBtn").click()
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
-            expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
-            expect(page.locator("#settingsThemes .settings-theme-link[data-settings-utility]")).to_have_count(2)
-            expect(page.locator('[data-settings-utility="saved"]')).to_contain_text("Заметки")
+            expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
+            expect(page.locator("#settingsThemes .settings-theme-link[data-settings-utility]")).to_have_count(1)
+            expect(page.locator('[data-settings-utility="saved"]')).to_have_count(0)
             expect(page.locator('[data-settings-utility="route"]')).to_contain_text("Маршрут")
             page.locator('[data-settings-open="account"]').click()
             expect(page.locator("#settingsTheme-account")).to_be_visible()

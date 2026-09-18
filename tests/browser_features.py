@@ -180,7 +180,7 @@ def main():
         loaded(page)
         page.locator("#accountBtn").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
-        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
+        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")

@@ -363,8 +363,9 @@
     const root = document.getElementById("settingsThemes");
     if (!root) return;
 
+    root.querySelector('[data-settings-utility="saved"]')?.remove();
+
     const shortcuts = [
-      ["saved", "Заметки", "Сохранённые заметки"],
       ["route", "Маршрут", "К следующей встрече"],
     ];
     for (const [name, title, note] of shortcuts) {
@@ -406,7 +407,6 @@
     const shortcut = event.target.closest("[data-settings-utility]");
     if (!shortcut) return;
     const name = shortcut.dataset.settingsUtility;
-    if (name === "saved") return openLibrarySection("saved", {fromSettings: true});
     if (name === "route") {
       closeSettingsForNavigation();
       return requestAnimationFrame(() => openRoute());

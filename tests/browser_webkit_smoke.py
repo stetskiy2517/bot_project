@@ -150,6 +150,15 @@ def main() -> int:
                 if tasks_display == "none":
                     raise AssertionError("Tasks tab is hidden in unified tasks view")
 
+                page.locator("#libraryNotesTab").click()
+                page.wait_for_function(
+                    "document.getElementById('libraryNotesTab').classList.contains('active') && "
+                    "document.getElementById('libraryNotesTab').getAttribute('aria-selected') === 'true' && "
+                    "!document.getElementById('libraryTasksTab').classList.contains('active')",
+                    timeout=10000,
+                )
+                if page.locator("#libraryList .planner-task-toolbar").count():
+                    raise AssertionError("Notes tab incorrectly rendered the tasks toolbar")
                 page.locator("#libraryBackBtn").click()
                 page.wait_for_function(
                     "!document.getElementById('app').classList.contains('library-active')",
@@ -159,25 +168,19 @@ def main() -> int:
                 settings_button.click()
                 page.wait_for_function(
                     "document.getElementById('settingsPanel').classList.contains('open') && "
-                    "document.querySelector('[data-settings-utility=\"saved\"]')",
+                    "document.querySelector('[data-settings-utility=\"route\"]')",
                     timeout=5000,
                 )
-                saved_label = page.locator('[data-settings-utility="saved"] .settings-theme-link-title').inner_text().strip()
-                if saved_label != "Заметки":
-                    raise AssertionError(f"Settings shortcut must be named 'Заметки', got {saved_label!r}")
-                page.locator('[data-settings-utility="saved"]').click()
+                if page.locator('[data-settings-utility="saved"]').count():
+                    raise AssertionError("Notes shortcut must not be duplicated in Account")
+                if page.locator('[data-settings-utility="route"]').count() != 1:
+                    raise AssertionError("Route shortcut must remain in Account")
+                page.locator("#closeSettings").click()
                 page.wait_for_function(
-                    "document.getElementById('app').classList.contains('library-active') && "
-                    "document.getElementById('libraryNotesTab').classList.contains('active') && "
-                    "document.getElementById('libraryNotesTab').getAttribute('aria-selected') === 'true' && "
-                    "!document.getElementById('libraryTasksTab').classList.contains('active') && "
-                    "document.getElementById('libraryTasksTab').getAttribute('aria-selected') !== 'true'",
-                    timeout=10000,
+                    "!document.getElementById('settingsPanel').classList.contains('open')",
+                    timeout=5000,
                 )
-                if page.locator("#libraryList .planner-task-toolbar").count():
-                    raise AssertionError("Notes route incorrectly rendered the tasks toolbar")
-                page.locator("#libraryBackBtn").click()
-                _checkpoint("promoted tasks and settings notes route are distinct")
+                _checkpoint("tasks and notes tabs are distinct; Account has no notes shortcut")
 
                 page.locator('#mobileBottomNav [data-view="chat"]').click()
                 page.wait_for_function(
