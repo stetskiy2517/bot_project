@@ -1,7 +1,7 @@
 """Telegram voice transport.
 
 Voice is only an input channel: speech is transcribed by the shared integration
-and the resulting text is passed to the same central router as typed messages.
+and the resulting text follows the same assistant flow as typed Telegram messages.
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ import tempfile
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from handlers.text import handle_message_text
 from integrations.speech import normalize_time_format, transcribe_audio
-from modules.router import route_text
 
 logger = logging.getLogger(__name__)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Transcribe a Telegram voice message and pass its text to the central router."""
+    """Transcribe a Telegram voice message and pass its text to the shared assistant flow."""
     file_path: str | None = None
     try:
         if not update.message or not update.message.voice:
@@ -42,11 +42,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
         await update.message.reply_text(f"Распознано: {text}")
-        handled = await route_text(update, context, text=text)
-        if not handled:
-            await update.message.reply_text(
-                "Не понял команду. Скажи иначе или уточни, что нужно сделать."
-            )
+        await handle_message_text(update, context, text)
     except Exception:
         logger.exception("Voice processing failed")
         if update.message:
