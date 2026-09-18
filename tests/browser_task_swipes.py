@@ -174,7 +174,7 @@ def main() -> None:
             expect(page.locator("#reminderEditBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(page.locator("#reminderEditDate")).to_be_visible()
             expect(page.locator("#reminderEditTime")).to_be_visible()
-            page.locator("[data-reminder-edit-cancel]").click()
+            page.get_by_role("button", name="Назад", exact=True).click()
 
             # Delete uses snackbar undo instead of confirm().
             created_row = page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first
