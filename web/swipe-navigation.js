@@ -11,6 +11,11 @@
   const SWIPE_MIN_X = 64;
   const SWIPE_DOWN_MIN_Y = 72;
   const SHEET_TOP_GRAB_ZONE = 88;
+  const SHEET_FAST_DISMISS_MIN_Y = 28;
+  const SHEET_FAST_DISMISS_VELOCITY = 0.65;
+  const SHEET_SNAP_MS = 180;
+  const SHEET_DISMISS_MS = 220;
+  const SHEET_EASING = "cubic-bezier(.22,.8,.24,1)";
   const WHEEL_MIN_X = 90;
   const DIRECTION_RATIO = 1.25;
   const WHEEL_RESET_MS = 180;
@@ -151,6 +156,106 @@
     if (!onHandle && clientY > rect.top + SHEET_TOP_GRAB_ZONE) return null;
     if (!onHandle && Number(sheet.scrollTop || 0) > 2) return null;
     return {root, sheet};
+  }
+
+  function parseBackdropColor(value) {
+    const match = String(value || "").match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,\/]\s*([\d.]+))?\s*\)/i);
+    if (!match) return null;
+    return {
+      r: Number(match[1]),
+      g: Number(match[2]),
+      b: Number(match[3]),
+      a: match[4] === undefined ? 1 : Number(match[4]),
+    };
+  }
+
+  function backdropColorWithProgress(color, progress) {
+    if (!color) return "";
+    const fade = 1 - Math.min(1, Math.max(0, progress)) * 0.82;
+    return `rgba(${color.r}, ${color.g}, ${color.b}, ${Math.max(0, color.a * fade).toFixed(3)})`;
+  }
+
+  function prepareSheetGesture(target, touch) {
+    const now = performance.now();
+    const rootStyle = getComputedStyle(target.root);
+    return {
+      x: touch.clientX,
+      y: touch.clientY,
+      lastY: touch.clientY,
+      lastTime: now,
+      velocityY: 0,
+      dragging: false,
+      ...target,
+      backdropColor: parseBackdropColor(rootStyle.backgroundColor),
+      originalSheetTransform: target.sheet.style.transform,
+      originalSheetTransition: target.sheet.style.transition,
+      originalSheetWillChange: target.sheet.style.willChange,
+      originalRootBackgroundColor: target.root.style.backgroundColor,
+      originalRootTransition: target.root.style.transition,
+      originalRootWillChange: target.root.style.willChange,
+    };
+  }
+
+  function restoreSheetInlineStyles(state) {
+    if (!state?.sheet || !state?.root) return;
+    state.sheet.style.transform = state.originalSheetTransform;
+    state.sheet.style.transition = state.originalSheetTransition;
+    state.sheet.style.willChange = state.originalSheetWillChange;
+    state.root.style.backgroundColor = state.originalRootBackgroundColor;
+    state.root.style.transition = state.originalRootTransition;
+    state.root.style.willChange = state.originalRootWillChange;
+  }
+
+  function updateSheetDrag(state, clientY) {
+    const offset = Math.max(0, clientY - state.y);
+    const height = Math.max(1, state.sheet.getBoundingClientRect().height);
+    const progress = Math.min(1, offset / Math.max(220, height * 0.72));
+    const now = performance.now();
+    const elapsed = Math.max(1, now - state.lastTime);
+    state.velocityY = (clientY - state.lastY) / elapsed;
+    state.lastY = clientY;
+    state.lastTime = now;
+    state.dragging = offset > 0;
+
+    state.sheet.style.transition = "none";
+    state.sheet.style.willChange = "transform";
+    state.sheet.style.transform = `translate3d(0, ${offset.toFixed(1)}px, 0)`;
+    if (state.backdropColor) {
+      state.root.style.transition = "none";
+      state.root.style.willChange = "background-color";
+      state.root.style.backgroundColor = backdropColorWithProgress(state.backdropColor, progress);
+    }
+  }
+
+  function animateSheetBack(state) {
+    if (!state?.sheet || !state?.root) return;
+    state.sheet.style.transition = `transform ${SHEET_SNAP_MS}ms ${SHEET_EASING}`;
+    state.sheet.style.transform = "translate3d(0, 0, 0)";
+    if (state.backdropColor) {
+      state.root.style.transition = `background-color ${SHEET_SNAP_MS}ms ease`;
+      state.root.style.backgroundColor = backdropColorWithProgress(state.backdropColor, 0);
+    }
+    window.setTimeout(() => restoreSheetInlineStyles(state), SHEET_SNAP_MS + 40);
+  }
+
+  function animateSheetDismiss(state) {
+    if (!state?.sheet || !state?.root) return false;
+    const rect = state.sheet.getBoundingClientRect();
+    const distance = Math.max(rect.height + 40, window.innerHeight - rect.top + 40);
+    state.sheet.style.transition = `transform ${SHEET_DISMISS_MS}ms ${SHEET_EASING}`;
+    state.sheet.style.willChange = "transform";
+    state.sheet.style.transform = `translate3d(0, ${distance.toFixed(1)}px, 0)`;
+    if (state.backdropColor) {
+      state.root.style.transition = `background-color ${SHEET_DISMISS_MS}ms ease`;
+      state.root.style.willChange = "background-color";
+      state.root.style.backgroundColor = backdropColorWithProgress(state.backdropColor, 1);
+    }
+
+    window.setTimeout(() => {
+      closeSheetRoot(state.root);
+      window.setTimeout(() => restoreSheetInlineStyles(state), SHEET_DISMISS_MS + 40);
+    }, SHEET_DISMISS_MS);
+    return true;
   }
 
   function openEventSheet(row) {
@@ -383,7 +488,7 @@
     if (!blockedGestureTarget(event.target)) {
       const dismissTarget = sheetDismissTarget(event.target, touch.clientY);
       if (dismissTarget) {
-        sheetGesture = {x: touch.clientX, y: touch.clientY, ...dismissTarget};
+        sheetGesture = prepareSheetGesture(dismissTarget, touch);
         gesture = null;
         return;
       }
@@ -401,7 +506,10 @@
     const touch = event.touches[0];
     const dx = touch.clientX - sheetGesture.x;
     const dy = touch.clientY - sheetGesture.y;
-    if (dy > 8 && dy > Math.abs(dx) * 1.1) event.preventDefault();
+    if (dy > 0 && dy > Math.abs(dx) * 1.1) {
+      updateSheetDrag(sheetGesture, touch.clientY);
+      if (dy > 8) event.preventDefault();
+    }
   }, {capture: true, passive: false});
 
   document.addEventListener("touchend", event => {
@@ -413,10 +521,18 @@
       const touch = event.changedTouches[0];
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
-      if (dy >= SWIPE_DOWN_MIN_Y && dy > Math.abs(dx) * 1.1 && closeSheetRoot(start.root)) {
+      const vertical = dy > 0 && dy > Math.abs(dx) * 1.1;
+      const fastDismiss = dy >= SHEET_FAST_DISMISS_MIN_Y && start.velocityY >= SHEET_FAST_DISMISS_VELOCITY;
+      if (vertical && (dy >= SWIPE_DOWN_MIN_Y || fastDismiss) && animateSheetDismiss(start)) {
         suppressNextClick();
         event.stopPropagation();
         event.preventDefault();
+      } else if (start.dragging) {
+        animateSheetBack(start);
+        event.stopPropagation();
+        event.preventDefault();
+      } else {
+        restoreSheetInlineStyles(start);
       }
       return;
     }
@@ -455,6 +571,8 @@
 
   document.addEventListener("touchcancel", () => {
     gesture = null;
+    if (sheetGesture?.dragging) animateSheetBack(sheetGesture);
+    else if (sheetGesture) restoreSheetInlineStyles(sheetGesture);
     sheetGesture = null;
   }, {capture: true, passive: true});
 
