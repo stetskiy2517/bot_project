@@ -32,9 +32,14 @@ class ProductionReliabilityWiringTests(unittest.TestCase):
         self.assertIn("scripts/backup_state.py", workflow)
         self.assertNotIn("sudo ", workflow)
 
-    def test_external_health_monitor_runs_every_fifteen_minutes(self):
+    def test_external_health_monitor_runs_on_schedule_and_after_successful_deploy(self):
         workflow = (ROOT / ".github" / "workflows" / "production-health.yml").read_text(encoding="utf-8")
         self.assertIn('cron: "*/15 * * * *"', workflow)
+        self.assertIn("workflow_run:", workflow)
+        self.assertIn("- deploy-production", workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", workflow)
+        self.assertIn("github.event.workflow_run.head_sha || github.sha", workflow)
         self.assertIn("PRODUCTION_HEALTH_URL", workflow)
         self.assertIn("/api/health", workflow)
         self.assertIn('payload.get("status") != "ok"', workflow)
