@@ -56,6 +56,7 @@ def create_next_recurring_task(user_id: int, completed_task: dict, *, now: datet
     return create_planner_task(
         user_id,
         completed_task.get("title"),
+        description=completed_task.get("description") or "",
         due_at=next_due,
         priority=completed_task.get("priority") or "normal",
         category=completed_task.get("category") or "other",

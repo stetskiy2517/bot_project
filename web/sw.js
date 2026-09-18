@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v14-prebeta-polish";
+const CACHE = "personal-secretary-v15-fullscreen-task-editor";
 const STATIC = [
   "/",
   "/manifest.webmanifest",

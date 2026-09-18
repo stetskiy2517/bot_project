@@ -45,6 +45,7 @@ def init_db():
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
                 due_at TEXT,
                 status TEXT NOT NULL DEFAULT 'open',
                 priority TEXT NOT NULL DEFAULT 'normal',

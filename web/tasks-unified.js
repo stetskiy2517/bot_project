@@ -91,6 +91,9 @@
     const card = document.createElement("div");
     card.className = "planner-task-card planner-reminder-task" + (completed ? " completed" : "");
     card.dataset.reminderId = String(reminderId);
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Открыть задачу с уведомлением «${item.text || "Без названия"}»`);
 
     const title = document.createElement("div");
     title.className = "planner-task-title";
@@ -349,10 +352,33 @@
     tasks.addEventListener("click", () => scheduleSync(120));
     list.addEventListener("click", event => {
       const button = event.target.closest("[data-unified-reminder-action]");
-      if (!button) return;
+      if (button) {
+        event.preventDefault();
+        event.stopPropagation();
+        runReminderAction(button);
+        return;
+      }
+
+      const card = event.target.closest(".planner-reminder-task");
+      if (!card || event.target.closest("button, input, select, textarea, a")) return;
+      const reminderId = Number(card.dataset.reminderId || 0);
+      if (!reminderId || !window.PlannerReminderEditor?.open) return;
       event.preventDefault();
-      event.stopPropagation();
-      runReminderAction(button);
+      window.PlannerReminderEditor.open(reminderId).catch(error => {
+        notify(window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.");
+      });
+    });
+
+    list.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const card = event.target.closest(".planner-reminder-task");
+      if (!card || event.target !== card) return;
+      const reminderId = Number(card.dataset.reminderId || 0);
+      if (!reminderId || !window.PlannerReminderEditor?.open) return;
+      event.preventDefault();
+      window.PlannerReminderEditor.open(reminderId).catch(error => {
+        notify(window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.");
+      });
     });
 
     new MutationObserver(() => {

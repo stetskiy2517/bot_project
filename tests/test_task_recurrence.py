@@ -46,6 +46,7 @@ class TaskRecurrenceTests(unittest.TestCase):
         create.return_value = {"task_id": 10}
         completed = {
             "title": "Еженедельный отчёт",
+            "description": "Проверить цифры и приложить ссылку.",
             "due_at": "2026-09-15T09:00:00+00:00",
             "repeat_rule": "weekly",
             "priority": "high",
@@ -64,6 +65,7 @@ class TaskRecurrenceTests(unittest.TestCase):
         create.assert_called_once()
         kwargs = create.call_args.kwargs
         self.assertEqual(kwargs["repeat_rule"], "weekly")
+        self.assertEqual(kwargs["description"], "Проверить цифры и приложить ссылку.")
         self.assertNotIn("calendar_event_id", kwargs)
         self.assertEqual(kwargs["due_at"], datetime(2026, 9, 22, 9, 0, tzinfo=timezone.utc))
 

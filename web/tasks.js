@@ -100,10 +100,18 @@
     card.className = "planner-task-card" + (task.status === "done" ? " completed" : "") + (depth ? " subtask" : "");
     card.dataset.taskId = String(task.task_id);
     card.style.setProperty("--task-depth", String(Math.min(depth, 3)));
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Открыть задачу «${task.title}»`);
 
     const title = document.createElement("div");
     title.className = "planner-task-title";
     title.textContent = task.title;
+
+    const description = document.createElement("div");
+    description.className = "planner-task-description";
+    description.textContent = String(task.description || "").trim();
+    description.hidden = !description.textContent;
 
     const meta = document.createElement("div");
     meta.className = "planner-task-meta";
@@ -145,7 +153,19 @@
       }));
     }
     actions.append(action("Удалить", async () => deleteTask(task, card), "danger"));
-    card.append(title, meta, actions);
+
+    const openEditor = event => {
+      if (event?.target?.closest?.("button, input, select, textarea, a")) return;
+      editTask(task).catch(error => notify(error?.message || String(error)));
+    };
+    card.addEventListener("click", openEditor);
+    card.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openEditor(event);
+    });
+
+    card.append(title, description, meta, actions);
     return card;
   }
 
@@ -164,7 +184,7 @@
     if (counts.already_scheduled) parts.push(`уже в календаре: ${counts.already_scheduled}`);
     if (!parts.length) return "Не нашёл задач, которые можно безопасно поставить в календарь.";
     const needsData = Boolean(counts.missing_estimate || counts.missing_deadline);
-    const hint = needsData ? " Добавьте срок и длительность через свайп влево → «Изменить»." : "";
+    const hint = needsData ? " Откройте задачу касанием и добавьте срок и длительность." : "";
     return `Не удалось распланировать: ${parts.join(" · ")}.${hint}`;
   }
 
@@ -330,7 +350,7 @@
       .planner-task-summary{text-align:right;color:#888883;font-size:12px}.planner-task-feedback{margin:0 0 10px;padding:10px 12px;border:1px solid #dddcd8;border-radius:12px;background:#f0f0ed;color:#353533;font-size:12px;line-height:1.4}
       .planner-task-filters{display:grid;grid-template-columns:minmax(0,1.4fr) 1fr 1fr;gap:7px;margin:0 0 12px}.planner-task-filter{min-width:0;min-height:38px;padding:0 9px;border:1px solid #dededb;border-radius:11px;background:#fff;color:#333;font:inherit;font-size:12px;outline:0}
       .planner-task-card{padding:15px 16px;margin:0 0 10px;border:1px solid #e5e5e2;border-radius:18px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.035)}.planner-task-card.subtask{margin-left:calc(min(var(--task-depth),3) * 18px);padding:12px 14px;border-radius:15px;background:#fafaf8}
-      .planner-task-card.completed .planner-task-title{text-decoration:line-through;color:#777773}.planner-task-title{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}.planner-task-meta{margin-top:7px;color:#8d8d88;font-size:12px;line-height:1.35}
+      .planner-task-card{cursor:pointer}.planner-task-card:focus-visible{outline:2px solid #7b7b76;outline-offset:2px}.planner-task-card.completed .planner-task-title{text-decoration:line-through;color:#777773}.planner-task-title{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}.planner-task-description{margin-top:7px;color:#5f5f5b;font-size:13px;line-height:1.4;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.planner-task-description[hidden]{display:none}.planner-task-meta{margin-top:7px;color:#8d8d88;font-size:12px;line-height:1.35}
       .planner-task-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}.planner-task-action{min-height:34px;padding:0 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}.planner-task-action.danger{background:#f2dddd;color:#8a2d2d}
       .planner-task-empty{display:grid;gap:7px}.planner-task-empty strong{color:#555550;font-size:16px}.planner-task-empty span{font-size:13px}
       @media(max-width:520px){.planner-task-toolbar{grid-template-columns:1fr 1fr}.planner-task-summary{grid-column:1/-1;text-align:left}.planner-task-filters{grid-template-columns:1fr 1fr}.planner-task-filter:first-child{grid-column:1/-1}}

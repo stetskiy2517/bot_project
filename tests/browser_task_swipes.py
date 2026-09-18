@@ -120,16 +120,43 @@ def main() -> None:
             expect(hint).to_contain_text("вправо — выполнить")
             expect(hint).to_contain_text("Влево — действия")
 
-            # Creation/editing is an app-native sheet, never a browser prompt.
+            # Creation/editing uses one full-screen app editor, never browser prompts.
             page.locator(".planner-task-primary", has_text="+ Задача").click()
             expect(page.locator("#taskEditorBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator(".task-editor-sheet")).to_be_visible()
             page.locator("#taskEditTitle").fill("Новая задача из редактора")
+            page.locator("#taskEditDescription").fill("Подробный текст задачи")
             page.locator("#taskEditEstimate").fill("35")
             page.locator("#taskEditCategory").select_option("work")
             page.locator("#taskEditPriority").select_option("high")
             page.locator("[data-task-editor-save]").click()
             page.wait_for_function("!document.getElementById('taskEditorBackdrop').classList.contains('open')")
-            expect(page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first).to_be_visible()
+            created_row = page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first
+            expect(created_row).to_be_visible()
+            created_task = next(item for item in list_planner_tasks(user_id, status=None, limit=50) if item["title"] == "Новая задача из редактора")
+            assert created_task["description"] == "Подробный текст задачи"
+
+            # Normal card tap opens the full editor directly.
+            planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
+            planner_row.locator(":scope > .planner-task-card").click()
+            expect(page.locator("#taskEditorBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#taskEditDescription")).to_be_visible()
+            expect(page.locator("#taskEditDueDate")).to_be_visible()
+            expect(page.locator("#taskEditDueTime")).to_be_visible()
+            page.locator("#taskEditDescription").fill("Редактируется с одного экрана")
+            page.locator("#taskEditDueDate").fill("2099-09-30")
+            page.locator("#taskEditDueTime").fill("18:00")
+            task_id = int(task["task_id"])
+            with page.expect_response(
+                lambda response: response.request.method == "PATCH" and response.url.endswith(f"/api/tasks/{task_id}"),
+                timeout=3000,
+            ) as edit_response:
+                page.locator("[data-task-editor-save]").click()
+            assert edit_response.value.ok
+            edited_payload = edit_response.value.json()["task"]
+            assert edited_payload["description"] == "Редактируется с одного экрана", edited_payload
+            page.wait_for_function("!document.getElementById('taskEditorBackdrop').classList.contains('open')")
+            assert get_planner_task(user_id, task_id)["description"] == "Редактируется с одного экрана"
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
             planner_row.evaluate(
@@ -142,10 +169,12 @@ def main() -> None:
             expect(planner_row.locator(".planner-task-swipe-action", has_text="Изменить")).to_be_visible()
             expect(planner_row.locator(".planner-task-swipe-action.danger", has_text="Удалить")).to_be_visible()
 
-            reminder_card.locator(".planner-task-bell").click()
+            # Notification task also opens its full editor by tapping the card.
+            reminder_card.locator(".planner-task-title-text").click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
-            expect(page.locator("#reminderEditAt")).to_be_visible()
-            page.locator("[data-reminder-edit-cancel]").click()
+            expect(page.locator("#reminderEditDate")).to_be_visible()
+            expect(page.locator("#reminderEditTime")).to_be_visible()
+            page.get_by_role("dialog", name="Изменить задачу с уведомлением").get_by_role("button", name="Назад", exact=True).click()
 
             # Delete uses snackbar undo instead of confirm().
             created_row = page.locator(".planner-task-swipe-row", has_text="Новая задача из редактора").first
@@ -160,7 +189,6 @@ def main() -> None:
             assert any(item["title"] == "Новая задача из редактора" for item in list_planner_tasks(user_id, status=None, limit=50))
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
-            task_id = int(task["task_id"])
             with page.expect_response(
                 lambda response: response.request.method == "PATCH" and response.url.endswith(f"/api/tasks/{task_id}"),
                 timeout=3000,

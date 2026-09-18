@@ -137,7 +137,7 @@ class WebPushApiTests(unittest.TestCase):
         self.assertIn('addEventListener("push"', worker)
         self.assertIn("showNotification", worker)
         self.assertIn('addEventListener("notificationclick"', worker)
-        self.assertIn('personal-secretary-v14-prebeta-polish', worker)
+        self.assertIn('personal-secretary-v15-fullscreen-task-editor', worker)
         self.assertIn('"/library.js"', worker)
         self.assertIn('"/task-editor.js"', worker)
         self.assertIn('"/tasks.js"', worker)

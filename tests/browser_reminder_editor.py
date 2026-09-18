@@ -101,7 +101,8 @@ def main() -> None:
             bell.click()
             expect(page.locator("#reminderEditBackdrop")).to_have_class("reminder-edit-backdrop open")
             expect(page.locator(".task-notification-edit-title")).to_have_text("Задача с уведомлением")
-            expect(page.locator("#reminderEditAt")).to_be_visible()
+            expect(page.locator("#reminderEditDate")).to_be_visible()
+            expect(page.locator("#reminderEditTime")).to_be_visible()
 
             # A horizontal back gesture closes exactly one level and keeps Tasks visible.
             page.locator(".reminder-edit-sheet").evaluate(
@@ -121,7 +122,8 @@ def main() -> None:
 
             new_when = datetime.now() + timedelta(days=1, hours=1)
             page.locator("#reminderEditText").fill("Принять лекарство")
-            page.locator("#reminderEditAt").fill(new_when.strftime("%Y-%m-%dT%H:%M"))
+            page.locator("#reminderEditDate").fill(new_when.strftime("%Y-%m-%d"))
+            page.locator("#reminderEditTime").fill(new_when.strftime("%H:%M"))
             page.locator("#reminderEditCategory").select_option("personal")
             page.locator("#reminderEditRepeat").select_option("daily")
             page.locator(f'[data-reminder-edit-save="{reminder_id}"]').click()

@@ -29,8 +29,12 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertNotIn("confirm(", self.mobile)
         self.assertIn("PlannerTaskEditor", self.script)
         self.assertIn("PlannerTaskEditor.confirmPlan", self.mobile)
-        self.assertIn('type="datetime-local"', self.editor)
+        self.assertIn('id="taskEditDescription"', self.editor)
+        self.assertIn('id="taskEditDueDate"', self.editor)
+        self.assertIn('id="taskEditDueTime"', self.editor)
         self.assertIn('id="taskEditEstimate"', self.editor)
+        self.assertIn("height:100%", self.editor)
+        self.assertIn('aria-label="Назад"', self.editor)
         self.assertIn('id="taskEditCategory"', self.editor)
         self.assertIn('id="taskEditPriority"', self.editor)
         self.assertIn('id="taskEditRepeat"', self.editor)
@@ -38,9 +42,10 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("confirmPlan", self.editor)
 
     def test_notification_tasks_edit_time_in_same_sheet(self):
-        self.assertIn('id="reminderEditAt"', self.reminder_editor)
-        self.assertIn('type="datetime-local"', self.reminder_editor)
+        self.assertIn('id="reminderEditDate"', self.reminder_editor)
+        self.assertIn('id="reminderEditTime"', self.reminder_editor)
         self.assertIn("remind_at: at.toISOString()", self.reminder_editor)
+        self.assertIn("height:100%", self.reminder_editor)
         self.assertIn("PlannerReminderEditor.open(reminderId, {focusTime: true})", self.unified)
 
     def test_reminders_are_presented_inside_tasks_not_as_a_separate_tab(self):
@@ -62,7 +67,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('@task_api.get("/task-editor.js")', self.api)
 
     def test_pwa_shell_uses_controlled_prebeta_update(self):
-        self.assertIn("personal-secretary-v14-prebeta-polish", self.worker)
+        self.assertIn("personal-secretary-v15-fullscreen-task-editor", self.worker)
         for asset in ("/task-editor.js", "/tasks.js", "/tasks-unified.js", "/task-swipe.js", "/prebeta-polish.js", "/ux-polish.js"):
             self.assertIn(f'"{asset}"', self.worker)
         install_block = self.worker.split('self.addEventListener("install"', 1)[1].split('self.addEventListener("message"', 1)[0]
@@ -85,6 +90,8 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("Смахните карточку вправо — выполнить. Влево — действия.", self.swipes)
         self.assertIn("Поиск по задачам", self.swipes)
         self.assertIn("notesProductToolbarWrap", self.swipes)
+        self.assertIn('card.addEventListener("click", openEditor)', self.script)
+        self.assertIn('event.target.closest(".planner-reminder-task")', self.unified)
 
     def test_prebeta_reliability_and_polish_are_present(self):
         self.assertIn("Нет соединения", self.prebeta)
