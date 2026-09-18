@@ -62,8 +62,8 @@
   button.id = "lifeWheelBtn";
   button.type = "button";
   button.className = "life-wheel-button";
-  button.setAttribute("aria-label", "Колесо жизни");
-  button.title = "Колесо жизни";
+  button.setAttribute("aria-label", "Баланс жизни");
+  button.title = "Баланс жизни";
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="8.2"/><path d="M12 3.8v16.4M3.8 12h16.4M6.2 6.2l11.6 11.6M17.8 6.2 6.2 17.8"/>
   </svg>`;
