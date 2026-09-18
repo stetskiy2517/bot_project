@@ -206,7 +206,7 @@
         </div>`, title, resolve);
 
       const input = backdrop.querySelector("#taskEditTitle");
-      requestAnimationFrame(() => input?.focus());
+      if (!editing) requestAnimationFrame(() => input?.focus());
       backdrop.querySelector("[data-task-editor-save]").onclick = () => {
         const error = backdrop.querySelector("#taskEditError");
         const taskTitle = input?.value.trim() || "";
