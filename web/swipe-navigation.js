@@ -500,7 +500,7 @@
       }
     }
 
-    if (modalOpen() || blockedGestureTarget(event.target)) {
+    if ((modalOpen() && !topSheetOpen()) || blockedGestureTarget(event.target)) {
       gesture = null;
       return;
     }
@@ -583,7 +583,7 @@
   }, {capture: true, passive: true});
 
   document.addEventListener("wheel", event => {
-    if (modalOpen() || blockedGestureTarget(event.target)) return;
+    if ((modalOpen() && !topSheetOpen()) || blockedGestureTarget(event.target)) return;
     if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
 
     event.preventDefault();
