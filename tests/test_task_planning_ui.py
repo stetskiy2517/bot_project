@@ -40,6 +40,9 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('id="taskEditRepeat"', self.editor)
         self.assertIn("offerUndo", self.editor)
         self.assertIn("confirmPlan", self.editor)
+        self.assertIn("grid-template-columns:minmax(0,1.2fr)", self.editor)
+        self.assertIn('input[type="date"]', self.editor)
+        self.assertIn("max-inline-size:100%", self.editor)
 
     def test_notification_tasks_edit_time_in_same_sheet(self):
         self.assertIn('id="reminderEditDate"', self.reminder_editor)
@@ -67,7 +70,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('@task_api.get("/task-editor.js")', self.api)
 
     def test_pwa_shell_uses_controlled_prebeta_update(self):
-        self.assertIn("personal-secretary-v15-fullscreen-task-editor", self.worker)
+        self.assertIn("personal-secretary-v16-task-date-overflow", self.worker)
         for asset in ("/task-editor.js", "/tasks.js", "/tasks-unified.js", "/task-swipe.js", "/prebeta-polish.js", "/ux-polish.js"):
             self.assertIn(f'"{asset}"', self.worker)
         install_block = self.worker.split('self.addEventListener("install"', 1)[1].split('self.addEventListener("message"', 1)[0]
