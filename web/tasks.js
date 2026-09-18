@@ -323,7 +323,7 @@
     button.setAttribute("role", "tab");
     button.setAttribute("aria-selected", "false");
     button.textContent = "Задачи";
-    tabs.append(button);
+    tabs.insertBefore(button, notes);
 
     button.addEventListener("click", () => {
       taskMode = true;
