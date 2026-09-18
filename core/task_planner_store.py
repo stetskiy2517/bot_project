@@ -10,10 +10,11 @@ TASK_CATEGORIES = {"work", "health", "rest", "travel", "family", "personal", "ot
 TASK_PRIORITIES = {"low", "normal", "high"}
 TASK_STATUSES = {"open", "done"}
 MAX_TASK_TITLE = 300
+MAX_TASK_DESCRIPTION = 4000
 MAX_ESTIMATE_MINUTES = 12 * 60
 
 SELECT_COLUMNS = (
-    "task_id,user_id,title,due_at,status,priority,created_at,completed_at,"
+    "task_id,user_id,title,description,due_at,status,priority,created_at,completed_at,"
     "category,estimate_minutes,flexible,calendar_event_id,scheduled_start,parent_task_id,"
     "repeat_rule,updated_at"
 )
@@ -27,6 +28,7 @@ def init_task_planner_store() -> None:
     with db_lock:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         migrations = {
+            "description": "TEXT NOT NULL DEFAULT ''",
             "category": "TEXT NOT NULL DEFAULT 'other'",
             "estimate_minutes": "INTEGER",
             "flexible": "INTEGER NOT NULL DEFAULT 1",
@@ -51,19 +53,20 @@ def _from_row(row) -> dict:
         "task_id": int(row[0]),
         "user_id": int(row[1]),
         "title": row[2],
-        "due_at": row[3],
-        "status": row[4],
-        "priority": row[5],
-        "created_at": row[6],
-        "completed_at": row[7],
-        "category": row[8] or "other",
-        "estimate_minutes": int(row[9]) if row[9] is not None else None,
-        "flexible": bool(row[10]),
-        "calendar_event_id": row[11],
-        "scheduled_start": row[12],
-        "parent_task_id": int(row[13]) if row[13] is not None else None,
-        "repeat_rule": row[14],
-        "updated_at": row[15],
+        "description": row[3] or "",
+        "due_at": row[4],
+        "status": row[5],
+        "priority": row[6],
+        "created_at": row[7],
+        "completed_at": row[8],
+        "category": row[9] or "other",
+        "estimate_minutes": int(row[10]) if row[10] is not None else None,
+        "flexible": bool(row[11]),
+        "calendar_event_id": row[12],
+        "scheduled_start": row[13],
+        "parent_task_id": int(row[14]) if row[14] is not None else None,
+        "repeat_rule": row[15],
+        "updated_at": row[16],
     }
 
 
@@ -74,6 +77,13 @@ def _clean_title(value: object) -> str:
     if len(title) > MAX_TASK_TITLE:
         raise ValueError(f"Название задачи: максимум {MAX_TASK_TITLE} символов")
     return title
+
+
+def _clean_description(value: object) -> str:
+    description = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if len(description) > MAX_TASK_DESCRIPTION:
+        raise ValueError(f"Описание задачи: максимум {MAX_TASK_DESCRIPTION} символов")
+    return description
 
 
 def _clean_category(value: object) -> str:
@@ -161,6 +171,7 @@ def create_planner_task(
     user_id: int,
     title: object,
     *,
+    description: object = "",
     due_at: object = None,
     priority: object = "normal",
     category: object = "other",
@@ -173,6 +184,7 @@ def create_planner_task(
     if not isinstance(flexible, bool):
         raise ValueError("Параметр гибкости должен быть true или false")
     clean_title = _clean_title(title)
+    clean_description = _clean_description(description)
     clean_due = _clean_due(due_at)
     clean_priority = _clean_priority(priority)
     clean_category = _clean_category(category)
@@ -184,10 +196,10 @@ def create_planner_task(
     with db_lock:
         cursor = conn.execute(
             "INSERT INTO tasks "
-            "(user_id,title,due_at,status,priority,created_at,category,estimate_minutes,flexible,parent_task_id,repeat_rule,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(user_id,title,description,due_at,status,priority,created_at,category,estimate_minutes,flexible,parent_task_id,repeat_rule,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                int(user_id), clean_title, clean_due, "open", clean_priority, now,
+                int(user_id), clean_title, clean_description, clean_due, "open", clean_priority, now,
                 clean_category, clean_estimate, 1 if flexible else 0,
                 int(parent_task_id) if parent_task_id is not None else None,
                 clean_repeat, now,
@@ -203,7 +215,7 @@ def update_planner_task(user_id: int, task_id: int, changes: dict) -> dict:
     if not isinstance(changes, dict):
         raise ValueError("Изменения задачи должны быть объектом")
     allowed = {
-        "title", "due_at", "priority", "category", "estimate_minutes", "flexible",
+        "title", "description", "due_at", "priority", "category", "estimate_minutes", "flexible",
         "status", "parent_task_id", "repeat_rule",
     }
     unknown = set(changes) - allowed
@@ -217,6 +229,9 @@ def update_planner_task(user_id: int, task_id: int, changes: dict) -> dict:
     if "title" in changes:
         updates.append("title=?")
         values.append(_clean_title(changes["title"]))
+    if "description" in changes:
+        updates.append("description=?")
+        values.append(_clean_description(changes["description"]))
     if "due_at" in changes:
         updates.append("due_at=?")
         values.append(_clean_due(changes["due_at"]))
