@@ -50,6 +50,12 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
         self.assertIn("dx < 64", self.note_script)
         self.assertIn('root.addEventListener("wheel"', self.note_script)
 
+    def test_ghost_click_suppression_is_scoped_to_release_point(self):
+        self.assertIn("let suppressClickPoint = null", self.script)
+        self.assertIn("function shouldSuppressClick(event)", self.script)
+        self.assertIn("Math.hypot(dx, dy) <= 36", self.script)
+        self.assertIn("suppressNextClick(touch)", self.script)
+
     def test_chat_retains_only_last_fourteen_messages(self):
         self.assertIn("const CHAT_HISTORY_MAX_MESSAGES = 14", self.script)
         self.assertIn('const CHAT_HISTORY_KEY_PREFIX = "personal-secretary-chat-history-v1"', self.script)
