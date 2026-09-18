@@ -80,7 +80,11 @@ def tasks_list():
     priority = str(request.args.get("priority") or "").strip().lower()
     parent_raw = request.args.get("parent_task_id")
     if query:
-        tasks = [task for task in tasks if query in str(task.get("title") or "").lower()]
+        tasks = [
+            task for task in tasks
+            if query in str(task.get("title") or "").lower()
+            or query in str(task.get("description") or "").lower()
+        ]
     if category:
         tasks = [task for task in tasks if str(task.get("category") or "") == category]
     if priority:
@@ -110,6 +114,7 @@ def tasks_create():
     task = create_planner_task(
         _user(),
         payload.get("title"),
+        description=payload.get("description", ""),
         due_at=payload.get("due_at"),
         priority=payload.get("priority", "normal"),
         category=payload.get("category", "other"),
