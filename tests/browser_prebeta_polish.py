@@ -134,8 +134,8 @@ def main() -> None:
             # The desktop collapse control is intentionally hidden by the mobile shell,
             # but it owns the same force-hide path used by the 30-second idle timer.
             page.evaluate("document.getElementById('chatCollapseBtn').click()")
-            page.wait_for_timeout(550)
-            assert page.locator("#chat > .msg").count() == 0
+            page.wait_for_function("!document.getElementById('app').classList.contains('chat-active')")
+            assert page.locator("#chat > .msg").count() == 14
             page.locator('#mobileBottomNav [data-view="chat"]').click()
             page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
             assert page.locator("#chat > .msg").first.inner_text() == "history-3"
