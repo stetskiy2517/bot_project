@@ -110,6 +110,26 @@ class TelegramVoiceAdapterTests(unittest.IsolatedAsyncioTestCase):
         shared.assert_awaited_once_with(update, context, "встреча завтра в 19:30")
         reply_text.assert_any_await("Распознано: встреча завтра в 19:30")
 
+    async def test_english_voice_acknowledgement_is_localized(self):
+        reply_text = AsyncMock()
+        update = SimpleNamespace(
+            message=SimpleNamespace(
+                voice=SimpleNamespace(file_id="voice-en"),
+                reply_text=reply_text,
+            )
+        )
+        telegram_file = SimpleNamespace(download_to_drive=AsyncMock())
+        context = SimpleNamespace(
+            bot=SimpleNamespace(get_file=AsyncMock(return_value=telegram_file))
+        )
+
+        with patch("handlers.voice.transcribe_audio", return_value="meeting tomorrow at 7 pm"):
+            with patch("handlers.voice.handle_message_text", new=AsyncMock(return_value=True)) as shared:
+                await handle_voice(update, context)
+
+        shared.assert_awaited_once_with(update, context, "meeting tomorrow at 7 pm")
+        reply_text.assert_any_await("Recognized: meeting tomorrow at 7 pm")
+
     async def test_voice_does_not_keep_a_separate_unknown_command_fallback(self):
         reply_text = AsyncMock()
         update = SimpleNamespace(
