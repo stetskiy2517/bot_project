@@ -101,8 +101,18 @@ chmod 600 .env
 log "Installing Ubuntu prerequisites"
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  python3 python3-venv python3-pip curl ca-certificates \
+  python3 curl ca-certificates software-properties-common \
   debian-keyring debian-archive-keyring apt-transport-https gnupg
+
+if ! command -v python3.12 >/dev/null 2>&1; then
+  log "Installing supported Python 3.12 application runtime"
+  if ! grep -Rqs "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+    sudo add-apt-repository -y ppa:deadsnakes/ppa
+  fi
+  sudo apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-venv
+fi
+python3.12 -c 'import sys; assert sys.version_info >= (3, 11)'
 
 if ! command -v caddy >/dev/null 2>&1; then
   log "Installing Caddy from the official repository"
@@ -118,7 +128,7 @@ fi
 
 log "Preparing Python environment"
 rm -rf .venv
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip setuptools wheel
 .venv/bin/python -m pip install -r requirements.txt
 mkdir -p data
@@ -128,6 +138,7 @@ if [ -f bot.db ] && [ ! -f data/bot.db ]; then
 fi
 
 log "Running preflight checks"
+printf 'Application runtime: %s\n' "$(.venv/bin/python -c 'import platform; print(platform.python_version())')"
 bash -n scripts/deploy_update.sh
 .venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts tests
 TEST_DB="/tmp/personal-secretary-deploy-test-$$.db"
