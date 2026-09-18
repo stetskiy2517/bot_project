@@ -122,7 +122,7 @@
       } finally {
         internalSheetCloseClick = false;
       }
-      return true;
+      if (!root.classList.contains("open")) return true;
     }
 
     try {
@@ -131,8 +131,14 @@
       root.dispatchEvent(new Event("pointerdown", {bubbles: true, cancelable: true}));
     }
     if (!root.classList.contains("open")) return true;
-    root.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
-    return true;
+
+    internalSheetCloseClick = true;
+    try {
+      root.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+    } finally {
+      internalSheetCloseClick = false;
+    }
+    return !root.classList.contains("open");
   }
 
   function closeTopSheet() {
