@@ -28,7 +28,6 @@
     .reminder-edit-backdrop{position:absolute;z-index:180;inset:0;background:#fff;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(24px);transition:opacity .18s ease,transform .2s cubic-bezier(.22,.8,.24,1),visibility 0s linear .2s;overflow:hidden}
     .reminder-edit-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
     .reminder-edit-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
-    .reminder-edit-handle{display:none}
     .reminder-edit-head{position:sticky;z-index:3;top:0;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:0 -16px 18px;padding:calc(env(safe-area-inset-top) + 8px) 12px 10px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-bottom:1px solid #eeeeeb}
     .reminder-edit-back{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
     .reminder-edit-head-spacer{width:40px;height:40px}.task-notification-edit-title{margin:0;text-align:center;font-size:19px;font-weight:700}
@@ -99,7 +98,6 @@
     const remind = localParts(item.remind_at);
     backdrop.innerHTML = `
       <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить задачу с уведомлением">
-        <div class="reminder-edit-handle"></div>
         <div class="reminder-edit-head">
           <button class="reminder-edit-back" type="button" data-reminder-edit-cancel aria-label="Назад">←</button>
           <h2 class="task-notification-edit-title">Задача с уведомлением</h2>
