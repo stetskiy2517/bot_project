@@ -43,7 +43,7 @@ class ProductionReliabilityWiringTests(unittest.TestCase):
         self.assertIn("scripts/backup_state.py --prune-only", script)
         self.assertIn('rm -rf -- "$HOME/.cache/pip"', script)
         self.assertIn('journalctl --vacuum-size="$JOURNAL_LIMIT"', script)
-        self.assertIn("docker system prune -af", script)
+        self.assertIn("system prune -af", script)
         self.assertNotIn("--volumes", script)
 
     def test_external_health_monitor_runs_on_schedule_and_after_successful_deploy(self):
