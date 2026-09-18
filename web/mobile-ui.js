@@ -371,7 +371,7 @@
       if (root.querySelector(`[data-settings-utility="${name}"]`)) continue;
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "settings-theme-link settings-utility-link";
+      button.className = "settings-utility-link";
       button.dataset.settingsUtility = name;
       button.innerHTML = `
         <span class="settings-utility-icon" aria-hidden="true">${symbol}</span>
