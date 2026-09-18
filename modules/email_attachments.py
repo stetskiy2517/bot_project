@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import re
 
 from core.email_store import get_email_account
 from integrations.email_gmail import fetch_attachment_bytes as fetch_gmail_attachment_bytes
@@ -74,6 +75,159 @@ SUPPORTED_MIME_TYPES = {
 }
 
 
+TRANSPORT_DOCUMENT_TYPES = {
+    "flight_ticket",
+    "boarding_pass",
+    "train_ticket",
+    "bus_ticket",
+    "travel_ticket",
+}
+FLIGHT_NUMBER_RE = re.compile(
+    r"\b((?:[A-ZА-Я]{2,3}|[A-ZА-Я]\d|\d[A-ZА-Я]))[\s-]?(\d{2,4})\b",
+    re.IGNORECASE,
+)
+LOCATION_GENERIC_TOKENS = {
+    "аэропорт",
+    "airport",
+    "терминал",
+    "terminal",
+    "город",
+    "city",
+}
+
+
+def _event_datetime(event: dict, field: str) -> datetime | None:
+    raw = str(event.get(field) or "").strip()
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if value.tzinfo is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
+def _flight_number(event: dict) -> str:
+    haystack = f"{event.get('title') or ''} {event.get('description') or ''}"
+    match = FLIGHT_NUMBER_RE.search(haystack.upper())
+    if not match:
+        return ""
+    return f"{match.group(1)}{match.group(2)}".upper().replace("-", "").replace(" ", "")
+
+
+def _location_tokens(value: object) -> set[str]:
+    return {
+        token.casefold().replace("ё", "е")
+        for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", str(value or ""))
+        if len(token) > 1 and token.casefold().replace("ё", "е") not in LOCATION_GENERIC_TOKENS
+    }
+
+
+def _locations_similar(left: object, right: object) -> bool:
+    a = _location_tokens(left)
+    b = _location_tokens(right)
+    if not a or not b:
+        return False
+    return len(a & b) / max(1, min(len(a), len(b))) >= 0.6
+
+
+def _same_route(left: dict, right: dict) -> bool:
+    left_start = left.get("start_location")
+    right_start = right.get("start_location")
+    left_end = left.get("end_location")
+    right_end = right.get("end_location")
+    return _locations_similar(left_start, right_start) and _locations_similar(left_end, right_end)
+
+
+def _same_transport_action(left: dict, right: dict) -> bool:
+    left_source = left.get("source") if isinstance(left.get("source"), dict) else {}
+    right_source = right.get("source") if isinstance(right.get("source"), dict) else {}
+    left_message = str(left_source.get("provider_message_id") or "").strip()
+    right_message = str(right_source.get("provider_message_id") or "").strip()
+    left_account = str(left_source.get("account_id") or left_source.get("account") or "").strip()
+    right_account = str(right_source.get("account_id") or right_source.get("account") or "").strip()
+    if not left_message or left_message != right_message:
+        return False
+    if left_account and right_account and left_account != right_account:
+        return False
+
+    left_event = left.get("attachment_event")
+    right_event = right.get("attachment_event")
+    if not isinstance(left_event, dict) or not isinstance(right_event, dict):
+        return False
+    if not left_event.get("movement") or not right_event.get("movement"):
+        return False
+
+    left_start = _event_datetime(left_event, "start")
+    right_start = _event_datetime(right_event, "start")
+    left_end = _event_datetime(left_event, "end")
+    right_end = _event_datetime(right_event, "end")
+    if None in {left_start, right_start, left_end, right_end}:
+        return False
+
+    left_flight = _flight_number(left_event)
+    right_flight = _flight_number(right_event)
+    left_type = str(left.get("attachment_document_type") or "").strip().lower()
+    right_type = str(right.get("attachment_document_type") or "").strip().lower()
+    if not (
+        left_type in TRANSPORT_DOCUMENT_TYPES
+        or right_type in TRANSPORT_DOCUMENT_TYPES
+        or left_flight
+        or right_flight
+    ):
+        return False
+    if left_flight and right_flight and left_flight != right_flight:
+        return False
+
+    same_route = _same_route(left_event, right_event)
+    if left_flight and right_flight:
+        return (
+            abs((left_start - right_start).total_seconds()) <= 2 * 60 * 60
+            and abs((left_end - right_end).total_seconds()) <= 2 * 60 * 60
+        )
+
+    return (
+        same_route
+        and abs((left_start - right_start).total_seconds()) <= 30 * 60
+        and abs((left_end - right_end).total_seconds()) <= 45 * 60
+    )
+
+
+def _action_quality(action: dict) -> tuple[int, float, int]:
+    event = action.get("attachment_event") if isinstance(action.get("attachment_event"), dict) else {}
+    try:
+        confidence = float(action.get("confidence") or event.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    completeness = sum(
+        bool(event.get(field))
+        for field in (
+            "start",
+            "end",
+            "start_location",
+            "end_location",
+            "start_timezone",
+            "end_timezone",
+            "description",
+        )
+    )
+    recognized = int(str(action.get("attachment_document_type") or "") in TRANSPORT_DOCUMENT_TYPES)
+    return int(bool(action.get("ready"))), confidence, completeness + recognized
+
+
+def _append_deduped_action(actions: list[dict], action: dict) -> bool:
+    for index, current in enumerate(actions):
+        if not _same_transport_action(current, action):
+            continue
+        if _action_quality(action) > _action_quality(current):
+            actions[index] = action
+        return False
+    actions.append(action)
+    return True
+
+
 def _attachment_type(filename: object, mime_type: object = None) -> tuple[str, str, int, str] | None:
     raw_name = Path(str(filename or "")).name[:255]
     suffix = Path(raw_name).suffix.lower()
@@ -109,6 +263,7 @@ def _source(account: dict, message: dict, source_index: int, filename: str, atta
         "subject": str(message.get("subject") or "Без темы")[:300],
         "from": str(message.get("from") or "")[:300],
         "account": account.get("display_name") or account.get("email") or account.get("provider"),
+        "account_id": str(account.get("account_id") or "")[:100],
         "attachment": filename,
         "provider_message_id": str(message.get("provider_message_id") or "")[:500],
         "attachment_id": str(attachment.get("attachment_id") or attachment.get("part_index") or "")[:500],
@@ -183,6 +338,7 @@ def analyze_email_attachments(
     analyzed = 0
     detected = 0
     supported_found = 0
+    deduplicated = 0
 
     for source_index, (account, message) in enumerate(messages, 1):
         for attachment in message.get("attachments") or []:
@@ -228,19 +384,19 @@ def analyze_email_attachments(
             document_summary = " ".join(str(result.get("summary") or "").split()).strip()[:300]
             document_warnings = [str(item)[:300] for item in (result.get("warnings") or [])]
             for event in result.get("events") or []:
-                actions.append(
-                    _action_from_event(
-                        event,
-                        account=account,
-                        message=message,
-                        attachment=attachment,
-                        source_index=source_index,
-                        filename=filename,
-                        document_type=document_type,
-                        document_summary=document_summary,
-                        document_warnings=document_warnings,
-                    )
+                action = _action_from_event(
+                    event,
+                    account=account,
+                    message=message,
+                    attachment=attachment,
+                    source_index=source_index,
+                    filename=filename,
+                    document_type=document_type,
+                    document_summary=document_summary,
+                    document_warnings=document_warnings,
                 )
+                if not _append_deduped_action(actions, action):
+                    deduplicated += 1
                 if len(actions) >= MAX_ATTACHMENT_ACTIONS:
                     break
             if len(actions) >= MAX_ATTACHMENT_ACTIONS:
@@ -260,4 +416,5 @@ def analyze_email_attachments(
         "analyzed": analyzed,
         "detected": detected,
         "supported_found": supported_found,
+        "deduplicated": deduplicated,
     }

@@ -129,6 +129,132 @@ class EmailAttachmentPlanningTests(unittest.TestCase):
         )
 
     @patch("modules.email_attachments.analyze_file_bytes")
+    @patch("modules.email_attachments.fetch_gmail_attachment_bytes", side_effect=[b"%PDF-ticket", b"%PDF-receipt"])
+    @patch("modules.email_attachments.get_email_account")
+    def test_same_flight_in_ticket_and_itinerary_is_returned_once(self, account, _fetch, analyze):
+        account.return_value = {"credentials": {"token": {"access_token": "secret"}}}
+        analyze.side_effect = [
+            {
+                "document_type": "flight_ticket",
+                "summary": "Билет DP6865 Москва — Саратов",
+                "warnings": [],
+                "events": [
+                    {
+                        "title": "Рейс DP6865 Москва — Саратов",
+                        "start": "2099-09-18T19:30:00+03:00",
+                        "end": "2099-09-18T22:05:00+04:00",
+                        "start_timezone": "Europe/Moscow",
+                        "end_timezone": "Europe/Saratov",
+                        "start_location": "Москва, аэропорт Шереметьево",
+                        "end_location": "Саратов, аэропорт Гагарин",
+                        "movement": True,
+                        "timezone_verified": True,
+                        "location": "Москва, Шереметьево → Саратов, Гагарин",
+                        "description": "Рейс DP6865",
+                        "category": "travel",
+                        "confidence": 0.99,
+                        "ready": True,
+                        "warnings": [],
+                    }
+                ],
+            },
+            {
+                "document_type": "boarding_pass",
+                "summary": "Маршрутная квитанция",
+                "warnings": [],
+                "events": [
+                    {
+                        "title": "Перелёт DP6865 Шереметьево — Гагарин",
+                        "start": "2099-09-18T19:10:00+03:00",
+                        "end": "2099-09-18T22:05:00+04:00",
+                        "start_timezone": "Europe/Moscow",
+                        "end_timezone": "Europe/Saratov",
+                        "start_location": "Шереметьево, Москва, терминал D",
+                        "end_location": "аэропорт Гагарин, Саратов",
+                        "movement": True,
+                        "timezone_verified": True,
+                        "location": "Шереметьево → Гагарин",
+                        "description": "DP6865",
+                        "category": "travel",
+                        "confidence": 1.0,
+                        "ready": True,
+                        "warnings": [],
+                    }
+                ],
+            },
+        ]
+        messages = [
+            (
+                {"account_id": 7, "provider": "gmail", "display_name": "Gmail"},
+                {
+                    "provider_message_id": "msg-duplicate-flight",
+                    "subject": "Билет и маршрутная квитанция",
+                    "attachments": [
+                        {"filename": "ticket.pdf", "mime_type": "application/pdf", "size": 1000, "attachment_id": "att-ticket"},
+                        {"filename": "itinerary.pdf", "mime_type": "application/pdf", "size": 1000, "attachment_id": "att-route"},
+                    ],
+                },
+            )
+        ]
+
+        result = email_attachments.analyze_email_attachments(42, messages, user_timezone="Europe/Moscow")
+
+        self.assertEqual(result["analyzed"], 2)
+        self.assertEqual(result["deduplicated"], 1)
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertEqual(result["actions"][0]["attachment_event"]["title"], "Перелёт DP6865 Шереметьево — Гагарин")
+
+    @patch("modules.email_attachments.analyze_file_bytes")
+    @patch("modules.email_attachments.fetch_gmail_attachment_bytes", side_effect=[b"%PDF-one", b"%PDF-two"])
+    @patch("modules.email_attachments.get_email_account")
+    def test_different_flights_in_same_email_remain_separate(self, account, _fetch, analyze):
+        account.return_value = {"credentials": {"token": {"access_token": "secret"}}}
+        base = {
+            "start_timezone": "Europe/Moscow",
+            "end_timezone": "Europe/Moscow",
+            "start_location": "Москва, Шереметьево",
+            "end_location": "Санкт-Петербург, Пулково",
+            "movement": True,
+            "timezone_verified": True,
+            "location": "Москва → Санкт-Петербург",
+            "category": "travel",
+            "confidence": 1.0,
+            "ready": True,
+            "warnings": [],
+        }
+        analyze.side_effect = [
+            {
+                "document_type": "flight_ticket",
+                "summary": "Первый рейс",
+                "warnings": [],
+                "events": [{**base, "title": "SU100", "description": "Рейс SU100", "start": "2099-09-18T10:00:00+03:00", "end": "2099-09-18T11:30:00+03:00"}],
+            },
+            {
+                "document_type": "flight_ticket",
+                "summary": "Второй рейс",
+                "warnings": [],
+                "events": [{**base, "title": "SU200", "description": "Рейс SU200", "start": "2099-09-18T13:00:00+03:00", "end": "2099-09-18T14:30:00+03:00"}],
+            },
+        ]
+        messages = [
+            (
+                {"account_id": 7, "provider": "gmail", "display_name": "Gmail"},
+                {
+                    "provider_message_id": "msg-two-flights",
+                    "attachments": [
+                        {"filename": "one.pdf", "mime_type": "application/pdf", "size": 1000, "attachment_id": "att-1"},
+                        {"filename": "two.pdf", "mime_type": "application/pdf", "size": 1000, "attachment_id": "att-2"},
+                    ],
+                },
+            )
+        ]
+
+        result = email_attachments.analyze_email_attachments(42, messages, user_timezone="Europe/Moscow")
+
+        self.assertEqual(result["deduplicated"], 0)
+        self.assertEqual(len(result["actions"]), 2)
+
+    @patch("modules.email_attachments.analyze_file_bytes")
     @patch("modules.email_attachments.fetch_gmail_attachment_bytes")
     def test_oversized_attachment_is_skipped_before_fetch(self, fetch, analyze):
         messages = [

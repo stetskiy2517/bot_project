@@ -32,6 +32,18 @@ AUTO_CREATE_DOCUMENT_TYPES = {
     "bus_ticket",
     "travel_ticket",
 }
+FLIGHT_NUMBER_RE = re.compile(
+    r"\b((?:[A-ZА-Я]{2,3}|[A-ZА-Я]\d|\d[A-ZА-Я]))[\s-]?(\d{2,4})\b",
+    re.IGNORECASE,
+)
+LOCATION_GENERIC_TOKENS = {
+    "аэропорт",
+    "airport",
+    "терминал",
+    "terminal",
+    "город",
+    "city",
+}
 
 
 def _user() -> int:
@@ -87,16 +99,29 @@ def _attachment_event_key(source: object, proposal: dict) -> str | None:
     message_id = str(source.get("provider_message_id") or "").strip()
     attachment_id = str(source.get("attachment_id") or "").strip()
     attachment_name = str(source.get("attachment") or "").strip()
-    if not message_id or not (attachment_id or attachment_name):
+    if not message_id:
         return None
-    identity = [
-        "v2",
-        str(source.get("account") or "").strip(),
-        message_id,
-        attachment_id or attachment_name,
-        _canonical_event_time(proposal.get("start")),
-        _canonical_event_time(proposal.get("end")),
-    ]
+    account_identity = str(source.get("account_id") or source.get("account") or "").strip()
+
+    if proposal.get("movement"):
+        identity = [
+            "v3-movement",
+            account_identity,
+            message_id,
+            _canonical_event_time(proposal.get("start")),
+            _canonical_event_time(proposal.get("end")),
+        ]
+    else:
+        if not (attachment_id or attachment_name):
+            return None
+        identity = [
+            "v2",
+            account_identity,
+            message_id,
+            attachment_id or attachment_name,
+            _canonical_event_time(proposal.get("start")),
+            _canonical_event_time(proposal.get("end")),
+        ]
     digest = hashlib.sha256("\x1f".join(identity).encode("utf-8")).hexdigest()
     return digest[:40]
 
@@ -141,9 +166,9 @@ def _calendar_item_datetime(item: dict, field: str) -> datetime | None:
 
 def _location_tokens(value: object) -> set[str]:
     return {
-        token.casefold()
+        token.casefold().replace("ё", "е")
         for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", str(value or ""))
-        if len(token) > 1
+        if len(token) > 1 and token.casefold().replace("ё", "е") not in LOCATION_GENERIC_TOKENS
     }
 
 
@@ -152,8 +177,16 @@ def _locations_similar(left: object, right: object) -> bool:
     b = _location_tokens(right)
     if not a or not b:
         return True
-    overlap = len(a & b) / max(1, len(a | b))
-    return overlap >= 0.5
+    overlap = len(a & b) / max(1, min(len(a), len(b)))
+    return overlap >= 0.6
+
+
+def _flight_number(*values: object) -> str:
+    haystack = " ".join(str(value or "") for value in values).upper()
+    match = FLIGHT_NUMBER_RE.search(haystack)
+    if not match:
+        return ""
+    return f"{match.group(1)}{match.group(2)}".upper().replace("-", "").replace(" ", "")
 
 
 def _existing_semantic_attachment_calendar_event(user_id: int, proposal: dict) -> dict | None:
@@ -167,8 +200,8 @@ def _existing_semantic_attachment_calendar_event(user_id: int, proposal: dict) -
     result = service.events().list(
         calendarId="primary",
         privateExtendedProperty="smartPlannerType=email_attachment_import",
-        timeMin=(start_utc - timedelta(minutes=5)).isoformat(),
-        timeMax=(end_utc + timedelta(minutes=5)).isoformat(),
+        timeMin=(start_utc - timedelta(hours=2)).isoformat(),
+        timeMax=(end_utc + timedelta(hours=2)).isoformat(),
         singleEvents=True,
         maxResults=25,
         showDeleted=False,
@@ -176,6 +209,7 @@ def _existing_semantic_attachment_calendar_event(user_id: int, proposal: dict) -
     expected_start_location = _clean_location(proposal.get("start_location"))
     expected_end_location = _clean_location(proposal.get("end_location"))
     expected_location = _clean_location(proposal.get("location"))
+    expected_flight = _flight_number(proposal.get("title"), proposal.get("description"))
 
     for item in result.get("items") or []:
         if item.get("status") == "cancelled":
@@ -184,9 +218,16 @@ def _existing_semantic_attachment_calendar_event(user_id: int, proposal: dict) -
         item_end = _calendar_item_datetime(item, "end")
         if item_start is None or item_end is None:
             continue
-        if abs((item_start - start_utc).total_seconds()) > 120:
+
+        item_flight = _flight_number(item.get("summary"), item.get("description"))
+        if expected_flight and item_flight and expected_flight != item_flight:
             continue
-        if abs((item_end - end_utc).total_seconds()) > 120:
+        same_flight = bool(expected_flight and item_flight and expected_flight == item_flight)
+        start_tolerance = 2 * 60 * 60 if same_flight else 30 * 60
+        end_tolerance = 2 * 60 * 60 if same_flight else 45 * 60
+        if abs((item_start - start_utc).total_seconds()) > start_tolerance:
+            continue
+        if abs((item_end - end_utc).total_seconds()) > end_tolerance:
             continue
 
         private = ((item.get("extendedProperties") or {}).get("private") or {})
