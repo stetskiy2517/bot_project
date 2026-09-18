@@ -26,6 +26,7 @@
   style.textContent = `
     .task-editor-backdrop{position:absolute;z-index:210;inset:0;background:#fff;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(24px);transition:opacity .18s ease,transform .2s cubic-bezier(.22,.8,.24,1),visibility 0s linear .2s;overflow:hidden}
     .task-editor-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
+    .task-editor-backdrop.compact{display:flex;align-items:flex-end;background:rgba(0,0,0,.18);transform:none}
     .task-editor-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
     .task-editor-handle{display:none}
     .task-editor-head{position:sticky;z-index:3;top:0;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:0 -16px 18px;padding:calc(env(safe-area-inset-top) + 8px) 12px 10px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-bottom:1px solid #eeeeeb}
@@ -53,7 +54,9 @@
     .task-plan-list{display:grid;gap:1px;margin:4px 0 14px;border:1px solid #e8e8e5;border-radius:15px;overflow:hidden;background:#e8e8e5}
     .task-plan-row{display:grid;gap:4px;padding:11px 13px;background:#fff}.task-plan-name{font-size:14px;font-weight:650}.task-plan-meta{font-size:12px;color:#888883}
     .task-editor-copy{margin:0 0 14px;color:#555550;font-size:14px;line-height:1.45}
-    .task-confirm-sheet{height:auto;min-height:0;max-height:70%;position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(env(safe-area-inset-bottom) + 18px);border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}
+    .task-confirm-sheet{height:auto;min-height:0;max-height:70%;position:relative;padding:16px 16px calc(env(safe-area-inset-bottom) + 18px);border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}
+    .task-confirm-sheet .task-editor-head{position:static;display:flex;justify-content:space-between;margin:0 0 14px;padding:0;background:transparent;border:0;backdrop-filter:none}.task-confirm-sheet .task-editor-title{text-align:left}
+    .task-confirm-sheet .task-editor-actions{position:static;margin:14px 0 0;padding:0;background:transparent;backdrop-filter:none}
     .planner-snackbar{position:absolute;z-index:260;left:50%;bottom:calc(env(safe-area-inset-bottom) + 86px);width:min(430px,calc(100% - 24px));display:flex;align-items:center;gap:10px;padding:11px 12px 11px 14px;border-radius:15px;background:rgba(27,27,27,.96);color:#fff;box-shadow:0 12px 36px rgba(0,0,0,.18);transform:translate(-50%,16px);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}
     .planner-snackbar.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}.planner-snackbar-text{min-width:0;flex:1;font-size:13px;line-height:1.35}.planner-snackbar-action{flex:0 0 auto;padding:8px 10px;border-radius:10px;background:#3b3b3b;color:#fff;font-weight:700;cursor:pointer}
     @media(min-width:760px){.task-editor-sheet{padding-left:24px;padding-right:24px}.task-editor-head{margin-left:-24px;margin-right:-24px;padding-left:20px;padding-right:20px}.planner-snackbar{bottom:28px}}
@@ -102,7 +105,10 @@
     const resolve = activeResolve;
     activeResolve = null;
     setTimeout(() => {
-      if (!backdrop.classList.contains("open")) backdrop.replaceChildren();
+      if (!backdrop.classList.contains("open")) {
+        backdrop.classList.remove("compact");
+        backdrop.replaceChildren();
+      }
     }, 180);
     if (resolve) resolve(result);
   }
@@ -110,6 +116,7 @@
   function show(html, label, resolve, {compact = false} = {}) {
     if (activeResolve) close(null);
     activeResolve = resolve || null;
+    backdrop.classList.toggle("compact", compact);
     backdrop.innerHTML = `<section class="task-editor-sheet${compact ? " task-confirm-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="task-editor-handle"></div>${html}</section>`;
     backdrop.classList.add("open");
   }
