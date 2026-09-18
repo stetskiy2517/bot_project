@@ -50,6 +50,7 @@
   let sheetGesture = null;
   let libraryDocumentOpen = false;
   let suppressClickUntil = 0;
+  let suppressClickPoint = null;
   let internalSheetCloseClick = false;
   let wheelX = 0;
   let wheelTimer = null;
@@ -114,6 +115,10 @@
 
   function closeSheetRoot(root) {
     if (!root) return false;
+    if (root.id === "noteWindowBackdrop" && typeof window.PlannerNotes?.close === "function") {
+      window.PlannerNotes.close();
+      return true;
+    }
     const closeControl = root.querySelector(SHEET_CLOSE_SELECTOR);
     if (closeControl && !closeControl.disabled) {
       internalSheetCloseClick = true;
@@ -122,7 +127,7 @@
       } finally {
         internalSheetCloseClick = false;
       }
-      return true;
+      if (!root.classList.contains("open")) return true;
     }
 
     try {
@@ -131,8 +136,14 @@
       root.dispatchEvent(new Event("pointerdown", {bubbles: true, cancelable: true}));
     }
     if (!root.classList.contains("open")) return true;
-    root.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
-    return true;
+
+    internalSheetCloseClick = true;
+    try {
+      root.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+    } finally {
+      internalSheetCloseClick = false;
+    }
+    return !root.classList.contains("open");
   }
 
   function closeTopSheet() {
@@ -321,8 +332,19 @@
     return openEventSheet(row);
   }
 
-  function suppressNextClick() {
+  function suppressNextClick(touch = null) {
     suppressClickUntil = performance.now() + 400;
+    suppressClickPoint = touch
+      ? {x: Number(touch.clientX) || 0, y: Number(touch.clientY) || 0}
+      : null;
+  }
+
+  function shouldSuppressClick(event) {
+    if (performance.now() >= suppressClickUntil || internalSheetCloseClick) return false;
+    if (!suppressClickPoint) return true;
+    const dx = Number(event.clientX || 0) - suppressClickPoint.x;
+    const dy = Number(event.clientY || 0) - suppressClickPoint.y;
+    return Math.hypot(dx, dy) <= 36;
   }
 
   function resetWheelSoon() {
@@ -463,7 +485,7 @@
   appObserver.observe(app, {attributes: true, attributeFilter: ["class"]});
 
   document.addEventListener("click", event => {
-    if (performance.now() < suppressClickUntil && !internalSheetCloseClick) {
+    if (shouldSuppressClick(event)) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -500,7 +522,7 @@
       }
     }
 
-    if (modalOpen() || blockedGestureTarget(event.target)) {
+    if ((modalOpen() && !topSheetOpen()) || blockedGestureTarget(event.target)) {
       gesture = null;
       return;
     }
@@ -530,7 +552,7 @@
       const vertical = dy > 0 && dy > Math.abs(dx) * 1.1;
       const fastDismiss = dy >= SHEET_FAST_DISMISS_MIN_Y && start.velocityY >= SHEET_FAST_DISMISS_VELOCITY;
       if (vertical && (dy >= SWIPE_DOWN_MIN_Y || fastDismiss) && animateSheetDismiss(start)) {
-        suppressNextClick();
+        suppressNextClick(touch);
         event.stopPropagation();
         event.preventDefault();
       } else if (start.dragging) {
@@ -557,7 +579,7 @@
 
     if (topSheetOpen()) {
       if (dx > 0 && closeTopSheet()) {
-        suppressNextClick();
+        suppressNextClick(touch);
         event.stopPropagation();
         event.preventDefault();
       }
@@ -569,7 +591,7 @@
 
     const changed = dx < 0 ? switchView(1) : switchView(-1);
     if (changed) {
-      suppressNextClick();
+      suppressNextClick(touch);
       event.stopPropagation();
       event.preventDefault();
     }
@@ -583,7 +605,7 @@
   }, {capture: true, passive: true});
 
   document.addEventListener("wheel", event => {
-    if (modalOpen() || blockedGestureTarget(event.target)) return;
+    if ((modalOpen() && !topSheetOpen()) || blockedGestureTarget(event.target)) return;
     if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
 
     event.preventDefault();

@@ -19,6 +19,9 @@
   let openGeneration = 0;
   let searchBusy = false;
   let decorating = false;
+  let noteBackTouch = null;
+  let noteWheelX = 0;
+  let noteWheelTimer = null;
 
   const style = document.createElement("style");
   style.id = "notesProductStyles";
@@ -101,6 +104,52 @@
     root = document.createElement("div");
     root.id = "noteWindowBackdrop";
     root.className = "note-window-backdrop";
+
+    root.addEventListener("touchstart", event => {
+      if (!root.classList.contains("open") || event.touches.length !== 1) {
+        noteBackTouch = null;
+        return;
+      }
+      if (event.target.closest?.("input, textarea, select, button")) {
+        noteBackTouch = null;
+        return;
+      }
+      const touch = event.touches[0];
+      noteBackTouch = {x: touch.clientX, y: touch.clientY};
+    }, {passive: true});
+
+    root.addEventListener("touchend", event => {
+      const start = noteBackTouch;
+      noteBackTouch = null;
+      if (!start || !root.classList.contains("open") || event.changedTouches.length !== 1) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (dx < 64 || dx < Math.abs(dy) * 1.25) return;
+      close();
+      event.preventDefault();
+      event.stopPropagation();
+    }, {passive: false});
+
+    root.addEventListener("touchcancel", () => {
+      noteBackTouch = null;
+    }, {passive: true});
+
+    root.addEventListener("wheel", event => {
+      if (!root.classList.contains("open")) return;
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
+      noteWheelX += event.deltaX;
+      if (noteWheelTimer) clearTimeout(noteWheelTimer);
+      noteWheelTimer = setTimeout(() => { noteWheelX = 0; }, 180);
+      if (Math.abs(noteWheelX) < 90) return;
+      const shouldClose = noteWheelX < 0;
+      noteWheelX = 0;
+      if (!shouldClose) return;
+      close();
+      event.preventDefault();
+      event.stopPropagation();
+    }, {passive: false});
+
     document.body.appendChild(root);
     return root;
   }
@@ -516,7 +565,7 @@
     if (event.key === "Escape" && modal().classList.contains("open")) close();
   });
 
-  window.PlannerNotes = {open, create, semanticSearch, refresh: decorateRows};
+  window.PlannerNotes = {open, close, create, semanticSearch, refresh: decorateRows};
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(install, 0), {once: true});
   else setTimeout(install, 0);
 })();

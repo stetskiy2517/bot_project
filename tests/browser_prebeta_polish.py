@@ -142,9 +142,8 @@ def main() -> None:
             assert page.locator("#chat > .msg").first.inner_text() == "history-3"
             assert page.locator("#chat > .msg").last.inner_text() == "history-16"
 
-            # The desktop collapse control is intentionally hidden by the mobile shell,
-            # but it owns the same force-hide path used by the 30-second idle timer.
-            page.evaluate("document.getElementById('chatCollapseBtn').click()")
+            # Collapse through the real mobile navigation instead of the hidden desktop control.
+            page.locator('#mobileBottomNav [data-view="home"]').click()
             page.wait_for_function("!document.getElementById('app').classList.contains('chat-active')")
             assert page.locator("#chat > .msg").count() == 14
             page.locator('#mobileBottomNav [data-view="chat"]').click()
@@ -185,10 +184,22 @@ def main() -> None:
             note.click()
             note_sheet = page.locator("#noteWindowBackdrop")
             expect(note_sheet).to_have_class(__import__("re").compile(r"\bopen\b"))
-            page.locator(".note-window").evaluate(
-                "el => el.dispatchEvent(new WheelEvent('wheel', {deltaX: -120, deltaY: 0, bubbles: true, cancelable: true}))"
-            )
+            page.locator(".note-window").evaluate("""
+                el => {
+                  const rect = el.getBoundingClientRect();
+                  const x = rect.left + rect.width / 2;
+                  const y = Math.min(rect.bottom - 36, rect.top + 130);
+                  const eventWithTouches = (type, property, touches) => {
+                    const event = new Event(type, {bubbles: true, cancelable: true});
+                    Object.defineProperty(event, property, {value: touches});
+                    el.dispatchEvent(event);
+                  };
+                  eventWithTouches('touchstart', 'touches', [{clientX: x, clientY: y}]);
+                  eventWithTouches('touchend', 'changedTouches', [{clientX: x + 90, clientY: y}]);
+                }
+            """)
             expect(note_sheet).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(note_sheet).to_be_hidden()
             expect(page.locator("#libraryScreen")).to_be_visible()
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
