@@ -115,6 +115,10 @@
 
   function closeSheetRoot(root) {
     if (!root) return false;
+    if (root.id === "noteWindowBackdrop" && typeof window.PlannerNotes?.close === "function") {
+      window.PlannerNotes.close();
+      return true;
+    }
     const closeControl = root.querySelector(SHEET_CLOSE_SELECTOR);
     if (closeControl && !closeControl.disabled) {
       internalSheetCloseClick = true;
