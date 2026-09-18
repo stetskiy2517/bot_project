@@ -54,7 +54,7 @@
     button.id = "settingsThemeBack";
     button.className = "settings-theme-back";
     button.type = "button";
-    button.setAttribute("aria-label", "Назад к настройкам");
+    button.setAttribute("aria-label", "Назад в аккаунт");
     button.title = "Назад";
     button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>';
     button.hidden = true;
@@ -75,7 +75,7 @@
     root = document.createElement("div");
     root.id = "settingsThemes";
     root.className = "settings-themes-menu";
-    root.setAttribute("aria-label", "Разделы настроек");
+    root.setAttribute("aria-label", "Разделы аккаунта");
     assistantRoot.prepend(root);
     return root;
   }
@@ -237,7 +237,7 @@
     root.hidden = false;
     sheet.classList.remove("settings-detail-open");
     delete sheet.dataset.settingsView;
-    sheetTitle.textContent = "Настройки";
+    sheetTitle.textContent = "Аккаунт";
     backButton.hidden = true;
     updateAvailability();
     sheet.scrollTop = 0;
@@ -358,7 +358,7 @@
   const panelObserver = new MutationObserver(() => {
     if (!panel.classList.contains("open") && activeTheme) showHome();
     if (panel.classList.contains("open") && !activeTheme) {
-      sheetTitle.textContent = "Настройки";
+      sheetTitle.textContent = "Аккаунт";
       backButton.hidden = true;
     }
   });
