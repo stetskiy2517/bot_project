@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from handlers.text import handle_message_text
 from integrations.speech import normalize_time_format, transcribe_audio
+from modules.language_support import detect_input_language
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text("Не удалось распознать речь.")
             return
 
-        await update.message.reply_text(f"Распознано: {text}")
+        prefix = "Recognized" if detect_input_language(text) == "en" else "Распознано"
+        await update.message.reply_text(f"{prefix}: {text}")
         await handle_message_text(update, context, text)
     except Exception:
         logger.exception("Voice processing failed")
