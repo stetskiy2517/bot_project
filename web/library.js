@@ -376,7 +376,7 @@
         <button id="libraryBackBtn" class="library-back-button" type="button" aria-label="Назад">
           <svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" /></svg>
         </button>
-        <h2 class="library-title">Сохранённое</h2>
+        <span class="library-title" aria-hidden="true"></span>
         <span class="library-nav-spacer" aria-hidden="true"></span>
       </div>
       <div class="library-tabs" role="tablist" aria-label="Сохранённые данные">
