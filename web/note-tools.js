@@ -16,6 +16,7 @@
   };
 
   let current = null;
+  let openGeneration = 0;
   let searchBusy = false;
   let decorating = false;
 
@@ -112,6 +113,7 @@
 
   function close() {
     const root = modal();
+    openGeneration += 1;
     root.classList.remove("open");
     current = null;
     setTimeout(() => {
@@ -226,16 +228,20 @@
   async function open(noteId) {
     const id = Number(noteId || 0);
     if (!id) return;
+    const generation = ++openGeneration;
     show('<div class="note-window-body">Загружаю заметку…</div>');
     try {
       const data = await api(`/api/note-tools/${id}`);
+      if (generation !== openGeneration || !modal().classList.contains("open")) return;
       renderDetail(data.note);
     } catch (error) {
+      if (generation !== openGeneration || !modal().classList.contains("open")) return;
       show(`<div class="note-window-head"><h2 class="note-window-title">Заметка</h2><button class="note-window-close" type="button" data-note-close>×</button></div><div class="note-window-body">${escapeHtml(error?.message || "Не удалось загрузить заметку.")}</div>`);
     }
   }
 
   function create() {
+    openGeneration += 1;
     renderEditor(blankNote(), true);
   }
 
