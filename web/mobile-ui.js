@@ -364,17 +364,16 @@
     if (!root) return;
 
     const shortcuts = [
-      ["saved", "Заметки", "Сохранённые заметки", "▤"],
-      ["route", "Маршрут", "К следующей встрече", "↗"],
+      ["saved", "Заметки", "Сохранённые заметки"],
+      ["route", "Маршрут", "К следующей встрече"],
     ];
-    for (const [name, title, note, symbol] of shortcuts) {
+    for (const [name, title, note] of shortcuts) {
       if (root.querySelector(`[data-settings-utility="${name}"]`)) continue;
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "settings-utility-link";
+      button.className = "settings-theme-link";
       button.dataset.settingsUtility = name;
       button.innerHTML = `
-        <span class="settings-utility-icon" aria-hidden="true">${symbol}</span>
         <span class="settings-theme-link-main">
           <span class="settings-theme-link-title">${title}</span>
           <span class="settings-theme-link-note">${note}</span>
