@@ -135,7 +135,7 @@ def main():
         theme = target.evaluate("el => el.closest('[data-settings-theme]')?.dataset.settingsTheme || ''")
         assert theme, f"No settings theme found for {summary}"
         page.locator(f'[data-settings-open="{theme}"]').click()
-        expect(page.locator("#settingsPanel .sheet-head h2")).not_to_have_text("Настройки")
+        expect(page.locator("#settingsPanel .sheet-head h2")).not_to_have_text("Аккаунт")
         target.click()
         page.wait_for_function("document.getElementById('privacyNotice').textContent.length > 0")
 
@@ -179,7 +179,7 @@ def main():
     def settings_navigation(page, user):
         loaded(page)
         page.locator("#accountBtn").click()
-        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
         expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(5)
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
@@ -187,7 +187,7 @@ def main():
         expect(page.locator("#settingsTheme-planning")).to_be_visible()
         expect(page.locator("#settingsThemes")).to_be_hidden()
         page.locator("#settingsThemeBack").click()
-        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Настройки")
+        expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
         expect(page.locator("#settingsThemes")).to_be_visible()
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
 
