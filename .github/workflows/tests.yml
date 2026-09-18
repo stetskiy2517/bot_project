@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Validate deploy scripts
-        run: bash -n deploy.sh scripts/deploy_update.sh
+        run: bash -n deploy.sh scripts/deploy_update.sh scripts/disk_maintenance.sh
       - name: Validate web JavaScript
         run: >-
           node --check web/library.js &&
