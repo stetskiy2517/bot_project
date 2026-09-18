@@ -146,7 +146,11 @@ def _same_transport_action(left: dict, right: dict) -> bool:
     right_source = right.get("source") if isinstance(right.get("source"), dict) else {}
     left_message = str(left_source.get("provider_message_id") or "").strip()
     right_message = str(right_source.get("provider_message_id") or "").strip()
+    left_account = str(left_source.get("account_id") or left_source.get("account") or "").strip()
+    right_account = str(right_source.get("account_id") or right_source.get("account") or "").strip()
     if not left_message or left_message != right_message:
+        return False
+    if left_account and right_account and left_account != right_account:
         return False
 
     left_event = left.get("attachment_event")
@@ -268,6 +272,7 @@ def _source(account: dict, message: dict, source_index: int, filename: str, atta
         "subject": str(message.get("subject") or "Без темы")[:300],
         "from": str(message.get("from") or "")[:300],
         "account": account.get("display_name") or account.get("email") or account.get("provider"),
+        "account_id": str(account.get("account_id") or "")[:100],
         "attachment": filename,
         "provider_message_id": str(message.get("provider_message_id") or "")[:500],
         "attachment_id": str(attachment.get("attachment_id") or attachment.get("part_index") or "")[:500],
