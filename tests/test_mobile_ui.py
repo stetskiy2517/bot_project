@@ -59,7 +59,7 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn('["route", "Маршрут"', mobile)
         self.assertIn('#lifeWheelBtn {', css)
         self.assertIn('right: 60px', css)
-        self.assertIn('aria-label="Настройки"', html)
+        self.assertIn('aria-label="Аккаунт"', html)
         self.assertIn('button.setAttribute("aria-label", "Баланс жизни")', life)
 
 
