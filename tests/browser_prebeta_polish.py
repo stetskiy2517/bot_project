@@ -88,11 +88,10 @@ def main() -> None:
             )
 
             # Every handled bottom sheet can be dismissed by a downward gesture from its grab area.
-            # On the mobile shell the legacy top-bar button is intentionally hidden; open the
-            # same panel through the visible More -> Life balance entry, as a real user does.
-            page.locator('#mobileBottomNav [data-view="more"]').click()
-            life_balance_entry = page.locator('[data-more="life"]')
+            # Life balance now has its own visible control beside Settings in the top-right corner.
+            life_balance_entry = page.locator("#lifeWheelBtn")
             expect(life_balance_entry).to_be_visible()
+            expect(life_balance_entry).to_have_attribute("aria-label", "Баланс жизни")
             life_balance_entry.click()
             life_wheel = page.locator("#lifeWheelPanel")
             expect(life_wheel).to_have_class(__import__("re").compile(r"\bopen\b"))
@@ -175,8 +174,11 @@ def main() -> None:
             assert page.evaluate("window.__claimSentinel") == "alive"
 
             # Note detail -> right/back semantics: close one sheet and stay in Saved.
-            page.locator('#mobileBottomNav [data-view="more"]').click()
-            page.locator('[data-more="saved"]').click()
+            page.locator("#accountBtn").click()
+            expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            notes_shortcut = page.locator('[data-settings-utility="saved"]')
+            expect(notes_shortcut).to_be_visible()
+            notes_shortcut.click()
             expect(page.locator("#libraryScreen")).to_be_visible()
             note = page.locator(".library-card", has_text="Тестовая заметка").first
             expect(note).to_be_visible()
@@ -191,11 +193,13 @@ def main() -> None:
             expect(page.locator("#libraryNotesTab")).to_have_attribute("aria-selected", "true")
             page.locator("#libraryBackBtn").click()
 
-            # Settings are five separate screens with normal interactive accordions inside.
-            page.locator('#mobileBottomNav [data-view="more"]').click()
-            page.locator('[data-more="settings"]').click()
+            # Settings are five separate screens with utility links for sections promoted out of More.
+            page.locator("#accountBtn").click()
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(5)
+            expect(page.locator("#settingsThemes .settings-utility-link")).to_have_count(2)
+            expect(page.locator('[data-settings-utility="saved"]')).to_contain_text("Заметки")
+            expect(page.locator('[data-settings-utility="route"]')).to_contain_text("Маршрут")
             page.locator('[data-settings-open="account"]').click()
             expect(page.locator("#settingsTheme-account")).to_be_visible()
             diagnostics = page.locator("#diagnosticsGroup")
