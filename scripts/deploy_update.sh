@@ -59,8 +59,9 @@ PY
 }
 
 ensure_app_python() {
-  if command -v "$APP_PYTHON" >/dev/null 2>&1; then
-    python_runtime_supported "$APP_PYTHON" || fail "$APP_PYTHON is below Python 3.11"
+  if command -v "$APP_PYTHON" >/dev/null 2>&1 &&
+     python_runtime_supported "$APP_PYTHON" &&
+     "$APP_PYTHON" -c 'import ensurepip, venv' >/dev/null 2>&1; then
     return 0
   fi
 
