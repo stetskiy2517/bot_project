@@ -7,7 +7,7 @@
   if (!app || !nav || window.__plannerSwipeNavigation) return;
   window.__plannerSwipeNavigation = true;
 
-  const VIEW_ORDER = ["home", "chat", "today", "more"];
+  const VIEW_ORDER = ["home", "chat", "today", "tasks"];
   const SWIPE_MIN_X = 64;
   const SWIPE_DOWN_MIN_Y = 72;
   const SHEET_TOP_GRAB_ZONE = 88;
