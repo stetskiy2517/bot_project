@@ -17,7 +17,16 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
         self.assertIn("const SHEET_HANDLE_SELECTOR = \".handle, [class*='-handle']\"", self.script)
         self.assertIn('document.addEventListener("touchmove"', self.script)
         self.assertIn("dy >= SWIPE_DOWN_MIN_Y", self.script)
-        self.assertIn("closeSheetRoot(start.root)", self.script)
+        self.assertIn("updateSheetDrag(sheetGesture, touch.clientY)", self.script)
+        self.assertIn("animateSheetDismiss(start)", self.script)
+        self.assertIn("animateSheetBack(start)", self.script)
+
+    def test_downward_dismiss_animates_with_native_feeling_motion(self):
+        self.assertIn("const SHEET_SNAP_MS = 180", self.script)
+        self.assertIn("const SHEET_DISMISS_MS = 220", self.script)
+        self.assertIn("translate3d(0, ${offset.toFixed(1)}px, 0)", self.script)
+        self.assertIn("backdropColorWithProgress", self.script)
+        self.assertIn("SHEET_FAST_DISMISS_VELOCITY", self.script)
 
     def test_sheet_close_uses_module_close_controls(self):
         for selector in (
