@@ -32,6 +32,20 @@ class ProductionReliabilityWiringTests(unittest.TestCase):
         self.assertIn("scripts/backup_state.py", workflow)
         self.assertNotIn("sudo ", workflow)
 
+    def test_disk_maintenance_runs_after_deploy_and_on_schedule(self):
+        workflow = (ROOT / ".github" / "workflows" / "production-disk-maintenance.yml").read_text(encoding="utf-8")
+        script = (ROOT / "scripts" / "disk_maintenance.sh").read_text(encoding="utf-8")
+        self.assertIn('cron: "45 1 * * *"', workflow)
+        self.assertIn("workflow_run:", workflow)
+        self.assertIn("- deploy-production", workflow)
+        self.assertIn("scripts/disk_maintenance.sh", workflow)
+        self.assertIn("--max-disk-percent 90", workflow)
+        self.assertIn("scripts/backup_state.py --prune-only", script)
+        self.assertIn('rm -rf -- "$HOME/.cache/pip"', script)
+        self.assertIn('journalctl --vacuum-size="$JOURNAL_LIMIT"', script)
+        self.assertIn("docker system prune -af", script)
+        self.assertNotIn("--volumes", script)
+
     def test_external_health_monitor_runs_on_schedule_and_after_successful_deploy(self):
         workflow = (ROOT / ".github" / "workflows" / "production-health.yml").read_text(encoding="utf-8")
         self.assertIn('cron: "*/15 * * * *"', workflow)
