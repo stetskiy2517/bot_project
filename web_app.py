@@ -52,6 +52,7 @@ from modules.note_conversation import clear_active_note, remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
+from modules.ai_assistant import unhandled_reply_for
 from core.undo_store import init_undo_store
 from modules.router import route_text
 from modules.calendar_availability import slot_choices
@@ -210,7 +211,7 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
     handled = await route_text(update, context, text=text)
     replies = update.message.replies
     if not handled and not replies:
-        replies.append("Не понял команду. Сформулируй её иначе или уточни, что нужно сделать.")
+        replies.append(unhandled_reply_for(text))
     return WebPlannerResult(handled=handled, replies=replies, choices=slot_choices(context))
 
 
