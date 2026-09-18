@@ -112,13 +112,25 @@ def main() -> int:
                 )
                 _checkpoint("authenticated mobile shell ready")
 
-                _checkpoint("checking distinct tasks and notes routes on WebKit")
-                page.locator('#mobileBottomNav [data-view="more"]').click()
-                saved_label = page.locator('[data-more="saved"] .mobile-more-title').inner_text().strip()
-                if saved_label != "Заметки":
-                    raise AssertionError(f"Saved row must be named 'Заметки', got {saved_label!r}")
+                _checkpoint("checking promoted tasks, notes and top controls on WebKit")
+                tasks_button = page.locator('#mobileBottomNav [data-view="tasks"]')
+                if tasks_button.count() != 1:
+                    raise AssertionError("Tasks must replace More in the bottom-right navigation slot")
+                if page.locator('#mobileBottomNav [data-view="more"]').count():
+                    raise AssertionError("More must not remain in the bottom navigation")
 
-                page.locator('[data-more="tasks"]').click()
+                settings_button = page.locator("#accountBtn")
+                life_button = page.locator("#lifeWheelBtn")
+                if settings_button.get_attribute("aria-label") != "Настройки":
+                    raise AssertionError("Top-right button must be Settings")
+                if life_button.get_attribute("aria-label") != "Баланс жизни":
+                    raise AssertionError("Life balance must have its own top control")
+                settings_box = settings_button.bounding_box()
+                life_box = life_button.bounding_box()
+                if not settings_box or not life_box or life_box["x"] >= settings_box["x"]:
+                    raise AssertionError(f"Life balance must sit immediately left of Settings: {life_box!r}, {settings_box!r}")
+
+                tasks_button.click()
                 page.wait_for_function(
                     "document.getElementById('libraryTasksTab') && "
                     "document.getElementById('libraryTasksTab').classList.contains('active') && "
@@ -143,7 +155,17 @@ def main() -> int:
                     "!document.getElementById('app').classList.contains('library-active')",
                     timeout=5000,
                 )
-                page.locator('[data-more="saved"]').click()
+
+                settings_button.click()
+                page.wait_for_function(
+                    "document.getElementById('settingsPanel').classList.contains('open') && "
+                    "document.querySelector('[data-settings-utility=\"saved\"]')",
+                    timeout=5000,
+                )
+                saved_label = page.locator('[data-settings-utility="saved"] .settings-theme-link-title').inner_text().strip()
+                if saved_label != "Заметки":
+                    raise AssertionError(f"Settings shortcut must be named 'Заметки', got {saved_label!r}")
+                page.locator('[data-settings-utility="saved"]').click()
                 page.wait_for_function(
                     "document.getElementById('app').classList.contains('library-active') && "
                     "document.getElementById('libraryNotesTab').classList.contains('active') && "
@@ -155,7 +177,7 @@ def main() -> int:
                 if page.locator("#libraryList .planner-task-toolbar").count():
                     raise AssertionError("Notes route incorrectly rendered the tasks toolbar")
                 page.locator("#libraryBackBtn").click()
-                _checkpoint("tasks and notes routes are distinct")
+                _checkpoint("promoted tasks and settings notes route are distinct")
 
                 page.locator('#mobileBottomNav [data-view="chat"]').click()
                 page.wait_for_function(

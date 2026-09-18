@@ -5,6 +5,7 @@
   const workspace = app?.querySelector(".workspace");
   const login = document.getElementById("login");
   const messageInput = document.getElementById("message");
+  const settingsPanel = document.getElementById("settingsPanel");
   if (!app || !workspace || document.getElementById("mobileBottomNav")) return;
 
   app.classList.add("mobile-shell");
@@ -19,7 +20,7 @@
       home: '<path d="M4 11.5 12 5l8 6.5V20h-5v-5H9v5H4z"/>',
       chat: '<path d="M5 5h14v10H9l-4 4z"/>',
       today: '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M8 3v5M16 3v5M4 10h16"/>',
-      more: '<circle cx="6" cy="7" r="1.4"/><circle cx="18" cy="7" r="1.4"/><circle cx="6" cy="17" r="1.4"/><circle cx="18" cy="17" r="1.4"/>',
+      tasks: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 6 1.5 1.5L7.5 5M4 12l1.5 1.5L7.5 11M4 18l1.5 1.5 2-2.5"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
       refresh: '<path d="M19 7V3l-3 3a7 7 0 1 0 2 8"/>',
     };
@@ -38,30 +39,13 @@
     <div id="mobileTodayContent"><div class="mobile-loading">Собираю день…</div></div>`;
   workspace.appendChild(todayScreen);
 
-  const moreScreen = document.createElement("section");
-  moreScreen.id = "mobileMoreScreen";
-  moreScreen.className = "mobile-screen";
-  moreScreen.setAttribute("aria-label", "Ещё");
-  moreScreen.innerHTML = `
-    <div class="mobile-screen-head"><div><h1 class="mobile-screen-title">Ещё</h1><div class="mobile-screen-subtitle">Только нужные разделы</div></div></div>
-    <div class="mobile-more-group">
-      <button class="mobile-more-row" type="button" data-more="tasks"><span class="mobile-more-icon">✓</span><span><span class="mobile-more-title">Задачи</span><span class="mobile-more-meta">Сроки, подзадачи и планирование</span></span><span class="mobile-row-chevron">›</span></button>
-      <button class="mobile-more-row" type="button" data-more="saved"><span class="mobile-more-icon">▤</span><span><span class="mobile-more-title">Заметки</span><span class="mobile-more-meta">Сохранённые заметки</span></span><span class="mobile-row-chevron">›</span></button>
-      <button class="mobile-more-row" type="button" data-more="life"><span class="mobile-more-icon">◇</span><span><span class="mobile-more-title">Баланс жизни</span><span class="mobile-more-meta">Активность и личная оценка</span></span><span class="mobile-row-chevron">›</span></button>
-      <button class="mobile-more-row" type="button" data-more="route"><span class="mobile-more-icon">↗</span><span><span class="mobile-more-title">Маршрут</span><span class="mobile-more-meta">К следующей встрече</span></span><span class="mobile-row-chevron">›</span></button>
-    </div>
-    <div class="mobile-more-group">
-      <button class="mobile-more-row" type="button" data-more="settings"><span class="mobile-more-icon">⚙</span><span><span class="mobile-more-title">Настройки</span><span class="mobile-more-meta">Календарь, почта, AI и приватность</span></span><span class="mobile-row-chevron">›</span></button>
-    </div>`;
-  workspace.appendChild(moreScreen);
-
   const nav = document.createElement("nav");
   nav.id = "mobileBottomNav";
   nav.className = "mobile-bottom-nav";
   nav.hidden = true;
   nav.setAttribute("aria-label", "Основная навигация");
   nav.innerHTML = [
-    ["home", "Главная", "home"], ["chat", "Чат", "chat"], ["today", "Сегодня", "today"], ["more", "Ещё", "more"],
+    ["home", "Главная", "home"], ["chat", "Чат", "chat"], ["today", "Сегодня", "today"], ["tasks", "Задачи", "tasks"],
   ].map(([view, label, iconName]) => `
     <button class="mobile-nav-button${view === "home" ? " active" : ""}" type="button" data-view="${view}" aria-label="${label}">
       ${icon(iconName)}<span class="mobile-nav-label">${label}</span>
@@ -106,7 +90,7 @@
   }
 
   function setView(view, {fromObserver = false} = {}) {
-    if (!["home", "chat", "today", "more"].includes(view)) view = "home";
+    if (!["home", "chat", "today"].includes(view)) view = "home";
     currentView = view;
     app.classList.remove("mobile-view-home", "mobile-view-chat", "mobile-view-today", "mobile-view-more");
     app.classList.add(`mobile-view-${view}`);
@@ -340,26 +324,71 @@
     if (route?.url) window.open(route.url, "_blank", "noopener,noreferrer");
   }
 
-  function openMoreSection(name) {
-    if (name === "settings") return document.getElementById("accountBtn")?.click();
-    if (name === "life") return document.getElementById("lifeWheelBtn")?.click();
-    if (name === "route") return openRoute();
+  function closeSettingsForNavigation() {
+    if (!settingsPanel?.classList.contains("open")) return;
+    const close = document.getElementById("closeSettings");
+    if (close) close.click();
+    else settingsPanel.classList.remove("open");
+  }
+
+  function openLibrarySection(name, {fromSettings = false} = {}) {
     const library = document.getElementById("libraryOpenBtn");
-    if (!library) return showToast("Раздел ещё загружается");
-    if (name === "saved") {
-      const notes = document.getElementById("libraryNotesTab");
-      if (!notes) return showToast("Раздел ещё загружается");
-      notes.click();
-      library.click();
-      return;
+    if (!library) {
+      if (name === "tasks") setActiveNav(currentView);
+      return showToast("Раздел ещё загружается");
     }
-    library.click();
-    requestAnimationFrame(() => { if (name === "tasks") document.getElementById("libraryTasksTab")?.click(); });
+    if (fromSettings) closeSettingsForNavigation();
+
+    const open = () => {
+      if (name === "saved") {
+        const notes = document.getElementById("libraryNotesTab");
+        if (!notes) return showToast("Раздел ещё загружается");
+        notes.click();
+        library.click();
+        return;
+      }
+      library.click();
+      requestAnimationFrame(() => document.getElementById("libraryTasksTab")?.click());
+    };
+    if (fromSettings) requestAnimationFrame(open);
+    else open();
+  }
+
+  function openTasksModule() {
+    setActiveNav("tasks");
+    openLibrarySection("tasks");
+  }
+
+  function installSettingsShortcuts() {
+    const root = document.getElementById("settingsThemes");
+    if (!root) return;
+
+    const shortcuts = [
+      ["saved", "Заметки", "Сохранённые заметки", "▤"],
+      ["route", "Маршрут", "К следующей встрече", "↗"],
+    ];
+    for (const [name, title, note, symbol] of shortcuts) {
+      if (root.querySelector(`[data-settings-utility="${name}"]`)) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "settings-utility-link";
+      button.dataset.settingsUtility = name;
+      button.innerHTML = `
+        <span class="settings-utility-icon" aria-hidden="true">${symbol}</span>
+        <span class="settings-theme-link-main">
+          <span class="settings-theme-link-title">${title}</span>
+          <span class="settings-theme-link-note">${note}</span>
+        </span>
+        <svg class="settings-theme-link-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>`;
+      root.appendChild(button);
+    }
   }
 
   nav.addEventListener("click", event => {
     const button = event.target.closest(".mobile-nav-button");
-    if (button) setView(button.dataset.view);
+    if (!button) return;
+    if (button.dataset.view === "tasks") return openTasksModule();
+    setView(button.dataset.view);
   });
 
   todayScreen.addEventListener("click", event => {
@@ -374,10 +403,21 @@
     }
   });
 
-  moreScreen.addEventListener("click", event => {
-    const button = event.target.closest("[data-more]");
-    if (button) openMoreSection(button.dataset.more);
+  settingsPanel?.addEventListener("click", event => {
+    const shortcut = event.target.closest("[data-settings-utility]");
+    if (!shortcut) return;
+    const name = shortcut.dataset.settingsUtility;
+    if (name === "saved") return openLibrarySection("saved", {fromSettings: true});
+    if (name === "route") {
+      closeSettingsForNavigation();
+      return requestAnimationFrame(() => openRoute());
+    }
   });
+
+  const settingsShortcutObserver = new MutationObserver(installSettingsShortcuts);
+  if (settingsPanel) settingsShortcutObserver.observe(settingsPanel, {childList: true, subtree: true});
+  document.addEventListener("planner-settings-changed", installSettingsShortcuts);
+  document.getElementById("accountBtn")?.addEventListener("click", () => requestAnimationFrame(installSettingsShortcuts));
 
   document.getElementById("mobileTodayAdd").addEventListener("click", quickAdd);
   sheetBackdrop.addEventListener("click", event => {
@@ -411,10 +451,16 @@
   });
   document.addEventListener("planner-library-changed", () => { todayPayload = null; });
 
+  let libraryWasActive = app.classList.contains("library-active");
   const observer = new MutationObserver(() => {
     const chatActive = app.classList.contains("chat-active");
+    const libraryActive = app.classList.contains("library-active");
     if (chatActive && currentView === "home") setView("chat", {fromObserver: true});
     else if (!chatActive && currentView === "chat") setView("home", {fromObserver: true});
+    if (libraryWasActive && !libraryActive && nav.querySelector('[data-view="tasks"]')?.classList.contains("active")) {
+      setActiveNav(currentView);
+    }
+    libraryWasActive = libraryActive;
   });
   observer.observe(app, {attributes: true, attributeFilter: ["class"]});
 
@@ -423,5 +469,6 @@
       if (document.getElementById("accountName")?.textContent !== "Пользователь") nav.hidden = false;
     }, 700);
   }
+  installSettingsShortcuts();
   setView("home");
 })();
