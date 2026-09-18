@@ -23,9 +23,25 @@ body {
   padding: calc(env(safe-area-inset-top) + 10px) 14px 8px;
 }
 
-.app.mobile-shell #libraryOpenBtn,
-.app.mobile-shell #lifeWheelBtn {
+.app.mobile-shell #libraryOpenBtn {
   display: none !important;
+}
+
+.app.mobile-shell #lifeWheelBtn {
+  display: grid !important;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: 60px;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  border-color: transparent;
+  background: rgba(244, 244, 242, 0.92);
+  box-shadow: none;
+}
+
+.app.mobile-shell #lifeWheelBtn svg {
+  width: 19px;
+  height: 19px;
 }
 
 .app.mobile-shell .account-button {
@@ -174,15 +190,12 @@ body {
   background: var(--mobile-bg);
 }
 
-.app.mobile-view-today #mobileTodayScreen,
-.app.mobile-view-more #mobileMoreScreen {
+.app.mobile-view-today #mobileTodayScreen {
   display: block;
 }
 
 .app.mobile-view-today .voice-shell,
-.app.mobile-view-today .chat-shell,
-.app.mobile-view-more .voice-shell,
-.app.mobile-view-more .chat-shell {
+.app.mobile-view-today .chat-shell {
   display: none !important;
 }
 
@@ -409,6 +422,24 @@ body {
 .mobile-action-button.secondary {
   background: #e9e9e6;
   color: #222;
+}
+
+
+.app.mobile-shell #settingsThemes .settings-utility-link {
+  gap: 12px;
+}
+
+.app.mobile-shell #settingsThemes .settings-utility-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #eeeeeb;
+  color: #333330;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .mobile-more-group {
