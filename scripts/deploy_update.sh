@@ -90,17 +90,17 @@ ensure_app_python() {
 
 rebuild_runtime_venv() {
   log "Rebuilding application virtual environment with $APP_PYTHON"
-  rm -rf .venv.next .venv.previous-runtime
-  "$APP_PYTHON" -m venv .venv.next
-  .venv.next/bin/python -m pip install --upgrade pip setuptools wheel
-  .venv.next/bin/python -m pip install -r requirements.txt
-  .venv.next/bin/python -c 'import sys; assert sys.version_info >= (3, 11)'
+  rm -rf .venv.previous-runtime
 
   if [ -d .venv ]; then
     mv .venv .venv.previous-runtime
     OLD_VENV_BACKUP="$PROJECT_DIR/.venv.previous-runtime"
   fi
-  mv .venv.next .venv
+
+  "$APP_PYTHON" -m venv .venv
+  .venv/bin/python -m pip install --upgrade pip setuptools wheel
+  .venv/bin/python -m pip install -r requirements.txt
+  .venv/bin/python -c 'import sys; assert sys.version_info >= (3, 11)'
 }
 
 navigation_secret_present() {
