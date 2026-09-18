@@ -58,6 +58,21 @@ class TelegramAssistantTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_multiline_text_reaches_deterministic_router_unchanged(self):
+        original = "заметка План поездки\nКупить билеты\nПроверить отель"
+        update = self._update(original)
+        context = _Context()
+
+        async def deterministic(proxy, _context, text=None):
+            self.assertEqual(text, original)
+            await proxy.message.reply_text("Заметка сохранена")
+            return True
+
+        with patch("handlers.text.route_text", new=AsyncMock(side_effect=deterministic)):
+            await handle_message_text(update, context, original)
+
+        self.assertEqual(update.message.sent[-1][0], "Заметка сохранена")
+
     async def test_unhandled_text_uses_ai_with_existing_shared_history(self):
         update = self._update("А что после неё?")
         context = _Context()
