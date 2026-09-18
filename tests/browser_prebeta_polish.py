@@ -207,7 +207,7 @@ def main() -> None:
             # Settings are five separate screens with utility links for sections promoted out of More.
             page.locator("#accountBtn").click()
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
-            expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(5)
+            expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
             expect(page.locator("#settingsThemes .settings-utility-link")).to_have_count(2)
             expect(page.locator('[data-settings-utility="saved"]')).to_contain_text("Заметки")
             expect(page.locator('[data-settings-utility="route"]')).to_contain_text("Маршрут")
