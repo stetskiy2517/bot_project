@@ -50,6 +50,7 @@
   let sheetGesture = null;
   let libraryDocumentOpen = false;
   let suppressClickUntil = 0;
+  let internalSheetCloseClick = false;
   let wheelX = 0;
   let wheelTimer = null;
   let chatHistoryKey = null;
@@ -115,7 +116,12 @@
     if (!root) return false;
     const closeControl = root.querySelector(SHEET_CLOSE_SELECTOR);
     if (closeControl && !closeControl.disabled) {
-      closeControl.click();
+      internalSheetCloseClick = true;
+      try {
+        closeControl.click();
+      } finally {
+        internalSheetCloseClick = false;
+      }
       return true;
     }
 
@@ -457,7 +463,7 @@
   appObserver.observe(app, {attributes: true, attributeFilter: ["class"]});
 
   document.addEventListener("click", event => {
-    if (performance.now() < suppressClickUntil) {
+    if (performance.now() < suppressClickUntil && !internalSheetCloseClick) {
       event.preventDefault();
       event.stopPropagation();
       return;
