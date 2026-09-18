@@ -35,7 +35,7 @@ class MobileUiHelpersTests(unittest.TestCase):
         source = (
             Path(__file__).resolve().parent.parent / "web" / "swipe-navigation.js"
         ).read_text(encoding="utf-8")
-        self.assertIn('["home", "chat", "today", "more"]', source)
+        self.assertIn('["home", "chat", "today", "tasks"]', source)
         self.assertIn('planner-library-open', source)
         self.assertIn('closeTopSheet', source)
         self.assertIn('library-swipe-row', source)
@@ -43,6 +43,24 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn('openEventSheet', source)
         self.assertIn('[data-event-id]', source)
         self.assertIn('if (topSheetOpen())', source)
+
+    def test_mobile_navigation_promotes_tasks_and_life_balance(self):
+        root = Path(__file__).resolve().parent.parent / "web"
+        mobile = (root / "mobile-ui.js").read_text(encoding="utf-8")
+        css = (root / "mobile-ui.css").read_text(encoding="utf-8")
+        html = (root / "index.html").read_text(encoding="utf-8")
+        life = (root / "life-wheel.js").read_text(encoding="utf-8")
+        self.assertIn('["tasks", "Задачи", "tasks"]', mobile)
+        self.assertNotIn('data-more="tasks"', mobile)
+        self.assertNotIn('data-more="life"', mobile)
+        self.assertNotIn('id = "mobileMoreScreen"', mobile)
+        self.assertIn('data.settingsUtility = name', mobile)
+        self.assertIn('["saved", "Заметки"', mobile)
+        self.assertIn('["route", "Маршрут"', mobile)
+        self.assertIn('#lifeWheelBtn {', css)
+        self.assertIn('right: 60px', css)
+        self.assertIn('aria-label="Настройки"', html)
+        self.assertIn('button.setAttribute("aria-label", "Баланс жизни")', life)
 
 
 class MobileUiApiTests(unittest.TestCase):
