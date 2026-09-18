@@ -31,7 +31,8 @@ class StateBackupTests(unittest.TestCase):
             "DB_PATH": str(self.db_path),
             "WEB_PUSH_VAPID_PRIVATE_KEY": str(self.vapid_path),
             "BACKUP_DIR": str(self.backup_dir),
-            "BACKUP_RETENTION_DAYS": "14",
+            "BACKUP_RETENTION_DAYS": "7",
+            "BACKUP_MAX_SNAPSHOTS": "10",
         }
 
     def tearDown(self):
@@ -62,7 +63,7 @@ class StateBackupTests(unittest.TestCase):
         self.assertFalse(manifest["vapid_key"]["present"])
         self.assertFalse((snapshot / "webpush_vapid_private.pem").exists())
 
-    def test_retention_keeps_two_newest_snapshots_even_when_old(self):
+    def test_retention_keeps_three_newest_snapshots_even_when_old(self):
         self.backup_dir.mkdir(parents=True)
         now = datetime.now(timezone.utc)
         snapshots = []
@@ -76,7 +77,23 @@ class StateBackupTests(unittest.TestCase):
 
         removed = prune_backups(self.backup_dir, days=14)
         remaining = [item for item in snapshots if item.exists()]
-        self.assertEqual(len(remaining), 2)
+        self.assertEqual(len(remaining), 3)
+        self.assertEqual(len(removed), 1)
+
+    def test_retention_caps_recent_snapshots_by_count(self):
+        self.backup_dir.mkdir(parents=True)
+        now = datetime.now(timezone.utc)
+        snapshots = []
+        for index in range(12):
+            snapshot = self.backup_dir / f"snapshot-202609{index + 1:02d}T000000Z"
+            snapshot.mkdir()
+            timestamp = (now - timedelta(hours=index)).timestamp()
+            os.utime(snapshot, (timestamp, timestamp))
+            snapshots.append(snapshot)
+
+        removed = prune_backups(self.backup_dir, days=7, max_count=10)
+        remaining = [item for item in snapshots if item.exists()]
+        self.assertEqual(len(remaining), 10)
         self.assertEqual(len(removed), 2)
 
 

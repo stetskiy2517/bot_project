@@ -27,8 +27,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 SNAPSHOT_PREFIX = "snapshot-"
-DEFAULT_RETENTION_DAYS = 14
-MIN_SNAPSHOTS_TO_KEEP = 2
+DEFAULT_RETENTION_DAYS = 7
+DEFAULT_MAX_SNAPSHOTS = 10
+MIN_SNAPSHOTS_TO_KEEP = 3
 
 
 def _resolve_path(value: str | Path, *, base: Path = PROJECT_ROOT) -> Path:
@@ -61,6 +62,14 @@ def retention_days() -> int:
         return max(1, int(raw))
     except ValueError as exc:
         raise ValueError("BACKUP_RETENTION_DAYS must be an integer") from exc
+
+
+def max_snapshots() -> int:
+    raw = str(os.getenv("BACKUP_MAX_SNAPSHOTS") or DEFAULT_MAX_SNAPSHOTS).strip()
+    try:
+        return max(MIN_SNAPSHOTS_TO_KEEP, int(raw))
+    except ValueError as exc:
+        raise ValueError("BACKUP_MAX_SNAPSHOTS must be an integer") from exc
 
 
 def _sha256(path: Path) -> str:
@@ -106,15 +115,18 @@ def _snapshot_directories(root: Path) -> list[Path]:
     )
 
 
-def prune_backups(root: Path, *, days: int) -> list[Path]:
+def prune_backups(root: Path, *, days: int, max_count: int | None = None) -> list[Path]:
     snapshots = _snapshot_directories(root)
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    count_limit = max(MIN_SNAPSHOTS_TO_KEEP, int(max_count)) if max_count is not None else None
     removed: list[Path] = []
     for index, snapshot in enumerate(snapshots):
         if index < MIN_SNAPSHOTS_TO_KEEP:
             continue
         modified = datetime.fromtimestamp(snapshot.stat().st_mtime, tz=timezone.utc)
-        if modified >= cutoff:
+        expired = modified < cutoff
+        over_limit = count_limit is not None and index >= count_limit
+        if not expired and not over_limit:
             continue
         shutil.rmtree(snapshot)
         removed.append(snapshot)
@@ -166,14 +178,28 @@ def create_backup(*, now: datetime | None = None) -> Path:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
-    prune_backups(root, days=retention_days())
+    prune_backups(root, days=retention_days(), max_count=max_snapshots())
     return final_dir
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Back up Personal Secretary persistent state")
     parser.add_argument("--print-path", action="store_true", help="print only the snapshot path on success")
+    parser.add_argument("--prune-only", action="store_true", help="remove expired/excess snapshots without creating a new one")
     args = parser.parse_args()
+
+    if args.prune_only:
+        try:
+            removed = prune_backups(
+                backup_root(),
+                days=retention_days(),
+                max_count=max_snapshots(),
+            )
+        except Exception as exc:
+            print(f"Backup pruning failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print(f"Backup pruning complete: removed={len(removed)}")
+        return 0
 
     try:
         snapshot = create_backup()
