@@ -146,9 +146,17 @@ def main() -> None:
             page.locator("#taskEditDescription").fill("Редактируется с одного экрана")
             page.locator("#taskEditDueDate").fill("2099-09-30")
             page.locator("#taskEditDueTime").fill("18:00")
-            page.locator("[data-task-editor-save]").click()
+            task_id = int(task["task_id"])
+            with page.expect_response(
+                lambda response: response.request.method == "PATCH" and response.url.endswith(f"/api/tasks/{task_id}"),
+                timeout=3000,
+            ) as edit_response:
+                page.locator("[data-task-editor-save]").click()
+            assert edit_response.value.ok
+            edited_payload = edit_response.value.json()["task"]
+            assert edited_payload["description"] == "Редактируется с одного экрана", edited_payload
             page.wait_for_function("!document.getElementById('taskEditorBackdrop').classList.contains('open')")
-            assert get_planner_task(user_id, int(task["task_id"]))["description"] == "Редактируется с одного экрана"
+            assert get_planner_task(user_id, task_id)["description"] == "Редактируется с одного экрана"
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
             planner_row.evaluate(
@@ -181,7 +189,6 @@ def main() -> None:
             assert any(item["title"] == "Новая задача из редактора" for item in list_planner_tasks(user_id, status=None, limit=50))
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
-            task_id = int(task["task_id"])
             with page.expect_response(
                 lambda response: response.request.method == "PATCH" and response.url.endswith(f"/api/tasks/{task_id}"),
                 timeout=3000,
