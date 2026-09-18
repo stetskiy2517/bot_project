@@ -54,7 +54,7 @@
 }
 
 /* Compatibility hook for the pre-mobile browser regression suite. It remains
-   imperceptible to users; the real UI entry point is «Ещё» → saved items. */
+   imperceptible to users; the real UI entry point is «Настройки» → «Заметки». */
 .app.mobile-shell #libraryOpenBtn {
   display: block !important;
   position: fixed !important;
