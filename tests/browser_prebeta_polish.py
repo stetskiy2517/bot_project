@@ -96,6 +96,7 @@ def main() -> None:
             life_balance_entry.click()
             life_wheel = page.locator("#lifeWheelPanel")
             expect(life_wheel).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(life_wheel.locator(".life-wheel-sheet")).to_be_visible()
             page.locator("#lifeWheelPanel .handle").evaluate("""
                 el => {
                   const rect = el.getBoundingClientRect();
