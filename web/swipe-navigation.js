@@ -433,8 +433,6 @@
 
     if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) < Math.abs(dy) * DIRECTION_RATIO) return;
 
-    if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
-
     if (topSheetOpen()) {
       if (dx > 0 && closeTopSheet()) {
         suppressNextClick();
@@ -444,6 +442,7 @@
       return;
     }
 
+    if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
     if (app.classList.contains("library-active")) return;
 
     const changed = dx < 0 ? switchView(1) : switchView(-1);
@@ -463,8 +462,6 @@
     if (modalOpen() || blockedGestureTarget(event.target)) return;
     if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
 
-    if (libraryDocumentOpen && app.classList.contains("chat-active")) return;
-
     event.preventDefault();
     wheelX += event.deltaX;
     resetWheelSoon();
@@ -472,6 +469,11 @@
 
     if (topSheetOpen()) {
       if (wheelX < 0) closeTopSheet();
+      wheelX = 0;
+      return;
+    }
+
+    if (libraryDocumentOpen && app.classList.contains("chat-active")) {
       wheelX = 0;
       return;
     }
