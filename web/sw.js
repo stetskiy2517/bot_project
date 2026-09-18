@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v17-navigation-promoted";
+const CACHE = "personal-secretary-v18-account-visual";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
