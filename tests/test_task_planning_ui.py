@@ -5,6 +5,7 @@ import unittest
 class TaskPlanningUiTests(unittest.TestCase):
     def setUp(self):
         self.script = Path("web/tasks.js").read_text(encoding="utf-8")
+        self.library = Path("web/library.js").read_text(encoding="utf-8")
         self.editor = Path("web/task-editor.js").read_text(encoding="utf-8")
         self.unified = Path("web/tasks-unified.js").read_text(encoding="utf-8")
         self.reminder_editor = Path("web/reminder-editor.js").read_text(encoding="utf-8")
@@ -50,6 +51,11 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("remind_at: at.toISOString()", self.reminder_editor)
         self.assertIn("height:100%", self.reminder_editor)
         self.assertIn("PlannerReminderEditor.open(reminderId, {focusTime: true})", self.unified)
+
+    def test_saved_screen_has_no_heading_and_tasks_are_first(self):
+        self.assertNotIn('<h2 class="library-title">Сохранённое</h2>', self.library)
+        self.assertIn('<span class="library-title" aria-hidden="true"></span>', self.library)
+        self.assertIn('tabs.insertBefore(button, notes);', self.script)
 
     def test_reminders_are_presented_inside_tasks_not_as_a_separate_tab(self):
         self.assertIn("libraryRemindersTab", self.unified)
