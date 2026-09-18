@@ -88,8 +88,12 @@ def main() -> None:
             )
 
             # Every handled bottom sheet can be dismissed by a downward gesture from its grab area.
-            expect(page.locator("#lifeWheelBtn")).to_be_visible()
-            page.locator("#lifeWheelBtn").click()
+            # On the mobile shell the legacy top-bar button is intentionally hidden; open the
+            # same panel through the visible More -> Life balance entry, as a real user does.
+            page.locator('#mobileBottomNav [data-view="more"]').click()
+            life_balance_entry = page.locator('[data-more="life"]')
+            expect(life_balance_entry).to_be_visible()
+            life_balance_entry.click()
             life_wheel = page.locator("#lifeWheelPanel")
             expect(life_wheel).to_have_class(__import__("re").compile(r"\bopen\b"))
             page.locator("#lifeWheelPanel .handle").evaluate("""
