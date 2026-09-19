@@ -95,6 +95,15 @@ def main() -> None:
                 "window.PlannerRequests && window.PlannerTaskEditor && "
                 "!document.getElementById('login').classList.contains('open')"
             )
+            page.evaluate(
+                """() => {
+                    const updateBanner = document.getElementById('plannerUpdateBanner');
+                    if (updateBanner) {
+                        updateBanner.classList.remove('show');
+                        updateBanner.style.pointerEvents = 'none';
+                    }
+                }"""
+            )
             page.locator("#libraryOpenBtn").click()
             page.locator("#libraryTasksTab").click()
 
