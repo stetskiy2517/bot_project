@@ -22,6 +22,7 @@
   let noteBackTouch = null;
   let noteWheelX = 0;
   let noteWheelTimer = null;
+  let noteSearchOpen = false;
 
   const style = document.createElement("style");
   style.id = "notesProductStyles";
@@ -48,7 +49,7 @@
     .note-window-button{min-height:44px;padding:9px 10px;border:0;border-radius:13px;background:#e8e8e5;color:#292926;font-size:13px;font-weight:650;cursor:pointer}
     .note-window-button.primary{background:#171717;color:#fff}
     .note-window-button.danger{background:#f2dddd;color:#842f2f}
-    .note-window-button:disabled,.notes-toolbar-button:disabled{opacity:.5;cursor:default}
+    .note-window-button:disabled,.notes-header-icon:disabled{opacity:.5;cursor:default}
     .note-editor-grid{display:grid;gap:11px}
     .note-editor-field{display:grid;gap:6px;color:#767671;font-size:11px}
     .note-editor-field input,.note-editor-field select,.note-editor-field textarea{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
@@ -59,12 +60,19 @@
     .note-editor-check input{width:20px;height:20px}
     .note-editor-help{margin-top:-4px;color:#9a9a95;font-size:10px;line-height:1.35}
     .note-editor-error{min-height:17px;color:#923d3d;font-size:11px;line-height:1.35}
-    .notes-product-toolbar{display:none;margin-top:10px;gap:8px;align-items:center}
-    .notes-product-toolbar.visible{display:grid;grid-template-columns:minmax(0,1fr) auto auto}
-    .notes-search-input{min-width:0;height:42px;padding:0 12px;border:1px solid #dededb;border-radius:12px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
-    .notes-toolbar-button{height:42px;padding:0 12px;border:0;border-radius:12px;background:#e8e8e5;color:#292926;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
-    .notes-toolbar-button.primary{width:42px;padding:0;background:#171717;color:#fff;font-size:21px;font-weight:400}
-    .notes-search-status{display:none;margin:7px 2px 0;color:#858580;font-size:11px;line-height:1.35}
+    .notes-header-actions{display:flex;align-items:center;gap:6px}
+    .notes-header-actions[hidden]{display:none!important}
+    .notes-header-icon{position:relative;width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;border:0;border-radius:12px;background:#e9e9e6;color:#252524;cursor:pointer;transition:transform .16s ease,background .16s ease,color .16s ease}
+    .notes-header-icon:active{transform:scale(.94)}
+    .notes-header-icon.primary{background:#2d2d2c;color:#fff}
+    .notes-header-icon.active::after{content:"";position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:#2d2d2c;box-shadow:0 0 0 2px #e9e9e6}
+    .notes-header-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .notes-search-shell{position:relative;width:36px;height:36px;flex:0 0 36px;z-index:9}
+    .notes-search-input{position:absolute;z-index:8;right:42px;top:0;width:0;height:36px;opacity:0;pointer-events:none;transform:translateX(9px);padding:0;border:1px solid #dededb;border-radius:12px;background:#fff;color:#222;font:inherit;font-size:16px;outline:0;box-shadow:0 5px 18px rgba(0,0,0,.07);transition:width .24s cubic-bezier(.22,.8,.24,1),opacity .16s ease,transform .24s cubic-bezier(.22,.8,.24,1),padding .24s ease}
+    .notes-search-shell.open .notes-search-input{width:clamp(132px,46vw,190px);opacity:1;pointer-events:auto;transform:translateX(0);padding:0 12px}
+    .notes-search-input:focus{border-color:#c9c9c5}
+    #libraryScreen .library-nav.note-search-open .library-tabs{opacity:0;pointer-events:none;transform:translateX(-8px)}
+    .notes-search-status{display:none;margin:6px 2px 0;color:#858580;font-size:11px;line-height:1.35}
     .notes-search-status.visible{display:block}
     .note-card-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
     .note-card-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;background:#f0f0ed;color:#666660;font-size:10px;line-height:1.1}
@@ -74,7 +82,7 @@
     .note-search-result{display:block;width:100%;padding:12px 13px;border:1px solid #e5e5e2;border-radius:14px;background:#fff;text-align:left;color:#222;cursor:pointer}
     .note-search-result-title{font-size:13px;font-weight:700}
     .note-search-result-preview{margin-top:4px;color:#777772;font-size:11px;line-height:1.35;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-    @media (max-width:420px){.notes-product-toolbar.visible{grid-template-columns:minmax(0,1fr) 42px}.notes-toolbar-button.semantic{grid-column:1/-1;grid-row:2;width:max-content;justify-self:end}.note-window-actions.three{grid-template-columns:1fr 1fr}.note-window-actions.three .danger{grid-column:1/-1}}
+    @media (max-width:420px){.notes-header-icon{width:34px;height:34px;flex-basis:34px;border-radius:11px}.notes-search-shell{width:34px;height:34px;flex-basis:34px}.notes-search-input{right:40px;height:34px}.note-window-actions.three{grid-template-columns:1fr 1fr}.note-window-actions.three .danger{grid-column:1/-1}}
     @media (min-width:760px){.note-window{max-width:560px;margin:0 auto 18px;border-radius:22px}}
   `;
   document.head.appendChild(style);
@@ -362,32 +370,92 @@
   }
 
   function installToolbar() {
-    if (document.getElementById("notesProductToolbarWrap")) return;
+    if (document.getElementById("notesHeaderActions")) return;
     const nav = document.querySelector("#libraryScreen .library-nav");
-    if (!nav) return;
+    const host = document.getElementById("libraryNavActions");
+    if (!nav || !host) return;
+
+    const root = document.createElement("div");
+    root.id = "notesHeaderActions";
+    root.className = "notes-header-actions";
+    root.innerHTML = `
+      <div class="notes-search-shell">
+        <input id="notesLibrarySearch" class="notes-search-input" type="search" maxlength="500" autocomplete="off" placeholder="Поиск по заметкам" aria-label="Поиск по заметкам">
+        <button id="notesSearchBtn" class="notes-header-icon" type="button" aria-label="Поиск по заметкам" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.7"></circle><path d="m15 15 4.5 4.5"></path></svg>
+        </button>
+      </div>
+      <button id="notesSemanticSearch" class="notes-header-icon" type="button" aria-label="Поиск по смыслу" title="Поиск по смыслу">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.1 3.2L16 7.3l-2.9 1.2L12 12l-1.1-3.5L8 7.3l2.9-1.1L12 3Z"></path><path d="M18 13l.8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8L18 13Z"></path></svg>
+      </button>
+      <button id="notesCreate" class="notes-header-icon primary" type="button" aria-label="Новая заметка" title="Новая заметка">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>`;
+    host.appendChild(root);
+
     const wrap = document.createElement("div");
     wrap.id = "notesProductToolbarWrap";
-    wrap.innerHTML = `<div id="notesProductToolbar" class="notes-product-toolbar"><input id="notesLibrarySearch" class="notes-search-input" type="search" maxlength="500" autocomplete="off" placeholder="Поиск по заметкам"><button id="notesSemanticSearch" class="notes-toolbar-button semantic" type="button">По смыслу</button><button id="notesCreate" class="notes-toolbar-button primary" type="button" aria-label="Новая заметка">+</button></div><div id="notesSearchStatus" class="notes-search-status" role="status"></div>`;
+    wrap.innerHTML = `<div id="notesSearchStatus" class="notes-search-status" role="status"></div>`;
     nav.insertAdjacentElement("afterend", wrap);
+
+    const shell = root.querySelector(".notes-search-shell");
+    const input = root.querySelector("#notesLibrarySearch");
+    const searchButton = root.querySelector("#notesSearchBtn");
+    const setSearchOpen = open => {
+      noteSearchOpen = Boolean(open);
+      shell.classList.toggle("open", noteSearchOpen);
+      searchButton.setAttribute("aria-expanded", String(noteSearchOpen));
+      nav.classList.toggle("note-search-open", noteSearchOpen);
+      if (noteSearchOpen) {
+        requestAnimationFrame(() => {
+          input.focus();
+          if (input.value) input.select();
+        });
+      } else {
+        input.blur();
+      }
+    };
+
+    searchButton.addEventListener("click", () => setSearchOpen(!noteSearchOpen));
     document.getElementById("notesCreate")?.addEventListener("click", create);
-    document.getElementById("notesLibrarySearch")?.addEventListener("input", filterRows);
-    document.getElementById("notesLibrarySearch")?.addEventListener("keydown", event => {
+    input.addEventListener("input", () => {
+      searchButton.classList.toggle("active", Boolean(input.value.trim()));
+      filterRows();
+    });
+    input.addEventListener("search", () => {
+      searchButton.classList.toggle("active", Boolean(input.value.trim()));
+      filterRows();
+    });
+    input.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         event.preventDefault();
         semanticSearch();
       }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSearchOpen(false);
+      }
     });
-    document.getElementById("notesSemanticSearch")?.addEventListener("click", semanticSearch);
-    document.getElementById("libraryNotesTab")?.addEventListener("click", () => setTimeout(syncToolbar, 0));
-    document.getElementById("libraryRemindersTab")?.addEventListener("click", () => setTimeout(syncToolbar, 0));
+    document.getElementById("notesSemanticSearch")?.addEventListener("click", () => {
+      setSearchOpen(true);
+      semanticSearch();
+    });
+    document.querySelector("#libraryScreen .library-tabs")?.addEventListener("click", () => setTimeout(syncToolbar, 0));
     syncToolbar();
   }
 
   function syncToolbar() {
-    const toolbar = document.getElementById("notesProductToolbar");
+    const toolbar = document.getElementById("notesHeaderActions");
     if (!toolbar) return;
-    toolbar.classList.toggle("visible", notesActive() && libraryOpen());
-    if (notesActive() && libraryOpen()) setTimeout(() => decorateRows(), 50);
+    const visible = notesActive() && libraryOpen();
+    toolbar.hidden = !visible;
+    if (!visible) {
+      noteSearchOpen = false;
+      toolbar.querySelector(".notes-search-shell")?.classList.remove("open");
+      toolbar.querySelector("#notesSearchBtn")?.setAttribute("aria-expanded", "false");
+      document.querySelector("#libraryScreen .library-nav")?.classList.remove("note-search-open");
+    }
+    if (visible) setTimeout(() => decorateRows(), 50);
   }
 
   function noteRows() {
