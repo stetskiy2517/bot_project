@@ -363,12 +363,12 @@
 
   function installToolbar() {
     if (document.getElementById("notesProductToolbarWrap")) return;
-    const tabs = document.querySelector("#libraryScreen .library-tabs");
-    if (!tabs) return;
+    const nav = document.querySelector("#libraryScreen .library-nav");
+    if (!nav) return;
     const wrap = document.createElement("div");
     wrap.id = "notesProductToolbarWrap";
     wrap.innerHTML = `<div id="notesProductToolbar" class="notes-product-toolbar"><input id="notesLibrarySearch" class="notes-search-input" type="search" maxlength="500" autocomplete="off" placeholder="Поиск по заметкам"><button id="notesSemanticSearch" class="notes-toolbar-button semantic" type="button">По смыслу</button><button id="notesCreate" class="notes-toolbar-button primary" type="button" aria-label="Новая заметка">+</button></div><div id="notesSearchStatus" class="notes-search-status" role="status"></div>`;
-    tabs.insertAdjacentElement("afterend", wrap);
+    nav.insertAdjacentElement("afterend", wrap);
     document.getElementById("notesCreate")?.addEventListener("click", create);
     document.getElementById("notesLibrarySearch")?.addEventListener("input", filterRows);
     document.getElementById("notesLibrarySearch")?.addEventListener("keydown", event => {
