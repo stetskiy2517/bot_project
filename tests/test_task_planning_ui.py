@@ -60,7 +60,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('tabs.insertBefore(button, notes);', self.script)
 
     def test_task_actions_are_compact_header_icons_with_expandable_search(self):
-        self.assertIn('id="plannerTaskHeaderActions"', self.script)
+        self.assertIn('root.id = "plannerTaskHeaderActions"', self.script)
         self.assertIn('id="plannerTaskSearchBtn"', self.script)
         self.assertIn('id="plannerTaskPlanBtn"', self.script)
         self.assertIn('id="plannerTaskCreateBtn"', self.script)
