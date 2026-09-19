@@ -120,6 +120,9 @@ def main() -> None:
             task_search = page.locator("#plannerTaskSearchInput")
             expect(task_search).to_be_visible()
             expect(task_search).to_have_attribute("placeholder", "Поиск по задачам")
+            page.wait_for_function(
+                "document.getElementById('plannerTaskSearchInput').getBoundingClientRect().width > 100"
+            )
             search_box = task_search.bounding_box()
             button_box = search_button.bounding_box()
             assert search_box and button_box and search_box["x"] < button_box["x"], (search_box, button_box)
