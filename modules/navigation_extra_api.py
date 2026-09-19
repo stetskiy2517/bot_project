@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
+from integrations.navigation_2gis import configured as dgis_configured, geocode as dgis_geocode
+from integrations.navigation_ors import configured as ors_configured, geocode as ors_geocode
 from core.db import get_user_timezone
 from core.navigation_store import (
     get_navigation_preferences,
@@ -27,6 +29,7 @@ from modules.navigation import (
     create_travel_for_event,
     delete_travel_for_event,
     is_managed_travel_event,
+    navigation_provider,
     resolve_origin,
 )
 
@@ -35,7 +38,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MIN_EVENT_DURATION_MINUTES = 5
 logger = logging.getLogger(__name__)
 GEO_ROUTE_POINT_RE = re.compile(
-    r"^geo:(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$",
+    r"^(?:geo:)?(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$",
     re.IGNORECASE,
 )
 
@@ -52,6 +55,40 @@ def _yandex_route_point(value: object) -> str:
     return f"{lat:.7f},{lon:.7f}"
 
 
+def _yandex_destination_point(value: object) -> str:
+    point = " ".join(str(value or "").split()).strip()
+    if not point:
+        return ""
+    if GEO_ROUTE_POINT_RE.fullmatch(point):
+        return _yandex_route_point(point)
+
+    provider = navigation_provider().casefold()
+    geocoders = []
+    if provider == "openrouteservice" and ors_configured():
+        geocoders.append("ors")
+    elif provider == "2gis" and dgis_configured():
+        geocoders.append("2gis")
+    if "ors" not in geocoders and ors_configured():
+        geocoders.append("ors")
+    if "2gis" not in geocoders and dgis_configured():
+        geocoders.append("2gis")
+
+    for geocoder in geocoders:
+        try:
+            if geocoder == "ors":
+                lon, lat = ors_geocode(point)
+            else:
+                lat, lon = dgis_geocode(point)
+            lat = float(lat)
+            lon = float(lon)
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return f"{lat:.7f},{lon:.7f}"
+        except Exception:
+            logger.warning("Failed to geocode Yandex route destination with %s: %s", geocoder, point, exc_info=True)
+
+    return point
+
+
 def _yandex_route_url(origin: object, destination: object) -> str:
     start = _yandex_route_point(origin)
     finish = _yandex_route_point(destination)
@@ -60,6 +97,7 @@ def _yandex_route_url(origin: object, destination: object) -> str:
         + quote(start, safe="")
         + "~"
         + quote(finish, safe="")
+        + "&rtt=auto"
     )
 
 
@@ -475,13 +513,15 @@ def next_route():
         origin = resolve_origin(user_id, event, timezone_name, preferences=prefs, prefer_live=True)
         if not origin:
             continue
-        url = _yandex_route_url(origin, destination)
+        destination_point = _yandex_destination_point(destination)
+        url = _yandex_route_url(origin, destination_point)
         return {
             "url": url,
             "event_id": event.get("id"),
             "title": event.get("summary") or "Событие",
             "origin": origin,
             "destination": destination,
+            "destination_point": destination_point,
             "starts_at": start.isoformat(),
         }
     return jsonify(error="route_not_found", message="В ближайших событиях нет маршрута с указанным местом."), 404
