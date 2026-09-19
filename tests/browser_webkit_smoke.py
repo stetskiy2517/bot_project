@@ -217,12 +217,22 @@ def main() -> int:
                     raise AssertionError(
                         f"Notes search must expand to the left of its icon: {note_search_box!r}, {note_search_button_box!r}"
                     )
-                page.locator("#notesSearchBtn").click()
+                page.locator("#libraryBackBtn").click()
                 page.wait_for_function(
-                    "document.getElementById('notesSearchBtn').getAttribute('aria-expanded') === 'false' && "
-                    "getComputedStyle(document.querySelector('#libraryScreen .library-tabs')).opacity !== '0'",
+                    "!document.getElementById('app').classList.contains('library-active')",
                     timeout=5000,
                 )
+                page.wait_for_function(
+                    "document.getElementById('notesSearchBtn').getAttribute('aria-expanded') === 'false'",
+                    timeout=5000,
+                )
+                page.locator("#libraryOpenBtn").click()
+                page.wait_for_function(
+                    "document.getElementById('app').classList.contains('library-active')",
+                    timeout=5000,
+                )
+                if page.locator("#notesSearchBtn").get_attribute("aria-expanded") != "false":
+                    raise AssertionError("Notes search reopened after returning to the library")
                 page.locator("#libraryBackBtn").click()
                 page.wait_for_function(
                     "!document.getElementById('app').classList.contains('library-active')",

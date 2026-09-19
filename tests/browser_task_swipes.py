@@ -254,6 +254,16 @@ def main() -> None:
                 page.wait_for_timeout(80)
             assert get_planner_task(user_id, task_id)["status"] == "done"
 
+            # Search collapses when leaving the library and stays collapsed after returning.
+            expect(page.locator("#plannerTaskSearchBtn")).to_have_attribute("aria-expanded", "true")
+            page.locator("#libraryBackBtn").click()
+            page.wait_for_function("!document.getElementById('app').classList.contains('library-active')")
+            expect(page.locator("#plannerTaskSearchBtn")).to_have_attribute("aria-expanded", "false")
+            expect(page.locator(".planner-task-search-shell")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            page.locator("#libraryOpenBtn").click()
+            page.wait_for_function("document.getElementById('app').classList.contains('library-active')")
+            expect(page.locator("#plannerTaskSearchBtn")).to_have_attribute("aria-expanded", "false")
+
             assert not dialogs, dialogs
             assert not errors, errors
             context.close()

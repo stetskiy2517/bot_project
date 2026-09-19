@@ -191,6 +191,7 @@ class NoteProductUiContractTests(unittest.TestCase):
         self.assertIn("notes-search-shell.open .notes-search-input", source)
         self.assertIn("note-search-open", source)
         self.assertNotIn('>По смыслу</button>', source)
+        self.assertIn('toolbar.querySelector("#notesLibrarySearch")?.blur()', source)
         self.assertIn("data-note-editor-mode", source)
         self.assertIn("data-note-check", source)
         self.assertIn("PlannerNotes", source)

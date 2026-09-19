@@ -453,6 +453,7 @@
       noteSearchOpen = false;
       toolbar.querySelector(".notes-search-shell")?.classList.remove("open");
       toolbar.querySelector("#notesSearchBtn")?.setAttribute("aria-expanded", "false");
+      toolbar.querySelector("#notesLibrarySearch")?.blur();
       document.querySelector("#libraryScreen .library-nav")?.classList.remove("note-search-open");
     }
     if (visible) setTimeout(() => decorateRows(), 50);

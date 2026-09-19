@@ -225,6 +225,15 @@
     for (const task of tasks) renderBranch(task, task.parent_task_id ? 1 : 0);
   }
 
+  function closeTaskSearch() {
+    taskSearchOpen = false;
+    const root = document.getElementById("plannerTaskHeaderActions");
+    root?.querySelector(".planner-task-search-shell")?.classList.remove("open");
+    root?.querySelector("#plannerTaskSearchBtn")?.setAttribute("aria-expanded", "false");
+    root?.querySelector("#plannerTaskSearchInput")?.blur();
+    document.querySelector("#libraryScreen .library-nav")?.classList.remove("task-search-open");
+  }
+
   function ensureTaskHeaderActions() {
     const host = document.getElementById("libraryNavActions");
     if (!host) return null;
@@ -252,18 +261,18 @@
       const search = root.querySelector("#plannerTaskSearchInput");
       const searchButton = root.querySelector("#plannerTaskSearchBtn");
       const setSearchOpen = open => {
-        taskSearchOpen = Boolean(open);
-        shell.classList.toggle("open", taskSearchOpen);
-        searchButton.setAttribute("aria-expanded", String(taskSearchOpen));
-        host.closest(".library-nav")?.classList.toggle("task-search-open", taskSearchOpen);
-        if (taskSearchOpen) {
-          requestAnimationFrame(() => {
-            search.focus();
-            if (search.value) search.select();
-          });
-        } else {
-          search.blur();
+        if (!open) {
+          closeTaskSearch();
+          return;
         }
+        taskSearchOpen = true;
+        shell.classList.add("open");
+        searchButton.setAttribute("aria-expanded", "true");
+        host.closest(".library-nav")?.classList.add("task-search-open");
+        requestAnimationFrame(() => {
+          search.focus();
+          if (search.value) search.select();
+        });
       };
       searchButton.addEventListener("click", () => setSearchOpen(!taskSearchOpen));
       search.addEventListener("input", () => {
@@ -304,12 +313,7 @@
   function setTaskHeaderVisible(visible) {
     const root = ensureTaskHeaderActions();
     if (root) root.hidden = !visible;
-    if (!visible) {
-      taskSearchOpen = false;
-      root?.querySelector(".planner-task-search-shell")?.classList.remove("open");
-      root?.querySelector("#plannerTaskSearchBtn")?.setAttribute("aria-expanded", "false");
-      document.querySelector("#libraryScreen .library-nav")?.classList.remove("task-search-open");
-    }
+    if (!visible) closeTaskSearch();
   }
 
   function filterRow() {
@@ -420,6 +424,14 @@
       });
     }
     setTaskHeaderVisible(false);
+
+    const app = document.getElementById("app");
+    if (app && !app.dataset.taskSearchObserved) {
+      app.dataset.taskSearchObserved = "1";
+      new MutationObserver(() => {
+        if (!app.classList.contains("library-active")) closeTaskSearch();
+      }).observe(app, {attributes: true, attributeFilter: ["class"]});
+    }
 
     const style = document.createElement("style");
     style.textContent = `
