@@ -62,6 +62,11 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn('right: 60px', css)
         self.assertIn('aria-label="Аккаунт"', html)
         self.assertIn('button.setAttribute("aria-label", "Баланс жизни")', life)
+        self.assertIn("mobile-card-icon-button", mobile)
+        self.assertIn("mobile-day-card is-empty", mobile)
+        self.assertIn("mobile-review-toggle", mobile)
+        self.assertIn("Сводка секретаря", mobile)
+        self.assertIn("mobile-summary-item + .mobile-summary-item", css)
 
 
 class MobileUiApiTests(unittest.TestCase):

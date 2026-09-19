@@ -53,6 +53,7 @@
     content.querySelector(".mobile-attention-card")?.remove();
 
     const normalized = Array.isArray(items) ? items : [];
+    if (!normalized.length) return;
     const aiReview = review?.presentation === "ai";
     const card = document.createElement("div");
     card.className = `mobile-card mobile-attention-card${normalized.length ? "" : " is-empty"}`;
@@ -62,7 +63,7 @@
         <span class="mobile-attention-count">${normalized.length}</span>
       </div>
       <div class="mobile-attention-list">
-        ${normalized.length ? normalized.slice(0, 5).map(item => {
+        ${normalized.slice(0, 5).map(item => {
           const showAiBadge = aiReview && item.source_type === "daily_review";
           return `
           <div class="mobile-attention-item${item.unseen ? "" : " seen"}" data-attention-id="${Number(item.attention_id)}">
@@ -79,10 +80,7 @@
               </div>
             </div>
           </div>`;
-        }).join("") : `
-          <div class="mobile-attention-empty">
-            Сейчас ничего не требует внимания.
-          </div>`}
+        }).join("")}
       </div>`;
     content.prepend(card);
   }

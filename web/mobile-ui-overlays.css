@@ -44,15 +44,6 @@
   cursor: default;
 }
 
-#mobileTodayContent > .mobile-card:last-child .mobile-card-title > span:first-child {
-  font-size: 0;
-}
-
-#mobileTodayContent > .mobile-card:last-child .mobile-card-title > span:first-child::after {
-  content: "Сводка секретаря";
-  font-size: 13px;
-}
-
 /* Compatibility hook for the pre-mobile browser regression suite. It remains
    imperceptible to users; notes are opened from the Tasks screen via the Notes tab. */
 .app.mobile-shell #libraryOpenBtn {

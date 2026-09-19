@@ -61,7 +61,7 @@ def main() -> None:
             "events": [],
             "tasks": [],
             "task_summary": {"open": 0, "overdue": 0},
-            "review": {"text": "Утро\nСпокойный день."},
+            "review": {"text": "Утро\nСпокойный день.\nПроверь главные задачи.\nКалендарь свободен.\nМожно заняться планом без спешки."},
             "attention": [],
         }
 
@@ -119,11 +119,17 @@ def main() -> None:
             expect(card).to_contain_text("Нужно проверить расписание")
             expect(card.locator(".mobile-attention-count")).to_have_text("1")
 
+            expect(page.locator(".mobile-summary-strip")).to_be_visible()
+            expect(page.locator(".mobile-day-card.is-empty")).to_be_visible()
+            review_card = page.locator(".mobile-review-card")
+            expect(review_card).to_be_visible()
+            expect(review_card.locator(".mobile-review-toggle")).to_have_text("Подробнее")
+            review_card.locator(".mobile-review-toggle").click()
+            expect(review_card).to_have_class(__import__("re").compile(r"\bexpanded\b"))
+            expect(review_card.locator(".mobile-review-toggle")).to_have_text("Свернуть")
+
             card.get_by_role("button", name="Понятно", exact=True).click()
-            card = page.locator(".mobile-attention-card")
-            expect(card).to_be_visible()
-            expect(card).to_contain_text("Сейчас ничего не требует внимания")
-            expect(card.locator(".mobile-attention-count")).to_have_text("0")
+            expect(page.locator(".mobile-attention-card")).to_have_count(0)
             assert get_attention_item(user_id, first["attention_id"])["dismissed_at"] is not None
 
             email_item = upsert_attention_item(
@@ -152,10 +158,7 @@ def main() -> None:
             expect(card).to_contain_text("Нужно решение по письму")
             expect(card.locator(".mobile-attention-count")).to_have_text("1")
             card.get_by_role("button", name="Выполнить", exact=True).click()
-            card = page.locator(".mobile-attention-card")
-            expect(card).to_be_visible()
-            expect(card).to_contain_text("Сейчас ничего не требует внимания")
-            expect(card.locator(".mobile-attention-count")).to_have_text("0")
+            expect(page.locator(".mobile-attention-card")).to_have_count(0)
             assert get_attention_item(user_id, email_item["attention_id"])["dismissed_at"] is not None
 
             page.locator("#accountBtn").click()

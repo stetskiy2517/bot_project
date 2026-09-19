@@ -23,6 +23,7 @@
       tasks: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 6 1.5 1.5L7.5 5M4 12l1.5 1.5L7.5 11M4 18l1.5 1.5 2-2.5"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
       refresh: '<path d="M19 7V3l-3 3a7 7 0 1 0 2 8"/>',
+      plan: '<path d="M7 3v3M17 3v3M4.5 9h15"/><rect x="4.5" y="5.5" width="15" height="14" rx="3"/><path d="m9 14 1.8 1.8L15 12"/>',
     };
     return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
   };
@@ -156,26 +157,46 @@
     const summary = data.task_summary || {};
     const upcoming = (data.events || []).filter(item => item.is_travel || !item.starts_at || new Date(item.starts_at).getTime() >= Date.now()).slice(0, 5);
     const tasks = (data.tasks || []).slice(0, 3);
+    const reviewText = compactReview(data.review?.text);
+    const reviewNeedsToggle = reviewText.length > 150 || reviewText.split("\n").length > 3;
     const routeCard = route ? `
       <div class="mobile-card mobile-route-card">
         <div class="mobile-route-icon">↗</div><div><div class="mobile-route-title">${escapeHtml(route.title || "Следующая встреча")}</div><div class="mobile-route-meta">${escapeHtml(route.destination || "Маршрут готов")}</div></div>
         <button class="mobile-action-button" type="button" data-open-route>Маршрут</button>
       </div>` : "";
 
+    const tasksCard = `
+      <div class="mobile-card mobile-tasks-card${tasks.length ? "" : " is-empty"}">
+        <div class="mobile-card-title">
+          <span>Главные задачи</span>
+          <button class="mobile-icon-button mobile-card-icon-button" type="button" data-plan-tasks aria-label="Распланировать задачи" title="Распланировать">${icon("plan")}</button>
+        </div>
+        ${tasks.length
+          ? `<div class="mobile-list">${tasks.map(taskRow).join("")}</div>`
+          : '<div class="mobile-today-empty">Срочных задач нет</div>'}
+      </div>`;
+
+    const dayCard = upcoming.length
+      ? `<div class="mobile-card mobile-day-card"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "календарь недоступен"}</span></div><div class="mobile-list">${upcoming.map(eventRow).join("")}</div></div>`
+      : `<div class="mobile-card mobile-day-card is-empty"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "недоступен"}</span></div><div class="mobile-day-empty"><strong>Календарь свободен</strong><span>На сегодня событий нет</span></div></div>`;
+
+    const reviewCard = reviewText ? `
+      <div class="mobile-card mobile-review-card">
+        <div class="mobile-card-title"><span>Сводка секретаря</span><button class="mobile-icon-button mobile-card-icon-button" type="button" data-refresh-today aria-label="Обновить">${icon("refresh")}</button></div>
+        <div class="mobile-review-text">${escapeHtml(reviewText)}</div>
+        ${reviewNeedsToggle ? '<button class="mobile-review-toggle" type="button" data-toggle-review aria-expanded="false">Подробнее</button>' : ""}
+      </div>` : "";
+
     content.innerHTML = `
-      <div class="mobile-summary-strip">
+      <div class="mobile-summary-strip" aria-label="Сводка дня">
         <div class="mobile-summary-item"><div class="mobile-summary-number">${Number(summary.open || 0)}</div><div class="mobile-summary-label">задач</div></div>
         <div class="mobile-summary-item"><div class="mobile-summary-number">${Number(summary.overdue || 0)}</div><div class="mobile-summary-label">просрочено</div></div>
         <div class="mobile-summary-item"><div class="mobile-summary-number">${(data.events || []).filter(item => !item.is_travel).length}</div><div class="mobile-summary-label">событий</div></div>
       </div>
-      <div class="mobile-card"><div class="mobile-card-title"><span>Главные задачи</span><button class="mobile-action-button secondary" type="button" data-plan-tasks>Распланировать</button></div>
-        ${tasks.length ? `<div class="mobile-list">${tasks.map(taskRow).join("")}</div>` : '<div class="mobile-empty"><strong>Срочных задач нет</strong><span>Можно добавить новую задачу или спокойно заняться планом на день.</span></div>'}
-      </div>
+      ${tasksCard}
       ${routeCard}
-      <div class="mobile-card"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "календарь недоступен"}</span></div>
-        ${upcoming.length ? `<div class="mobile-list">${upcoming.map(eventRow).join("")}</div>` : '<div class="mobile-empty"><strong>В календаре свободно</strong><span>Добавьте встречу кнопкой «+» или скажите секретарю голосом.</span></div>'}
-      </div>
-      <div class="mobile-card"><div class="mobile-card-title"><span>Утренняя сводка</span><button class="mobile-icon-button" type="button" data-refresh-today aria-label="Обновить">${icon("refresh")}</button></div><div class="mobile-review-text">${escapeHtml(compactReview(data.review?.text))}</div></div>`;
+      ${dayCard}
+      ${reviewCard}`;
   }
 
   async function loadToday(force = false) {
@@ -396,6 +417,14 @@
     if (task) return openTask(task.dataset.taskId);
     if (event.target.closest("[data-open-route]")) return openRoute();
     if (event.target.closest("[data-plan-tasks]")) return planTasks().catch(error => showToast(friendly(error)));
+    const reviewToggle = event.target.closest("[data-toggle-review]");
+    if (reviewToggle) {
+      const card = reviewToggle.closest(".mobile-review-card");
+      const expanded = card?.classList.toggle("expanded") || false;
+      reviewToggle.textContent = expanded ? "Свернуть" : "Подробнее";
+      reviewToggle.setAttribute("aria-expanded", String(expanded));
+      return;
+    }
     if (event.target.closest("[data-refresh-today]")) {
       todayPayload = null;
       routePayload = null;
