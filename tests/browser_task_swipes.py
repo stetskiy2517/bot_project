@@ -113,6 +113,9 @@ def main() -> None:
             )
             expect(planner_row).to_be_visible()
             expect(reminder_card).to_be_visible()
+            expect(page.locator(".planner-task-summary")).to_have_text(
+                "Открыто 1 · просрочено 0 · С уведомлением 1"
+            )
             expect(page.locator("#libraryList .planner-task-actions")).to_have_count(0)
             expect(reminder_card.locator(".planner-task-bell")).to_be_visible()
             expect(reminder_card.locator(".planner-task-bell")).to_have_attribute(

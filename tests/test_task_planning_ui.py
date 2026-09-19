@@ -78,6 +78,9 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("planner-reminder-task", self.unified)
         self.assertIn("Уведомление ${formatDate(item.remind_at)}", self.unified)
         self.assertIn("data-reminder-edit", self.unified)
+        self.assertIn("updateTaskSummary", self.unified)
+        self.assertIn("· С уведомлением ${count}", self.unified)
+        self.assertNotIn("planner-task-reminder-summary", self.unified)
 
     def test_reminder_engine_stays_available_behind_unified_tasks_view(self):
         self.assertIn("/api/library/reminders/${reminderId}/complete", self.unified)

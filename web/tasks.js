@@ -361,7 +361,11 @@
       toolbar.className = "planner-task-toolbar";
       const summary = document.createElement("div");
       summary.className = "planner-task-summary";
-      summary.textContent = `Открыто ${data.summary?.open || 0} · просрочено ${data.summary?.overdue || 0}`;
+      const openCount = Number(data.summary?.open || 0);
+      const overdueCount = Number(data.summary?.overdue || 0);
+      summary.dataset.openCount = String(openCount);
+      summary.dataset.overdueCount = String(overdueCount);
+      summary.textContent = `Открыто ${openCount} · просрочено ${overdueCount}`;
       toolbar.append(summary);
       list.append(toolbar, filterRow());
 

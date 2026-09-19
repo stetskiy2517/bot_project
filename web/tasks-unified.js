@@ -131,6 +131,17 @@
     return Array.isArray(result.items) ? result.items : [];
   }
 
+  function updateTaskSummary(reminderCount) {
+    const summary = document.querySelector("#libraryList .planner-task-summary");
+    if (!summary) return false;
+    const openCount = Number(summary.dataset.openCount || 0);
+    const overdueCount = Number(summary.dataset.overdueCount || 0);
+    const count = Math.max(0, Number(reminderCount) || 0);
+    summary.dataset.reminderCount = String(count);
+    summary.textContent = `Открыто ${openCount} · просрочено ${overdueCount} · С уведомлением ${count}`;
+    return true;
+  }
+
   async function syncReminderTasks() {
     if (syncing || !taskTabActive()) return;
     const list = document.getElementById("libraryList");
@@ -146,17 +157,12 @@
       list.querySelectorAll(".planner-task-swipe-row").forEach(row => {
         if (row.querySelector(".planner-reminder-task")) row.remove();
       });
-      list.querySelectorAll(".planner-reminder-task, .planner-task-reminder-summary").forEach(node => node.remove());
+      list.querySelectorAll(".planner-reminder-task").forEach(node => node.remove());
       if (reminders.length) {
         const empty = list.querySelector(".library-empty");
         if (empty && empty.textContent?.includes("Задач")) empty.remove();
       }
-      const summary = document.createElement("div");
-      summary.className = "planner-task-reminder-summary";
-      summary.textContent = `С уведомлением ${reminders.filter(item => item.status !== "completed").length}`;
-      const filters = list.querySelector(".planner-task-filters");
-      if (filters) filters.insertAdjacentElement("afterend", summary);
-      else list.append(summary);
+      updateTaskSummary(reminders.filter(item => item.status !== "completed").length);
       for (const reminder of reminders) list.append(reminderCard(reminder));
     } catch (error) {
       notify(window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось загрузить задачи с уведомлением.");
@@ -343,7 +349,7 @@
     const style = document.createElement("style");
     style.id = "unifiedTaskReminderStyles";
     style.textContent = `
-      .planner-task-reminder-summary{margin:-3px 0 10px;color:#8d8d88;font-size:12px}.planner-reminder-task{border-color:#ddddda}#libraryRemindersTab{display:none!important}
+      .planner-reminder-task{border-color:#ddddda}#libraryRemindersTab{display:none!important}
       .unified-notification-repeat{margin:2px 0 14px;padding:11px 0;border-top:1px solid #ecece8;border-bottom:1px solid #ecece8}.unified-notification-repeat summary{cursor:pointer;font-size:13px;font-weight:650;color:#4a4a47}.unified-notification-repeat-body{padding-top:12px}.unified-notification-repeat .reminder-edit-field{margin-bottom:10px}.unified-notification-repeat-save{width:100%;margin-top:2px}
     `;
     document.head.appendChild(style);
@@ -383,7 +389,8 @@
     new MutationObserver(() => {
       if (!taskTabActive()) return;
       if (list.querySelector(".planner-task-toolbar")) {
-        if (!list.querySelector(".planner-task-reminder-summary")) scheduleSync(40);
+        const summary = list.querySelector(".planner-task-summary");
+        if (!summary?.dataset.reminderCount) scheduleSync(40);
         return;
       }
       repairTaskView(tasks, list);
