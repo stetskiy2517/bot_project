@@ -150,6 +150,26 @@ def main() -> int:
                 if tasks_display == "none":
                     raise AssertionError("Tasks tab is hidden in unified tasks view")
 
+                back_box = page.locator("#libraryBackBtn").bounding_box()
+                tabs_box = page.locator("#libraryScreen .library-tabs").bounding_box()
+                actions_box = page.locator("#plannerTaskHeaderActions").bounding_box()
+                if not back_box or not tabs_box or not actions_box:
+                    raise AssertionError("Compact task header controls are missing")
+                centers = [
+                    back_box["y"] + back_box["height"] / 2,
+                    tabs_box["y"] + tabs_box["height"] / 2,
+                    actions_box["y"] + actions_box["height"] / 2,
+                ]
+                if max(centers) - min(centers) > 3:
+                    raise AssertionError(f"Back, tabs and task actions must share one row: {centers!r}")
+                page.locator("#plannerTaskSearchBtn").click()
+                search_box = page.locator("#plannerTaskSearchInput").bounding_box()
+                search_button_box = page.locator("#plannerTaskSearchBtn").bounding_box()
+                if not search_box or not search_button_box or search_box["x"] >= search_button_box["x"]:
+                    raise AssertionError(
+                        f"Task search must expand to the left of its icon: {search_box!r}, {search_button_box!r}"
+                    )
+
                 page.locator("#libraryNotesTab").click()
                 page.wait_for_function(
                     "document.getElementById('libraryNotesTab').classList.contains('active') && "

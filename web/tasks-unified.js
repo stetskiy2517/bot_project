@@ -60,11 +60,10 @@
   function currentFilters() {
     const filters = document.querySelector("#libraryList .planner-task-filters");
     if (!filters) return {query: "", category: "", priority: ""};
-    const controls = filters.querySelectorAll("input, select");
     return {
-      query: String(controls[0]?.value || "").trim().toLocaleLowerCase("ru-RU"),
-      category: String(controls[1]?.value || "").trim(),
-      priority: String(controls[2]?.value || "").trim(),
+      query: String(document.getElementById("plannerTaskSearchInput")?.value || "").trim().toLocaleLowerCase("ru-RU"),
+      category: String(filters.querySelector('[data-task-filter="category"]')?.value || "").trim(),
+      priority: String(filters.querySelector('[data-task-filter="priority"]')?.value || "").trim(),
     };
   }
 

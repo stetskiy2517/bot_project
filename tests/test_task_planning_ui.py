@@ -52,10 +52,23 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("height:100%", self.reminder_editor)
         self.assertIn("PlannerReminderEditor.open(reminderId, {focusTime: true})", self.unified)
 
-    def test_saved_screen_has_no_heading_and_tasks_are_first(self):
+    def test_saved_screen_uses_compact_single_row_header_and_tasks_are_first(self):
         self.assertNotIn('<h2 class="library-title">Сохранённое</h2>', self.library)
-        self.assertIn('<span class="library-title" aria-hidden="true"></span>', self.library)
+        self.assertNotIn('class="library-title"', self.library)
+        self.assertIn('id="libraryNavActions"', self.library)
+        self.assertIn("grid-template-columns: 44px minmax(0,1fr) auto", self.library)
         self.assertIn('tabs.insertBefore(button, notes);', self.script)
+
+    def test_task_actions_are_compact_header_icons_with_expandable_search(self):
+        self.assertIn('id="plannerTaskHeaderActions"', self.script)
+        self.assertIn('id="plannerTaskSearchBtn"', self.script)
+        self.assertIn('id="plannerTaskPlanBtn"', self.script)
+        self.assertIn('id="plannerTaskCreateBtn"', self.script)
+        self.assertIn('id="plannerTaskSearchInput"', self.script)
+        self.assertIn("planner-task-search-shell.open .planner-task-search-input", self.script)
+        self.assertIn("transition:width .24s", self.script)
+        self.assertIn("filters.append(category, priority)", self.script)
+        self.assertNotIn('create.textContent = "+ Задача"', self.script)
 
     def test_reminders_are_presented_inside_tasks_not_as_a_separate_tab(self):
         self.assertIn("libraryRemindersTab", self.unified)

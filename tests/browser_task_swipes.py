@@ -113,15 +113,25 @@ def main() -> None:
             note_toolbar = page.locator("#notesProductToolbarWrap")
             if note_toolbar.count():
                 expect(note_toolbar).to_be_hidden()
-            task_search = page.locator("#libraryList .planner-task-filters input").first
+            header_actions = page.locator("#plannerTaskHeaderActions")
+            expect(header_actions).to_be_visible()
+            search_button = page.locator("#plannerTaskSearchBtn")
+            search_button.click()
+            task_search = page.locator("#plannerTaskSearchInput")
+            expect(task_search).to_be_visible()
             expect(task_search).to_have_attribute("placeholder", "Поиск по задачам")
+            search_box = task_search.bounding_box()
+            button_box = search_button.bounding_box()
+            assert search_box and button_box and search_box["x"] < button_box["x"], (search_box, button_box)
+            expect(page.locator("#plannerTaskPlanBtn")).to_be_visible()
+            expect(page.locator("#plannerTaskCreateBtn")).to_be_visible()
 
             hint = page.locator("#plannerTaskSwipeHint")
             expect(hint).to_contain_text("вправо — выполнить")
             expect(hint).to_contain_text("Влево — действия")
 
             # Creation/editing uses one full-screen app editor, never browser prompts.
-            page.locator(".planner-task-primary", has_text="+ Задача").click()
+            page.locator("#plannerTaskCreateBtn").click()
             expect(page.locator("#taskEditorBackdrop")).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(page.locator(".task-editor-sheet")).to_be_visible()
             page.locator("#taskEditTitle").fill("Новая задача из редактора")

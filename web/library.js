@@ -71,7 +71,7 @@
     }
     .library-head {
       flex: 0 0 auto;
-      padding: calc(env(safe-area-inset-top) + 14px) 16px 12px;
+      padding: calc(env(safe-area-inset-top) + 14px) 16px 8px;
       background: rgba(247,247,245,.92);
       backdrop-filter: blur(18px);
       border-bottom: 1px solid rgba(230,230,227,.8);
@@ -79,20 +79,14 @@
     .library-nav {
       height: 44px;
       display: grid;
-      grid-template-columns: 44px minmax(0,1fr) 44px;
+      grid-template-columns: 44px minmax(0,1fr) auto;
       align-items: center;
       gap: 10px;
     }
-    .library-title {
-      margin: 0;
-      text-align: center;
-      font-size: 17px;
-      font-weight: 650;
-      letter-spacing: -.25px;
-    }
-    .library-nav-spacer { width: 44px; height: 44px; }
     .library-tabs {
-      margin-top: 14px;
+      min-width: 0;
+      height: 44px;
+      margin: 0;
       padding: 4px;
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -100,6 +94,16 @@
       border-radius: 14px;
       background: #eaeae7;
     }
+    .library-nav-actions {
+      position: relative;
+      min-width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .library-nav-actions:empty { width: 44px; }
     .library-tab {
       min-width: 0;
       padding: 9px 10px;
@@ -376,12 +380,11 @@
         <button id="libraryBackBtn" class="library-back-button" type="button" aria-label="Назад">
           <svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" /></svg>
         </button>
-        <span class="library-title" aria-hidden="true"></span>
-        <span class="library-nav-spacer" aria-hidden="true"></span>
-      </div>
-      <div class="library-tabs" role="tablist" aria-label="Сохранённые данные">
-        <button id="libraryNotesTab" class="library-tab active" type="button" role="tab" aria-selected="true">Заметки</button>
-        <button id="libraryRemindersTab" class="library-tab" type="button" role="tab" aria-selected="false">Напоминания</button>
+        <div class="library-tabs" role="tablist" aria-label="Сохранённые данные">
+          <button id="libraryNotesTab" class="library-tab active" type="button" role="tab" aria-selected="true">Заметки</button>
+          <button id="libraryRemindersTab" class="library-tab" type="button" role="tab" aria-selected="false">Напоминания</button>
+        </div>
+        <div id="libraryNavActions" class="library-nav-actions" aria-label="Действия"></div>
       </div>
     </div>
     <div id="libraryList" class="library-list" aria-live="polite"></div>`;

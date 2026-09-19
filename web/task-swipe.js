@@ -183,7 +183,7 @@
     if (active) noteToolbar?.classList.remove("visible");
     const noteStatus = document.getElementById("notesSearchStatus");
     if (active) noteStatus?.classList.remove("visible");
-    const taskSearch = document.querySelector("#libraryList .planner-task-filters input[type='search'], #libraryList .planner-task-filters input");
+    const taskSearch = document.getElementById("plannerTaskSearchInput");
     if (active && taskSearch) taskSearch.placeholder = "Поиск по задачам";
   }
 
