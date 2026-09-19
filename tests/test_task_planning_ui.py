@@ -66,6 +66,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('id="plannerTaskCreateBtn"', self.script)
         self.assertIn('id="plannerTaskSearchInput"', self.script)
         self.assertIn("planner-task-search-shell.open .planner-task-search-input", self.script)
+        self.assertIn("task-search-open", self.script)
         self.assertIn("transition:width .24s", self.script)
         self.assertIn("filters.append(category, priority)", self.script)
         self.assertNotIn('create.textContent = "+ Задача"', self.script)
