@@ -17,8 +17,9 @@
 
   const style = document.createElement("style");
   style.textContent = `
-    .category-manager{display:grid;gap:12px}
-    .category-manager-list{overflow:hidden;border:1px solid #ececea;border-radius:16px;background:#fff}
+    #categoryColors{display:block!important;background:#fff!important;border:0!important;border-radius:0!important;overflow:visible!important}
+    .category-manager{display:block;background:#fff}
+    .category-manager-list{overflow:hidden;background:#fff}
     .category-manager-row{display:grid;grid-template-columns:14px minmax(86px,1fr) minmax(108px,126px) 30px;gap:10px;align-items:center;min-height:58px;padding:8px 10px 8px 14px;background:#fff}
     .category-manager-row+.category-manager-row{border-top:1px solid #ececea}
     .category-manager-dot{width:14px;height:14px;border-radius:50%;background:#d9d9d6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
@@ -28,12 +29,12 @@
     .category-manager-delete{width:30px;height:30px;border-radius:10px;background:transparent;color:#aaa9a5;cursor:pointer;font-size:18px;line-height:1;transition:background .16s ease,color .16s ease}
     .category-manager-delete:hover{background:#f3f3f1;color:#5f5f5b}
     .category-manager-delete.confirm{background:#fee9e7;color:#b42318;font-size:11px;font-weight:650}
-    .category-manager-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(112px,132px) auto;gap:8px;align-items:center;padding:12px;border:1px solid #ececea;border-radius:16px;background:#fff}
+    .category-manager-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(112px,132px) auto;gap:8px;align-items:center;padding:14px;border-top:1px solid #ececea;background:#fff}
     .category-manager-add input,.category-manager-add select{width:100%;min-width:0;border:0;outline:0;border-radius:10px;background:#f5f5f3;padding:10px 11px;font:inherit;color:#171717}
     .category-manager-add input::placeholder{color:#9b9b96}
     .category-manager-add button{min-height:40px;border-radius:10px;padding:9px 13px;background:#2d2d2c;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}
-    .category-manager-help{font-size:12px;line-height:1.45;color:#888884;margin:0 2px}
-    .category-manager-error{font-size:12px;color:#b42318;min-height:0;margin:0 2px}
+    .category-manager-help{font-size:12px;line-height:1.45;color:#888884;margin:0;padding:0 14px 14px;background:#fff}
+    .category-manager-error{font-size:12px;color:#b42318;min-height:0;margin:0;padding:0 14px 12px;background:#fff}
     .category-manager-error:empty{display:none}
     @media(max-width:430px){
       .category-manager-row{grid-template-columns:14px minmax(72px,1fr) minmax(100px,112px) 30px;gap:8px;padding-left:12px}
