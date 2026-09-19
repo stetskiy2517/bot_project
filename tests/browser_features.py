@@ -186,6 +186,12 @@ def main():
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")
         expect(page.locator("#settingsTheme-planning")).to_be_visible()
         expect(page.locator("#settingsThemes")).to_be_hidden()
+        expect(page.locator("#saveSettings")).to_have_count(0)
+        page.locator("#workStart").fill("08:30")
+        page.locator("#workStart").blur()
+        page.wait_for_timeout(700)
+        saved_status = clients[page.context].get("/api/status").get_json()
+        assert saved_status["preferences"]["work_start"] == "08:30"
         page.locator("#settingsThemeBack").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
         expect(page.locator("#settingsThemes")).to_be_visible()
@@ -222,8 +228,8 @@ def main():
             page.locator(f"#assistantDeliveryFields [name={name}]").check()
         page.locator("[name=quiet_start]").fill("23:00")
         page.locator("[name=quiet_end]").fill("07:00")
-        page.locator("#saveAssistantDelivery").click()
-        expect(page.locator("#assistantSettingsStatus")).to_contain_text("сохранены")
+        expect(page.locator("#saveAssistantDelivery")).to_have_count(0)
+        expect(page.locator("#assistantSettingsStatus")).to_contain_text("сохранены автоматически")
         assert get_assistant_preferences(user)["quiet_enabled"]
         page.locator("#eveningReview").click()
         expect(page.locator("#chat")).to_contain_text("Разобрать отчёт")

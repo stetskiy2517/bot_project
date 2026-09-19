@@ -7,7 +7,6 @@
     <details class="assistant-section"><summary>Обзоры и тихие часы</summary>
       <p class="settings-help">Обзоры выключены по умолчанию. Время — в часовом поясе аккаунта. Push не гарантирует показ при выключенном устройстве.</p>
       <div id="assistantDeliveryFields" class="grid"></div>
-      <button class="action" type="button" id="saveAssistantDelivery">Сохранить уведомления</button>
       <div class="assistant-actions">
         <button class="action" type="button" id="morningReview">Обзор дня</button>
         <button class="action" type="button" id="eveningReview">Вечерний разбор</button>
@@ -51,6 +50,8 @@
   let editingId = null;
   let undo = null;
   let loading = false;
+  let deliverySaveTimer = null;
+  let deliverySaveChain = Promise.resolve();
 
   function button(label, action) {
     const item = document.createElement("button");
@@ -134,15 +135,33 @@
     finally {loading = false;}
   }
 
-  document.getElementById("saveAssistantDelivery").onclick = async function () {
-    this.disabled = true;
-    try {
-      const values = {};
-      for (const input of fields.querySelectorAll("input")) values[input.name] = input.type === "checkbox" ? input.checked : input.value;
-      await api("/api/assistant/preferences", {method: "POST", body: JSON.stringify(values)});
-      status.textContent = "Настройки уведомлений сохранены.";
-    } catch (error) {status.textContent = error.message;} finally {this.disabled = false;}
-  };
+  function deliveryValues() {
+    const values = {};
+    for (const input of fields.querySelectorAll("input")) {
+      values[input.name] = input.type === "checkbox" ? input.checked : input.value;
+    }
+    return values;
+  }
+
+  function scheduleDeliverySave(delay = 250) {
+    clearTimeout(deliverySaveTimer);
+    deliverySaveTimer = setTimeout(() => {
+      deliverySaveTimer = null;
+      const values = deliveryValues();
+      deliverySaveChain = deliverySaveChain
+        .catch(() => {})
+        .then(async () => {
+          await api("/api/assistant/preferences", {method: "POST", body: JSON.stringify(values)});
+          status.textContent = "Настройки уведомлений сохранены автоматически.";
+        })
+        .catch((error) => { status.textContent = error.message; });
+    }, delay);
+  }
+
+  fields.addEventListener("change", () => scheduleDeliverySave(0));
+  fields.addEventListener("input", (event) => {
+    if (event.target?.type !== "checkbox") scheduleDeliverySave(350);
+  });
 
   async function showReview(kind) {
     const review = await api(`/api/assistant/review?kind=${encodeURIComponent(kind)}`);

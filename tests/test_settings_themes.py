@@ -39,16 +39,15 @@ class SettingsThemeUiTests(unittest.TestCase):
         self.assertIn('group.querySelector("#templateForm")', script)
         self.assertIn('group.querySelector("#eraseAccount")', script)
 
-    def test_global_actions_move_to_relevant_theme(self):
+    def test_only_account_action_is_moved_to_relevant_theme(self):
         response = self.client.get("/settings-themes.js")
         self.assertEqual(response.status_code, 200)
         script = response.get_data(as_text=True)
         response.close()
 
-        self.assertIn('planningThemeActions', script)
+        self.assertNotIn('planningThemeActions', script)
+        self.assertNotIn('saveSettings', script)
         self.assertIn('accountThemeActions', script)
-        self.assertIn('save.textContent = "Сохранить планирование"', script)
-        self.assertIn('actions.appendChild(save)', script)
         self.assertIn('actions.appendChild(logout)', script)
 
 

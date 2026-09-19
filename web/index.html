@@ -905,7 +905,6 @@
         </details>
         <div class="sheet-actions">
           <button id="logout" class="action danger" type="button">Выйти</button>
-          <button id="saveSettings" class="action primary" type="button">Сохранить</button>
         </div>
       </div>
     </div>
@@ -972,6 +971,9 @@
         other: null,
       };
       let categoryColors = { ...defaultCategoryColors };
+      let settingsSaveTimer = null;
+      let settingsSaveChain = Promise.resolve();
+      let settingsSaveErrorShown = false;
 
       function syncViewportHeight() {
         const viewport = window.visualViewport;
@@ -1177,6 +1179,7 @@
               ? workDays.filter((item) => item !== index)
               : [...workDays, index].sort();
             renderDays();
+            scheduleSettingsSave(0);
           };
           box.appendChild(button);
         });
@@ -1209,6 +1212,7 @@
           select.onchange = () => {
             categoryColors[category] = select.value || null;
             updateDot();
+            scheduleSettingsSave(0);
           };
           updateDot();
           row.append(name, select);
@@ -1225,6 +1229,59 @@
           mode: document.getElementById("travelMode").value,
           arrival_buffer_minutes: Number(document.getElementById("arrivalBuffer").value),
         };
+      }
+
+      function settingsPayload() {
+        return {
+          timezone: document.getElementById("timezone").value,
+          work_start: document.getElementById("workStart").value,
+          work_end: document.getElementById("workEnd").value,
+          work_days: workDays,
+          buffer_minutes: Number(document.getElementById("buffer").value),
+          category_colors: categoryColors,
+          navigation: navigationForm(),
+        };
+      }
+
+      function scheduleSettingsSave(delay = 350) {
+        clearTimeout(settingsSaveTimer);
+        settingsSaveTimer = setTimeout(() => {
+          settingsSaveTimer = null;
+          const payload = settingsPayload();
+          settingsSaveChain = settingsSaveChain
+            .catch(() => {})
+            .then(async () => {
+              await api("/api/settings", {
+                method: "POST",
+                body: JSON.stringify(payload),
+              });
+              settingsSaveErrorShown = false;
+              document.dispatchEvent(new CustomEvent("planner-settings-saved", {detail: payload}));
+            })
+            .catch((error) => {
+              console.error("Automatic settings save failed", error);
+              if (!settingsSaveErrorShown) {
+                settingsSaveErrorShown = true;
+                alert("Не удалось автоматически сохранить настройки: " + error.message);
+              }
+            });
+        }, delay);
+      }
+
+      function bindSettingsAutosave() {
+        const ids = [
+          "timezone", "workStart", "workEnd", "buffer",
+          "navigationEnabled", "homeAddress", "officeAddress",
+          "defaultPlace", "travelMode", "arrivalBuffer",
+        ];
+        for (const id of ids) {
+          const control = document.getElementById(id);
+          if (!control) continue;
+          control.addEventListener("change", () => scheduleSettingsSave(0));
+          if (control.tagName === "INPUT") {
+            control.addEventListener("input", () => scheduleSettingsSave(450));
+          }
+        }
       }
 
       function loadSettings(status) {
@@ -1579,28 +1636,6 @@
         await submitPlannerText(messageInput.value.trim());
       };
 
-      document.getElementById("saveSettings").onclick = async () => {
-        try {
-          await api("/api/settings", {
-            method: "POST",
-            body: JSON.stringify({
-              timezone: document.getElementById("timezone").value,
-              work_start: document.getElementById("workStart").value,
-              work_end: document.getElementById("workEnd").value,
-              work_days: workDays,
-              buffer_minutes: Number(document.getElementById("buffer").value),
-              category_colors: categoryColors,
-              navigation: navigationForm(),
-            }),
-          });
-          settingsPanel.classList.remove("open");
-          await refresh();
-          armChatIdleTimer();
-        } catch (error) {
-          alert("Не удалось сохранить настройки: " + error.message);
-        }
-      };
-
       document.getElementById("logout").onclick = async () => {
         try {
           let subscription = null;
@@ -1625,6 +1660,7 @@
 
       renderDays();
       renderCategoryColors();
+      bindSettingsAutosave();
       refresh();
     </script>
   </body>

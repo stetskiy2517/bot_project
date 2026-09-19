@@ -17,17 +17,17 @@
     <label class="field">Автоматические напоминания <input id="proactiveRemindersEnabled" type="checkbox"></label>
     <label class="field">Автоматические события календаря <input id="proactiveCalendarEnabled" type="checkbox"></label>
     <label class="field">Важные push-уведомления <input id="attentionPushEnabled" type="checkbox"><span class="settings-help">Только новые важные сигналы: действия из почты, просроченные задачи и конфликты маршрута. Учитываются тихие часы и дедупликация.</span></label>
-    <button class="action" type="button" id="saveProactiveActions">Сохранить</button>
     <p id="proactiveState" class="settings-help"></p>`;
   root.insertBefore(section, root.lastElementChild);
 
   const reminderToggle = document.getElementById("proactiveRemindersEnabled");
   const calendarToggle = document.getElementById("proactiveCalendarEnabled");
   const pushToggle = document.getElementById("attentionPushEnabled");
-  const save = document.getElementById("saveProactiveActions");
   const state = document.getElementById("proactiveState");
   let loading = false;
   let aiAccess = true;
+  let saveTimer = null;
+  let saveChain = Promise.resolve();
 
   function describe(action) {
     if (!action) return "Автоматических ИИ-действий пока не было.";
@@ -73,30 +73,37 @@
     }
   }
 
-  save.addEventListener("click", async () => {
-    save.disabled = true;
-    try {
-      await api("/api/assistant/preferences", {
-        method: "POST",
-        body: JSON.stringify({
-          proactive_reminders_enabled: aiAccess && reminderToggle.checked,
-          proactive_calendar_events_enabled: aiAccess && calendarToggle.checked,
-          attention_push_enabled: pushToggle.checked,
-        }),
-      });
-      const enabled = [];
-      if (aiAccess && reminderToggle.checked) enabled.push("автонапоминания");
-      if (aiAccess && calendarToggle.checked) enabled.push("автособытия");
-      if (pushToggle.checked) enabled.push("важные push");
-      state.textContent = enabled.length
-        ? `Включено: ${enabled.join(", ")}. Центр внимания не делает дополнительных ИИ-запросов.`
-        : "Автоматические действия и важные push выключены. Центр внимания остаётся доступен в «Сегодня».";
-    } catch (error) {
-      state.textContent = error.message;
-    } finally {
-      save.disabled = false;
-    }
-  });
+  function scheduleSave(delay = 150) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      const values = {
+        proactive_reminders_enabled: aiAccess && reminderToggle.checked,
+        proactive_calendar_events_enabled: aiAccess && calendarToggle.checked,
+        attention_push_enabled: pushToggle.checked,
+      };
+      saveChain = saveChain
+        .catch(() => {})
+        .then(async () => {
+          await api("/api/assistant/preferences", {
+            method: "POST",
+            body: JSON.stringify(values),
+          });
+          const enabled = [];
+          if (values.proactive_reminders_enabled) enabled.push("автонапоминания");
+          if (values.proactive_calendar_events_enabled) enabled.push("автособытия");
+          if (values.attention_push_enabled) enabled.push("важные push");
+          state.textContent = enabled.length
+            ? `Включено: ${enabled.join(", ")}. Сохранено автоматически.`
+            : "Автоматические действия и важные push выключены. Сохранено автоматически.";
+        })
+        .catch((error) => { state.textContent = error.message; });
+    }, delay);
+  }
+
+  for (const toggle of [reminderToggle, calendarToggle, pushToggle]) {
+    toggle.addEventListener("change", () => scheduleSave(0));
+  }
 
   new MutationObserver(() => {
     if (settingsPanel.classList.contains("open")) load();

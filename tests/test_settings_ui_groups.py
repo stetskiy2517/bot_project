@@ -49,9 +49,24 @@ class SettingsUiGroupsTests(unittest.TestCase):
             "buffer",
             "navigationGroup",
             "categoryColorsGroup",
-            "saveSettings",
         ):
             self.assertIn(f'id="{control_id}"', html)
+
+        self.assertNotIn('id="saveSettings"', html)
+        self.assertIn("scheduleSettingsSave", html)
+
+    def test_settings_modules_use_autosave_instead_of_save_buttons(self):
+        for path, removed_id, autosave_marker in (
+            ("/assistant.js", "saveAssistantDelivery", "scheduleDeliverySave"),
+            ("/proactive.js", "saveProactiveActions", "scheduleSave"),
+            ("/navigation-extra.js", "saveNavigationExtra", "scheduleBufferSave"),
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            script = response.get_data(as_text=True)
+            response.close()
+            self.assertNotIn(removed_id, script)
+            self.assertIn(autosave_marker, script)
 
 
 if __name__ == "__main__":

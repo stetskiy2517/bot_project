@@ -165,22 +165,8 @@
   }
 
   function placeActions() {
-    const save = document.getElementById("saveSettings");
     const logout = document.getElementById("logout");
-    const planning = themeBody("planning");
     const account = themeBody("account");
-
-    if (save && planning) {
-      let actions = document.getElementById("planningThemeActions");
-      if (!actions) {
-        actions = document.createElement("div");
-        actions.id = "planningThemeActions";
-        actions.className = "settings-theme-actions";
-        planning.appendChild(actions);
-      }
-      if (save.parentElement !== actions) actions.appendChild(save);
-      save.textContent = "Сохранить планирование";
-    }
 
     if (logout && account) {
       let actions = document.getElementById("accountThemeActions");

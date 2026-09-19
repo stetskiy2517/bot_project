@@ -7,6 +7,8 @@
   let optimizationBusy = false;
   let activeOriginRequest = null;
   let activeOptimizationRequest = null;
+  let bufferSaveTimer = null;
+  let bufferSaveChain = Promise.resolve();
 
   function api(path, options) {
     if (typeof window.api !== "function") throw new Error("API недоступен");
@@ -58,7 +60,6 @@
       "testNavigation",
       "parkingBufferMinutes",
       "walkingBufferMinutes",
-      "saveNavigationExtra",
       "openNextRoute",
     ]) setFieldDisabled(id, !selected);
 
@@ -128,7 +129,21 @@
       body: JSON.stringify({parking_buffer_minutes: parking, walking_buffer_minutes: walking}),
     });
     document.getElementById("navigationExtraState").textContent =
-      `Сохранено. Итоговый запас: ${data.preferences.arrival_buffer_minutes || 0} мин.`;
+      `Сохранено автоматически. Итоговый запас: ${data.preferences.arrival_buffer_minutes || 0} мин.`;
+  }
+
+  function scheduleBufferSave(delay = 350) {
+    clearTimeout(bufferSaveTimer);
+    bufferSaveTimer = setTimeout(() => {
+      bufferSaveTimer = null;
+      bufferSaveChain = bufferSaveChain
+        .catch(() => {})
+        .then(() => save())
+        .catch((error) => {
+          const state = document.getElementById("navigationExtraState");
+          if (state) state.textContent = error.message;
+        });
+    }, delay);
   }
 
   async function openNextRoute() {
@@ -425,15 +440,16 @@
         <label class="field">Дойти до места, минут<input id="walkingBufferMinutes" type="number" min="0" max="180" step="5" value="0"></label>
       </div>
       <div class="assistant-actions">
-        <button id="saveNavigationExtra" class="action" type="button">Сохранить</button>
         <button id="openNextRoute" class="action" type="button">Открыть маршрут к следующей встрече</button>
       </div>
       <p id="navigationExtraState" class="settings-help" role="status"></p>`;
     root.append(section);
     section.addEventListener("toggle", () => { if (section.open) load(); });
-    section.querySelector("#saveNavigationExtra").onclick = () => save().catch((error) => {
-      document.getElementById("navigationExtraState").textContent = error.message;
-    });
+    for (const id of ["parkingBufferMinutes", "walkingBufferMinutes"]) {
+      const input = document.getElementById(id);
+      input?.addEventListener("input", () => scheduleBufferSave(400));
+      input?.addEventListener("change", () => scheduleBufferSave(0));
+    }
     section.querySelector("#openNextRoute").onclick = () => openNextRoute().catch((error) => {
       document.getElementById("navigationExtraState").textContent = error.message;
     });
