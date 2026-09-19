@@ -144,23 +144,23 @@ class NavigationWebTests(unittest.TestCase):
         self.assertEqual(payload["distance_meters"], 7400)
         estimate.assert_called_once()
 
-    def test_yandex_route_url_normalizes_live_geo_origin(self):
-        url = _yandex_route_url(
-            "geo:55.7812,37.6331",
-            "Москва, Ленинградский проспект, 80",
-        )
+    def test_yandex_route_url_uses_device_location_as_origin(self):
+        url = _yandex_route_url("55.7812,37.6331")
         query = parse_qs(urlparse(url).query)
         self.assertEqual(query["mode"], ["routes"])
         self.assertEqual(
             unquote(query["rtext"][0]),
-            "55.7812000,37.6331000~Москва, Ленинградский проспект, 80",
+            "~55.7812000,37.6331000",
         )
-        self.assertNotIn("geo:", url)
+        self.assertEqual(query["rtt"], ["auto"])
 
-    def test_yandex_route_url_preserves_text_origin(self):
-        url = _yandex_route_url("Дом", "Офис")
+    def test_yandex_route_url_preserves_text_destination(self):
+        url = _yandex_route_url("Москва, Ленинградский проспект, 80")
         query = parse_qs(urlparse(url).query)
-        self.assertEqual(unquote(query["rtext"][0]), "Дом~Офис")
+        self.assertEqual(
+            unquote(query["rtext"][0]),
+            "~Москва, Ленинградский проспект, 80",
+        )
 
     def test_settings_ui_contains_navigation_controls(self):
         response = self.client.get("/")
