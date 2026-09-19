@@ -255,11 +255,14 @@
         taskSearchOpen = Boolean(open);
         shell.classList.toggle("open", taskSearchOpen);
         searchButton.setAttribute("aria-expanded", String(taskSearchOpen));
+        host.closest(".library-nav")?.classList.toggle("task-search-open", taskSearchOpen);
         if (taskSearchOpen) {
           requestAnimationFrame(() => {
             search.focus();
             if (search.value) search.select();
           });
+        } else {
+          search.blur();
         }
       };
       searchButton.addEventListener("click", () => setSearchOpen(!taskSearchOpen));
@@ -305,6 +308,7 @@
       taskSearchOpen = false;
       root?.querySelector(".planner-task-search-shell")?.classList.remove("open");
       root?.querySelector("#plannerTaskSearchBtn")?.setAttribute("aria-expanded", "false");
+      document.querySelector("#libraryScreen .library-nav")?.classList.remove("task-search-open");
     }
   }
 
@@ -416,6 +420,8 @@
     const style = document.createElement("style");
     style.textContent = `
       .planner-task-header-actions{display:flex;align-items:center;gap:6px}.planner-task-header-actions[hidden]{display:none!important}
+      #libraryScreen .library-tabs{transition:opacity .18s ease,transform .24s cubic-bezier(.22,.8,.24,1)}
+      #libraryScreen .library-nav.task-search-open .library-tabs{opacity:0;pointer-events:none;transform:translateX(-8px)}
       .planner-task-header-icon{position:relative;width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;border-radius:12px;background:#e9e9e6;color:#252524;cursor:pointer;transition:transform .16s ease,background .16s ease,color .16s ease}
       .planner-task-header-icon:active{transform:scale(.94)}.planner-task-header-icon.primary{background:#2d2d2c;color:#fff}.planner-task-header-icon.active::after{content:"";position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:#2d2d2c;box-shadow:0 0 0 2px #e9e9e6}
       .planner-task-header-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
