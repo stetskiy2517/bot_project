@@ -163,6 +163,10 @@ def main() -> int:
                 if max(centers) - min(centers) > 3:
                     raise AssertionError(f"Back, tabs and task actions must share one row: {centers!r}")
                 page.locator("#plannerTaskSearchBtn").click()
+                page.wait_for_function(
+                    "document.getElementById('plannerTaskSearchInput').getBoundingClientRect().width > 100",
+                    timeout=5000,
+                )
                 search_box = page.locator("#plannerTaskSearchInput").bounding_box()
                 search_button_box = page.locator("#plannerTaskSearchBtn").bounding_box()
                 if not search_box or not search_button_box or search_box["x"] >= search_button_box["x"]:
