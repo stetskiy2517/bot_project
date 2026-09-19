@@ -189,6 +189,40 @@ def main() -> int:
                 )
                 if page.locator("#libraryList .planner-task-toolbar").count():
                     raise AssertionError("Notes tab incorrectly rendered the tasks toolbar")
+
+                note_actions = page.locator("#notesHeaderActions")
+                note_actions_box = note_actions.bounding_box()
+                note_tabs_box = page.locator("#libraryScreen .library-tabs").bounding_box()
+                note_back_box = page.locator("#libraryBackBtn").bounding_box()
+                if not note_actions_box or not note_tabs_box or not note_back_box:
+                    raise AssertionError("Compact notes header controls are missing")
+                note_centers = [
+                    note_actions_box["y"] + note_actions_box["height"] / 2,
+                    note_tabs_box["y"] + note_tabs_box["height"] / 2,
+                    note_back_box["y"] + note_back_box["height"] / 2,
+                ]
+                if max(note_centers) - min(note_centers) > 3:
+                    raise AssertionError(f"Back, tabs and note actions must share one row: {note_centers!r}")
+                if page.locator("#notesProductToolbar .notes-toolbar-button").count():
+                    raise AssertionError("Legacy large notes toolbar is still rendered")
+
+                page.locator("#notesSearchBtn").click()
+                page.wait_for_function(
+                    "document.getElementById('notesLibrarySearch').getBoundingClientRect().width > 100",
+                    timeout=5000,
+                )
+                note_search_box = page.locator("#notesLibrarySearch").bounding_box()
+                note_search_button_box = page.locator("#notesSearchBtn").bounding_box()
+                if not note_search_box or not note_search_button_box or note_search_box["x"] >= note_search_button_box["x"]:
+                    raise AssertionError(
+                        f"Notes search must expand to the left of its icon: {note_search_box!r}, {note_search_button_box!r}"
+                    )
+                page.locator("#notesSearchBtn").click()
+                page.wait_for_function(
+                    "document.getElementById('notesSearchBtn').getAttribute('aria-expanded') === 'false' && "
+                    "getComputedStyle(document.querySelector('#libraryScreen .library-tabs')).opacity !== '0'",
+                    timeout=5000,
+                )
                 page.locator("#libraryBackBtn").click()
                 page.wait_for_function(
                     "!document.getElementById('app').classList.contains('library-active')",
