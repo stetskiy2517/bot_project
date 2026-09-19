@@ -187,6 +187,8 @@ def main():
         expect(page.locator("#settingsTheme-planning")).to_be_visible()
         expect(page.locator("#settingsThemes")).to_be_hidden()
         expect(page.locator("#saveSettings")).to_have_count(0)
+        page.locator("#calendarSettingsGroup summary").click()
+        expect(page.locator("#workStart")).to_be_visible()
         page.locator("#workStart").fill("08:30")
         page.locator("#workStart").blur()
         page.wait_for_timeout(700)
