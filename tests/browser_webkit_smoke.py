@@ -173,6 +173,12 @@ def main() -> int:
                     raise AssertionError(
                         f"Task search must expand to the left of its icon: {search_box!r}, {search_button_box!r}"
                     )
+                page.locator("#plannerTaskSearchBtn").click()
+                page.wait_for_function(
+                    "document.getElementById('plannerTaskSearchBtn').getAttribute('aria-expanded') === 'false' && "
+                    "getComputedStyle(document.querySelector('#libraryScreen .library-tabs')).opacity !== '0'",
+                    timeout=5000,
+                )
 
                 page.locator("#libraryNotesTab").click()
                 page.wait_for_function(
