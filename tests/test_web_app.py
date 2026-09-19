@@ -209,7 +209,6 @@ class WebAppTests(unittest.TestCase):
             "days",
             "buffer",
             "categoryColors",
-            "saveSettings",
             "voiceBtn",
             "chatVoiceBtn",
             "chatCollapseBtn",
@@ -218,6 +217,8 @@ class WebAppTests(unittest.TestCase):
             "chat",
         ]:
             self.assertIn(f'id="{control}"', html)
+        self.assertNotIn('id="saveSettings"', html)
+        self.assertIn("scheduleSettingsSave", html)
         self.assertIn("MediaRecorder", html)
         self.assertIn("/api/voice", html)
         self.assertIn("Войти через Google", html)
