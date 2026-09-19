@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
+import re
 from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
@@ -33,6 +34,33 @@ navigation_extra_api = Blueprint("navigation_extra", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 MIN_EVENT_DURATION_MINUTES = 5
 logger = logging.getLogger(__name__)
+GEO_ROUTE_POINT_RE = re.compile(
+    r"^geo:(?P<lat>[+-]?\d+(?:\.\d+)?),(?P<lon>[+-]?\d+(?:\.\d+)?)$",
+    re.IGNORECASE,
+)
+
+
+def _yandex_route_point(value: object) -> str:
+    point = " ".join(str(value or "").split()).strip()
+    match = GEO_ROUTE_POINT_RE.fullmatch(point)
+    if not match:
+        return point
+    lat = float(match.group("lat"))
+    lon = float(match.group("lon"))
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        return point
+    return f"{lat:.7f},{lon:.7f}"
+
+
+def _yandex_route_url(origin: object, destination: object) -> str:
+    start = _yandex_route_point(origin)
+    finish = _yandex_route_point(destination)
+    return (
+        "https://yandex.ru/maps/?mode=routes&rtext="
+        + quote(start, safe="")
+        + "~"
+        + quote(finish, safe="")
+    )
 
 
 def _user() -> int:
@@ -447,7 +475,7 @@ def next_route():
         origin = resolve_origin(user_id, event, timezone_name, preferences=prefs, prefer_live=True)
         if not origin:
             continue
-        url = "https://yandex.ru/maps/?mode=routes&rtext=" + quote(origin, safe="") + "~" + quote(destination, safe="")
+        url = _yandex_route_url(origin, destination)
         return {
             "url": url,
             "event_id": event.get("id"),
