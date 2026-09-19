@@ -178,7 +178,7 @@
 
     const dayCard = upcoming.length
       ? `<div class="mobile-card mobile-day-card"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "календарь недоступен"}</span></div><div class="mobile-list">${upcoming.map(eventRow).join("")}</div></div>`
-      : `<div class="mobile-card mobile-day-card is-empty"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "недоступен"}</span></div><div class="mobile-day-empty"><strong>Календарь свободен</strong><span>На сегодня событий нет</span></div></div>`;
+      : `<div class="mobile-card mobile-day-card is-empty"><div class="mobile-card-title"><span>День</span><span class="mobile-card-meta">${data.calendar_ok ? "календарь" : "недоступен"}</span></div><div class="mobile-day-empty"><strong>${data.calendar_ok ? "Календарь свободен" : "Календарь недоступен"}</strong><span>${data.calendar_ok ? "На сегодня событий нет" : "События не удалось загрузить"}</span></div></div>`;
 
     const reviewCard = reviewText ? `
       <div class="mobile-card mobile-review-card">
