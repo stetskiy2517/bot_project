@@ -52,6 +52,7 @@
   let loading = false;
   let deliverySaveTimer = null;
   let deliverySaveChain = Promise.resolve();
+  let deliverySaveRevision = 0;
 
   function button(label, action) {
     const item = document.createElement("button");
@@ -145,6 +146,8 @@
 
   function scheduleDeliverySave(delay = 250) {
     clearTimeout(deliverySaveTimer);
+    const revision = ++deliverySaveRevision;
+    status.textContent = "Сохраняю настройки…";
     deliverySaveTimer = setTimeout(() => {
       deliverySaveTimer = null;
       const values = deliveryValues();
@@ -152,9 +155,13 @@
         .catch(() => {})
         .then(async () => {
           await api("/api/assistant/preferences", {method: "POST", body: JSON.stringify(values)});
-          status.textContent = "Настройки уведомлений сохранены автоматически.";
+          if (revision === deliverySaveRevision) {
+            status.textContent = "Настройки уведомлений сохранены автоматически.";
+          }
         })
-        .catch((error) => { status.textContent = error.message; });
+        .catch((error) => {
+          if (revision === deliverySaveRevision) status.textContent = error.message;
+        });
     }, delay);
   }
 
