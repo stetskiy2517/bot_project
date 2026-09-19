@@ -17,17 +17,32 @@
 
   const style = document.createElement("style");
   style.textContent = `
-    .category-manager{display:grid;gap:8px}
-    .category-manager-row{display:grid;grid-template-columns:14px minmax(0,1fr) minmax(118px,.65fr) 34px;gap:8px;align-items:center}
-    .category-manager-dot{width:11px;height:11px;border-radius:50%;background:#aaa}
-    .category-manager-row input,.category-manager-row select,.category-manager-add input,.category-manager-add select{width:100%;min-width:0;border:1px solid #dededb;border-radius:10px;background:#fff;padding:9px 10px;font:inherit;color:#111}
-    .category-manager-delete{width:34px;height:34px;border-radius:10px;background:#f3f3f1;color:#777;cursor:pointer;font-size:18px;line-height:1}
-    .category-manager-delete.confirm{background:#fee9e7;color:#b42318;font-size:12px;font-weight:650}
-    .category-manager-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(118px,.65fr) auto;gap:8px;margin-top:4px}
-    .category-manager-add button{border-radius:10px;padding:9px 12px;background:#111;color:#fff;cursor:pointer;font-weight:600}
-    .category-manager-help{font-size:12px;line-height:1.4;color:#888884;margin:3px 0 0}
-    .category-manager-error{font-size:12px;color:#b42318;min-height:16px}
-    @media(max-width:520px){.category-manager-row{grid-template-columns:12px minmax(0,1fr) 34px}.category-manager-row select{grid-column:2/3}.category-manager-add{grid-template-columns:1fr auto}.category-manager-add select{grid-column:1/2}}
+    .category-manager{display:grid;gap:12px}
+    .category-manager-list{overflow:hidden;border:1px solid #ececea;border-radius:16px;background:#fff}
+    .category-manager-row{display:grid;grid-template-columns:14px minmax(86px,1fr) minmax(108px,126px) 30px;gap:10px;align-items:center;min-height:58px;padding:8px 10px 8px 14px;background:#fff}
+    .category-manager-row+.category-manager-row{border-top:1px solid #ececea}
+    .category-manager-dot{width:14px;height:14px;border-radius:50%;background:#d9d9d6;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+    .category-manager-name{width:100%;min-width:0;border:0!important;outline:0;background:transparent!important;border-radius:9px!important;padding:8px 6px!important;font:inherit;font-size:15px!important;font-weight:600;color:#171717}
+    .category-manager-name:focus{background:#f5f5f3!important}
+    .category-manager-color{width:100%;min-width:0;border:0!important;outline:0;background:#f2f2f0!important;border-radius:10px!important;padding:8px 28px 8px 10px!important;font:inherit;font-size:13px!important;color:#5f5f5b}
+    .category-manager-delete{width:30px;height:30px;border-radius:10px;background:transparent;color:#aaa9a5;cursor:pointer;font-size:18px;line-height:1;transition:background .16s ease,color .16s ease}
+    .category-manager-delete:hover{background:#f3f3f1;color:#5f5f5b}
+    .category-manager-delete.confirm{background:#fee9e7;color:#b42318;font-size:11px;font-weight:650}
+    .category-manager-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(112px,132px) auto;gap:8px;align-items:center;padding:12px;border:1px solid #ececea;border-radius:16px;background:#fff}
+    .category-manager-add input,.category-manager-add select{width:100%;min-width:0;border:0;outline:0;border-radius:10px;background:#f5f5f3;padding:10px 11px;font:inherit;color:#171717}
+    .category-manager-add input::placeholder{color:#9b9b96}
+    .category-manager-add button{min-height:40px;border-radius:10px;padding:9px 13px;background:#2d2d2c;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}
+    .category-manager-help{font-size:12px;line-height:1.45;color:#888884;margin:0 2px}
+    .category-manager-error{font-size:12px;color:#b42318;min-height:0;margin:0 2px}
+    .category-manager-error:empty{display:none}
+    @media(max-width:430px){
+      .category-manager-row{grid-template-columns:14px minmax(72px,1fr) minmax(100px,112px) 30px;gap:8px;padding-left:12px}
+      .category-manager-name{font-size:14px!important}
+      .category-manager-color{font-size:12px!important;padding-left:8px!important}
+      .category-manager-add{grid-template-columns:minmax(0,1fr) auto}
+      .category-manager-add input{grid-column:1/-1}
+      .category-manager-add select{min-width:0}
+    }
   `;
   document.head.appendChild(style);
 
@@ -51,7 +66,7 @@
   }
 
   function colorSelect(category) {
-    return `<select data-category-color="${escapeHtml(category.key)}" aria-label="Цвет категории ${escapeHtml(category.label)}">` +
+    return `<select class="category-manager-color" data-category-color="${escapeHtml(category.key)}" aria-label="Цвет категории ${escapeHtml(category.label)}">` +
       colorOptions.map(([value, label]) => `<option value="${value}"${String(category.color_id || "") === value ? " selected" : ""}>${label}</option>`).join("") +
       `</select>`;
   }
@@ -64,12 +79,14 @@
   function render(message = "") {
     updateMeta();
     container.innerHTML = `<div class="category-manager">
-      ${categories.map(item => `<div class="category-manager-row" data-category-row="${escapeHtml(item.key)}">
-        <span class="category-manager-dot" style="background:${colorHex[String(item.color_id || "")] || "#aaa"}"></span>
-        <input data-category-label="${escapeHtml(item.key)}" maxlength="40" value="${escapeHtml(item.label)}" aria-label="Название категории" />
-        ${colorSelect(item)}
-        <button class="category-manager-delete" type="button" data-category-delete="${escapeHtml(item.key)}" aria-label="Удалить категорию">×</button>
-      </div>`).join("")}
+      <div class="category-manager-list">
+        ${categories.map(item => `<div class="category-manager-row" data-category-row="${escapeHtml(item.key)}">
+          <span class="category-manager-dot" style="background:${colorHex[String(item.color_id || "")] || "#d9d9d6"}"></span>
+          <input class="category-manager-name" data-category-label="${escapeHtml(item.key)}" maxlength="40" value="${escapeHtml(item.label)}" aria-label="Название категории ${escapeHtml(item.label)}" />
+          ${colorSelect(item)}
+          <button class="category-manager-delete" type="button" data-category-delete="${escapeHtml(item.key)}" aria-label="Удалить категорию ${escapeHtml(item.label)}">×</button>
+        </div>`).join("")}
+      </div>
       <div class="category-manager-add">
         <input id="newCategoryLabel" maxlength="40" placeholder="Новая категория" aria-label="Название новой категории" />
         <select id="newCategoryColor" aria-label="Цвет новой категории">${colorOptions.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
@@ -109,7 +126,12 @@
       });
     });
     container.querySelectorAll("[data-category-color]").forEach(select => {
-      select.addEventListener("change", () => patchCategory(select.dataset.categoryColor, {color_id: select.value || null}));
+      select.addEventListener("change", () => {
+        const row = select.closest(".category-manager-row");
+        const dot = row?.querySelector(".category-manager-dot");
+        if (dot) dot.style.background = colorHex[select.value] || "#d9d9d6";
+        patchCategory(select.dataset.categoryColor, {color_id: select.value || null});
+      });
     });
     container.querySelectorAll("[data-category-delete]").forEach(button => {
       button.addEventListener("click", async () => {

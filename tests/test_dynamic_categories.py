@@ -184,7 +184,12 @@ class DynamicCategoryApiTests(unittest.TestCase):
         self.assertIn('<script src="/category-manager.js"></script>', response.get_data(as_text=True))
         script = self.client.get("/category-manager.js")
         self.assertEqual(script.status_code, 200)
-        self.assertIn("/api/categories", script.get_data(as_text=True))
+        source = script.get_data(as_text=True)
+        self.assertIn("/api/categories", source)
+        self.assertIn("category-manager-list", source)
+        self.assertIn("category-manager-name", source)
+        self.assertIn("category-manager-color", source)
+        self.assertIn("background:#f5f5f3", source)
 
     def test_category_crud_api(self):
         initial = self.client.get("/api/categories")
