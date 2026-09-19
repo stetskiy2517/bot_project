@@ -30,7 +30,6 @@ from modules.navigation import (
     delete_travel_for_event,
     is_managed_travel_event,
     navigation_provider,
-    resolve_origin,
 )
 
 navigation_extra_api = Blueprint("navigation_extra", __name__)
@@ -89,13 +88,10 @@ def _yandex_destination_point(value: object) -> str:
     return point
 
 
-def _yandex_route_url(origin: object, destination: object) -> str:
-    start = _yandex_route_point(origin)
+def _yandex_route_url(destination: object) -> str:
     finish = _yandex_route_point(destination)
     return (
-        "https://yandex.ru/maps/?mode=routes&rtext="
-        + quote(start, safe="")
-        + "~"
+        "https://yandex.ru/maps/?mode=routes&rtext=~"
         + quote(finish, safe="")
         + "&rtt=auto"
     )
@@ -510,16 +506,13 @@ def next_route():
         destination = _resolved_event_destination(event, prefs)
         if not destination:
             continue
-        origin = resolve_origin(user_id, event, timezone_name, preferences=prefs, prefer_live=True)
-        if not origin:
-            continue
         destination_point = _yandex_destination_point(destination)
-        url = _yandex_route_url(origin, destination_point)
+        url = _yandex_route_url(destination_point)
         return {
             "url": url,
             "event_id": event.get("id"),
             "title": event.get("summary") or "Событие",
-            "origin": origin,
+            "origin": "current_location",
             "destination": destination,
             "destination_point": destination_point,
             "starts_at": start.isoformat(),
