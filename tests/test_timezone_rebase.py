@@ -65,6 +65,36 @@ class TimezoneRebaseTests(unittest.TestCase):
                     "2026-09-20T12:00:00+00:00",
                 ),
             )
+            conn.execute(
+                "INSERT INTO reminders "
+                "(user_id,text,remind_at,status,created_at,delivered_at) VALUES (?,?,?,?,?,?)",
+                (
+                    self.USER_ID,
+                    "Старое напоминание",
+                    "2026-09-19T20:00:00+00:00",
+                    "delivered",
+                    "2026-09-19T12:00:00+00:00",
+                    "2026-09-19T20:00:00+00:00",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO tasks "
+                "(user_id,title,description,due_at,status,priority,created_at,completed_at,category,flexible,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    self.USER_ID,
+                    "Выполненная задача",
+                    "",
+                    "2026-09-19T20:00:00+00:00",
+                    "done",
+                    "normal",
+                    "2026-09-19T12:00:00+00:00",
+                    "2026-09-19T20:00:00+00:00",
+                    "personal",
+                    1,
+                    "2026-09-19T20:00:00+00:00",
+                ),
+            )
             conn.commit()
 
     def tearDown(self):
@@ -111,6 +141,32 @@ class TimezoneRebaseTests(unittest.TestCase):
             self._local_hour(task[0], "Europe/Saratov"),
             "2026-09-23 23:00",
         )
+
+    def test_timezone_change_does_not_rewrite_completed_history(self):
+        with db_lock:
+            reminder_before = conn.execute(
+                "SELECT remind_at FROM reminders WHERE user_id=? AND text='Старое напоминание'",
+                (self.USER_ID,),
+            ).fetchone()[0]
+            task_before = conn.execute(
+                "SELECT due_at FROM tasks WHERE user_id=? AND title='Выполненная задача'",
+                (self.USER_ID,),
+            ).fetchone()[0]
+
+        save_user_timezone(self.USER_ID, "Europe/Saratov")
+
+        with db_lock:
+            reminder_after = conn.execute(
+                "SELECT remind_at FROM reminders WHERE user_id=? AND text='Старое напоминание'",
+                (self.USER_ID,),
+            ).fetchone()[0]
+            task_after = conn.execute(
+                "SELECT due_at FROM tasks WHERE user_id=? AND title='Выполненная задача'",
+                (self.USER_ID,),
+            ).fetchone()[0]
+
+        self.assertEqual(reminder_after, reminder_before)
+        self.assertEqual(task_after, task_before)
 
     def test_round_trip_timezone_change_does_not_drift(self):
         save_user_timezone(self.USER_ID, "Europe/Saratov")
