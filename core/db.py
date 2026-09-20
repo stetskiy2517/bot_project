@@ -3,6 +3,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config import DB_PATH
 
@@ -139,10 +140,127 @@ def consume_oauth_state(state: str) -> int | None:
     return int(row[0]) if row[0] is not None else 0
 
 
+def _zone(name: str):
+    try:
+        return ZoneInfo(str(name))
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError("Неизвестный часовой пояс") from exc
+
+
+def _table_exists(name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (str(name),),
+    ).fetchone() is not None
+
+
+def _rebase_wall_clock_iso(value: object, old_timezone: str, new_timezone: str) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    old_zone = _zone(old_timezone)
+    new_zone = _zone(new_timezone)
+    local = parsed.astimezone(old_zone)
+    moved = datetime(
+        local.year,
+        local.month,
+        local.day,
+        local.hour,
+        local.minute,
+        local.second,
+        local.microsecond,
+        tzinfo=new_zone,
+        fold=local.fold,
+    )
+    return moved.astimezone(timezone.utc).isoformat()
+
+
+def _rebase_user_floating_times(user_id: int, old_timezone: str, new_timezone: str) -> None:
+    """Keep task/reminder wall-clock times stable when the user changes timezone.
+
+    Calendar events are intentionally excluded: they represent real instants and
+    may carry their own event timezone. Standalone tasks and reminders are
+    floating personal times, so 23:00 must stay 23:00 after travel.
+    """
+    if old_timezone == new_timezone:
+        return
+
+    _zone(old_timezone)
+    _zone(new_timezone)
+
+    if _table_exists("reminders"):
+        rows = conn.execute(
+            "SELECT reminder_id,remind_at,next_remind_at,repeat_rule,repeat_timezone "
+            "FROM reminders WHERE user_id=? AND deleted_at IS NULL",
+            (int(user_id),),
+        ).fetchall()
+        for reminder_id, remind_at, next_remind_at, repeat_rule, repeat_timezone in rows:
+            follows_user_timezone = (
+                not repeat_rule
+                or not repeat_timezone
+                or str(repeat_timezone) == str(old_timezone)
+            )
+            if not follows_user_timezone:
+                continue
+            moved_remind = _rebase_wall_clock_iso(remind_at, old_timezone, new_timezone)
+            moved_next = _rebase_wall_clock_iso(next_remind_at, old_timezone, new_timezone)
+            if moved_remind is None:
+                continue
+            conn.execute(
+                "UPDATE reminders SET remind_at=?,next_remind_at=?,repeat_timezone=? "
+                "WHERE user_id=? AND reminder_id=?",
+                (
+                    moved_remind,
+                    moved_next,
+                    new_timezone if repeat_rule else repeat_timezone,
+                    int(user_id),
+                    int(reminder_id),
+                ),
+            )
+
+    if _table_exists("tasks"):
+        rows = conn.execute(
+            "SELECT task_id,due_at FROM tasks WHERE user_id=? AND due_at IS NOT NULL",
+            (int(user_id),),
+        ).fetchall()
+        for task_id, due_at in rows:
+            moved_due = _rebase_wall_clock_iso(due_at, old_timezone, new_timezone)
+            if moved_due is None:
+                continue
+            conn.execute(
+                "UPDATE tasks SET due_at=? WHERE user_id=? AND task_id=?",
+                (moved_due, int(user_id), int(task_id)),
+            )
+
+
 def save_user_timezone(user_id:int,timezone:str,*,commit:bool=True)->None:
+    timezone = str(timezone or "").strip()
+    _zone(timezone)
     with db_lock:
-        conn.execute("INSERT INTO users (user_id,timezone) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET timezone=excluded.timezone",(user_id,timezone))
-        if commit: conn.commit()
+        row = conn.execute("SELECT timezone FROM users WHERE user_id=?", (int(user_id),)).fetchone()
+        old_timezone = str(row[0] or DEFAULT_TIMEZONE) if row else DEFAULT_TIMEZONE
+        if old_timezone != timezone:
+            try:
+                _rebase_user_floating_times(int(user_id), old_timezone, timezone)
+            except ValueError:
+                # A legacy invalid stored zone must not block switching to a valid zone.
+                if old_timezone != DEFAULT_TIMEZONE:
+                    _rebase_user_floating_times(int(user_id), DEFAULT_TIMEZONE, timezone)
+                else:
+                    raise
+        conn.execute(
+            "INSERT INTO users (user_id,timezone) VALUES (?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET timezone=excluded.timezone",
+            (int(user_id), timezone),
+        )
+        if commit:
+            conn.commit()
 
 
 def get_user_timezone(user_id:int,default:str|None=DEFAULT_TIMEZONE)->str|None:
