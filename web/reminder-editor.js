@@ -95,7 +95,7 @@
       details.set(Number(item.id), item);
     }
 
-    const remind = localParts(item.remind_at);
+    const remind = localParts(item.scheduled_at || item.remind_at);
     backdrop.innerHTML = `
       <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить задачу с уведомлением">
         <div class="reminder-edit-head">
