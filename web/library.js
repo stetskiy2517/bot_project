@@ -636,7 +636,7 @@
     const meta = document.createElement("div");
     meta.className = "library-card-meta reminder-card-meta";
     const date = document.createElement("span");
-    date.textContent = formatDate(reminder.remind_at);
+    date.textContent = formatDate(reminder.scheduled_at || reminder.remind_at);
     meta.appendChild(date);
     if (reminder.repeat_rule) {
       const repeatIcon = document.createElement("span");
@@ -837,7 +837,7 @@
       });
       replaceReminder(payload.reminder);
       closeSnoozeSheet();
-      showToast(`Перенесено на ${formatDate(payload.reminder.remind_at, false)}`);
+      showToast(`Перенесено на ${formatDate(payload.reminder.scheduled_at || payload.reminder.remind_at, false)}`);
     } catch (error) {
       if (error.message !== "unauthorized") showToast(error.message || "Не удалось перенести напоминание");
     }
