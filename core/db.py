@@ -249,6 +249,62 @@ def _rebase_user_floating_times(user_id: int, old_timezone: str, new_timezone: s
             )
 
 
+def _repair_stale_user_timezone_items(user_id: int, timezone_name: str) -> None:
+    """Repair legacy active items whose own schedule timezone is older than the user timezone."""
+    if not _table_exists("reminders"):
+        return
+
+    rows = conn.execute(
+        "SELECT reminder_id,remind_at,next_remind_at,status,repeat_timezone "
+        "FROM reminders WHERE user_id=? AND deleted_at IS NULL "
+        "AND repeat_rule IS NOT NULL AND next_remind_at IS NOT NULL "
+        "AND repeat_timezone IS NOT NULL AND repeat_timezone<>?",
+        (int(user_id), timezone_name),
+    ).fetchall()
+    stale_zones = {str(row[4]) for row in rows if row[4]}
+
+    for reminder_id, remind_at, next_remind_at, status, source_timezone in rows:
+        try:
+            _zone(source_timezone)
+        except ValueError:
+            continue
+        moved_remind = (
+            _rebase_wall_clock_iso(remind_at, source_timezone, timezone_name)
+            if status in {"pending", "delivering"}
+            else str(remind_at or "").strip() or None
+        )
+        moved_next = _rebase_wall_clock_iso(next_remind_at, source_timezone, timezone_name)
+        conn.execute(
+            "UPDATE reminders SET remind_at=?,next_remind_at=?,repeat_timezone=? "
+            "WHERE user_id=? AND reminder_id=?",
+            (
+                moved_remind,
+                moved_next,
+                timezone_name,
+                int(user_id),
+                int(reminder_id),
+            ),
+        )
+
+    # Legacy tasks did not store their creation timezone. If all stale recurring
+    # reminders agree on one former user timezone, use that as the migration hint.
+    if len(stale_zones) == 1 and _table_exists("tasks"):
+        source_timezone = next(iter(stale_zones))
+        if source_timezone != timezone_name:
+            rows = conn.execute(
+                "SELECT task_id,due_at FROM tasks "
+                "WHERE user_id=? AND status='open' AND due_at IS NOT NULL",
+                (int(user_id),),
+            ).fetchall()
+            for task_id, due_at in rows:
+                moved_due = _rebase_wall_clock_iso(due_at, source_timezone, timezone_name)
+                if moved_due is not None:
+                    conn.execute(
+                        "UPDATE tasks SET due_at=? WHERE user_id=? AND task_id=?",
+                        (moved_due, int(user_id), int(task_id)),
+                    )
+
+
 def save_user_timezone(user_id:int,timezone:str,*,commit:bool=True)->None:
     timezone = str(timezone or "").strip()
     _zone(timezone)
@@ -259,11 +315,15 @@ def save_user_timezone(user_id:int,timezone:str,*,commit:bool=True)->None:
             try:
                 _rebase_user_floating_times(int(user_id), old_timezone, timezone)
             except ValueError:
-                # A legacy invalid stored zone must not block switching to a valid zone.
                 if old_timezone != DEFAULT_TIMEZONE:
                     _rebase_user_floating_times(int(user_id), DEFAULT_TIMEZONE, timezone)
                 else:
                     raise
+
+        # This also runs when the account already has the new timezone. It repairs
+        # rows created before timezone rebasing existed (e.g. Moscow -> Saratov).
+        _repair_stale_user_timezone_items(int(user_id), timezone)
+
         conn.execute(
             "INSERT INTO users (user_id,timezone) VALUES (?,?) "
             "ON CONFLICT(user_id) DO UPDATE SET timezone=excluded.timezone",
