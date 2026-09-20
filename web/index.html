@@ -820,6 +820,7 @@
           <label class="field"
             >Часовой пояс<select id="timezone">
               <option value="Europe/Moscow">Москва — Europe/Moscow</option>
+              <option value="Europe/Saratov">Саратов — Europe/Saratov</option>
               <option value="Europe/Amsterdam">Амстердам — Europe/Amsterdam</option>
               <option value="Europe/Tallinn">Таллин — Europe/Tallinn</option>
               <option value="Europe/Helsinki">Хельсинки — Europe/Helsinki</option>
@@ -1284,10 +1285,46 @@
         }
       }
 
+      function deviceTimezone() {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        } catch (_error) {
+          return "";
+        }
+      }
+
+      async function syncDeviceTimezone(status) {
+        const detected = deviceTimezone();
+        if (!detected || detected === status.timezone) return status;
+        try {
+          const updated = await api("/api/settings", {
+            method: "POST",
+            body: JSON.stringify({timezone: detected}),
+          });
+          return {
+            ...status,
+            ...updated,
+            user: status.user,
+            csrf_token: status.csrf_token,
+            server_time_ms: status.server_time_ms,
+          };
+        } catch (error) {
+          console.warn("Automatic timezone sync failed", error);
+          return status;
+        }
+      }
+
       function loadSettings(status) {
         const preferences = status.preferences || {};
-        document.getElementById("timezone").value =
-          status.timezone || "Europe/Moscow";
+        const timezoneControl = document.getElementById("timezone");
+        const timezoneValue = status.timezone || "Europe/Moscow";
+        if (![...timezoneControl.options].some(option => option.value === timezoneValue)) {
+          const option = document.createElement("option");
+          option.value = timezoneValue;
+          option.textContent = timezoneValue + " — устройство";
+          timezoneControl.appendChild(option);
+        }
+        timezoneControl.value = timezoneValue;
         document.getElementById("workStart").value =
           preferences.work_start || "09:00";
         document.getElementById("workEnd").value =
@@ -1326,7 +1363,8 @@
 
       async function refresh() {
         try {
-          const status = await api("/api/status");
+          let status = await api("/api/status");
+          status = await syncDeviceTimezone(status);
           login.classList.remove("open");
           loadSettings(status);
           restoreDraft();
@@ -1657,6 +1695,27 @@
       }
       if ("serviceWorker" in navigator)
         navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+      let timezoneResumeBusy = false;
+      document.addEventListener("visibilitychange", async () => {
+        if (document.hidden || timezoneResumeBusy) return;
+        timezoneResumeBusy = true;
+        try {
+          const before = await api("/api/status");
+          const after = await syncDeviceTimezone(before);
+          if (after.timezone !== before.timezone) {
+            loadSettings(after);
+            document.dispatchEvent(new CustomEvent("planner-timezone-changed", {
+              detail: {timezone: after.timezone},
+            }));
+            document.dispatchEvent(new Event("planner-library-changed"));
+          }
+        } catch (_error) {
+          // Normal offline/resume races are handled by the next refresh.
+        } finally {
+          timezoneResumeBusy = false;
+        }
+      });
 
       renderDays();
       renderCategoryColors();
