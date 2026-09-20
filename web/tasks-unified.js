@@ -102,7 +102,7 @@
     meta.className = "planner-task-meta";
     const parts = [];
     if (item.category_label) parts.push(item.category_label);
-    parts.push(`Уведомление ${formatDate(item.remind_at)}`);
+    parts.push(`Уведомление ${formatDate(item.scheduled_at || item.remind_at)}`);
     const repeat = repeatLabel(item.repeat_rule);
     if (repeat) parts.push(repeat);
     if (item.status === "delivered") parts.push("уведомление отправлено");
