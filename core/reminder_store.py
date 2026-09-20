@@ -85,7 +85,7 @@ def _to_utc(value: datetime) -> datetime:
 
 
 def _from_row(row) -> dict:
-    return {
+    reminder = {
         "reminder_id": int(row[0]),
         "user_id": int(row[1]),
         "text": row[2],
@@ -102,6 +102,14 @@ def _from_row(row) -> dict:
         "repeat_timezone": row[13],
         "next_remind_at": row[14],
     }
+    reminder["scheduled_at"] = (
+        reminder["next_remind_at"]
+        if reminder["repeat_rule"]
+        and reminder["next_remind_at"]
+        and reminder["status"] in {REMINDER_DELIVERED, REMINDER_COMPLETED}
+        else reminder["remind_at"]
+    )
+    return reminder
 
 
 def _parse_utc(value: str) -> datetime:
