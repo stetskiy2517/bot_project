@@ -161,6 +161,7 @@ def _library_reminder_payload(reminder: dict) -> dict:
         "id": int(reminder["reminder_id"]),
         "text": str(reminder.get("text") or ""),
         "remind_at": reminder.get("remind_at"),
+        "scheduled_at": reminder.get("scheduled_at") or reminder.get("remind_at"),
         "status": reminder.get("status"),
         "repeat_rule": reminder.get("repeat_rule"),
         "created_at": reminder.get("created_at"),
@@ -178,7 +179,7 @@ def _note_chat_text(note: dict) -> str:
 
 
 def _reminder_chat_text(reminder: dict, timezone: str) -> str:
-    when = str(reminder.get("remind_at") or "")
+    when = str(reminder.get("scheduled_at") or reminder.get("remind_at") or "")
     try:
         due = datetime.fromisoformat(when.replace("Z", "+00:00"))
         when = due.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
