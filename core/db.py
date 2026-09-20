@@ -196,11 +196,14 @@ def _rebase_user_floating_times(user_id: int, old_timezone: str, new_timezone: s
 
     if _table_exists("reminders"):
         rows = conn.execute(
-            "SELECT reminder_id,remind_at,next_remind_at,repeat_rule,repeat_timezone "
-            "FROM reminders WHERE user_id=? AND deleted_at IS NULL",
+            "SELECT reminder_id,remind_at,next_remind_at,status,repeat_rule,repeat_timezone "
+            "FROM reminders WHERE user_id=? AND deleted_at IS NULL AND ("
+            "status IN ('pending','delivering') OR "
+            "(repeat_rule IS NOT NULL AND next_remind_at IS NOT NULL)"
+            ")",
             (int(user_id),),
         ).fetchall()
-        for reminder_id, remind_at, next_remind_at, repeat_rule, repeat_timezone in rows:
+        for reminder_id, remind_at, next_remind_at, status, repeat_rule, repeat_timezone in rows:
             follows_user_timezone = (
                 not repeat_rule
                 or not repeat_timezone
@@ -208,9 +211,15 @@ def _rebase_user_floating_times(user_id: int, old_timezone: str, new_timezone: s
             )
             if not follows_user_timezone:
                 continue
-            moved_remind = _rebase_wall_clock_iso(remind_at, old_timezone, new_timezone)
+
+            move_current = status in {"pending", "delivering"}
+            moved_remind = (
+                _rebase_wall_clock_iso(remind_at, old_timezone, new_timezone)
+                if move_current
+                else str(remind_at or "").strip() or None
+            )
             moved_next = _rebase_wall_clock_iso(next_remind_at, old_timezone, new_timezone)
-            if moved_remind is None:
+            if move_current and moved_remind is None:
                 continue
             conn.execute(
                 "UPDATE reminders SET remind_at=?,next_remind_at=?,repeat_timezone=? "
@@ -226,7 +235,8 @@ def _rebase_user_floating_times(user_id: int, old_timezone: str, new_timezone: s
 
     if _table_exists("tasks"):
         rows = conn.execute(
-            "SELECT task_id,due_at FROM tasks WHERE user_id=? AND due_at IS NOT NULL",
+            "SELECT task_id,due_at FROM tasks "
+            "WHERE user_id=? AND status='open' AND due_at IS NOT NULL",
             (int(user_id),),
         ).fetchall()
         for task_id, due_at in rows:
