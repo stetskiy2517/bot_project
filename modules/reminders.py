@@ -326,7 +326,9 @@ def _reminder_title(text: str) -> str:
 
 
 def _reminder_datetime(reminder: dict, timezone: str) -> datetime:
-    value = datetime.fromisoformat(str(reminder["remind_at"]).replace("Z", "+00:00"))
+    value = datetime.fromisoformat(
+        str(reminder.get("scheduled_at") or reminder["remind_at"]).replace("Z", "+00:00")
+    )
     return value.astimezone(_user_zone(timezone))
 
 
