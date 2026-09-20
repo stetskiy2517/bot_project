@@ -13,6 +13,7 @@ from core.db import (
 
 TIMEZONE_OPTIONS = [
     ("Москва", "Europe/Moscow"),
+    ("Саратов", "Europe/Saratov"),
     ("Калининград", "Europe/Kaliningrad"),
     ("Самара", "Europe/Samara"),
     ("Екатеринбург", "Asia/Yekaterinburg"),
