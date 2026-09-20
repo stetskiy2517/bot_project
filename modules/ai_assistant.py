@@ -94,7 +94,10 @@ def _active_reminders_context(user_id: int) -> str:
         timezone_name = str(reminder.get("repeat_timezone") or user_timezone or "UTC")
         item = {
             "text": str(reminder.get("text") or "").strip(),
-            "remind_at_local": _local_reminder_iso(reminder.get("remind_at"), timezone_name),
+            "remind_at_local": _local_reminder_iso(
+                reminder.get("scheduled_at") or reminder.get("remind_at"),
+                timezone_name,
+            ),
             "timezone": timezone_name,
         }
         label = repeat_label(reminder.get("repeat_rule"))
