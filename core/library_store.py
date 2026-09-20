@@ -16,7 +16,7 @@ REMINDER_COLUMNS = (
 
 
 def _reminder_from_row(row) -> dict:
-    return {
+    reminder = {
         "reminder_id": int(row[0]),
         "user_id": int(row[1]),
         "text": row[2],
@@ -33,6 +33,14 @@ def _reminder_from_row(row) -> dict:
         "repeat_timezone": row[13],
         "next_remind_at": row[14],
     }
+    reminder["scheduled_at"] = (
+        reminder["next_remind_at"]
+        if reminder["repeat_rule"]
+        and reminder["next_remind_at"]
+        and reminder["status"] in {"delivered", "completed"}
+        else reminder["remind_at"]
+    )
+    return reminder
 
 
 def list_saved_reminders(user_id: int, *, limit: int = 500) -> list[dict]:
