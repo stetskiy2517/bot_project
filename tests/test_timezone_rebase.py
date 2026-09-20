@@ -168,6 +168,43 @@ class TimezoneRebaseTests(unittest.TestCase):
         self.assertEqual(reminder_after, reminder_before)
         self.assertEqual(task_after, task_before)
 
+    def test_same_user_timezone_repairs_stale_recurring_schedule(self):
+        # Simulate a legacy row after the account timezone was already changed,
+        # while the recurring reminder still carries its old Moscow schedule.
+        with db_lock:
+            conn.execute(
+                "UPDATE users SET timezone='Europe/Saratov' WHERE user_id=?",
+                (self.USER_ID,),
+            )
+            conn.commit()
+
+        save_user_timezone(self.USER_ID, "Europe/Saratov")
+
+        with db_lock:
+            reminder = conn.execute(
+                "SELECT remind_at,next_remind_at,repeat_timezone "
+                "FROM reminders WHERE user_id=? AND repeat_rule='daily'",
+                (self.USER_ID,),
+            ).fetchone()
+            task = conn.execute(
+                "SELECT due_at FROM tasks WHERE user_id=? AND status='open'",
+                (self.USER_ID,),
+            ).fetchone()
+
+        self.assertEqual(
+            self._local_hour(reminder[0], "Europe/Saratov"),
+            "2026-09-20 23:00",
+        )
+        self.assertEqual(
+            self._local_hour(reminder[1], "Europe/Saratov"),
+            "2026-09-21 23:00",
+        )
+        self.assertEqual(reminder[2], "Europe/Saratov")
+        self.assertEqual(
+            self._local_hour(task[0], "Europe/Saratov"),
+            "2026-09-23 23:00",
+        )
+
     def test_round_trip_timezone_change_does_not_drift(self):
         save_user_timezone(self.USER_ID, "Europe/Saratov")
         save_user_timezone(self.USER_ID, "Europe/Moscow")
