@@ -26,6 +26,7 @@ def _payload(reminder: dict) -> dict:
         "id": int(reminder["reminder_id"]),
         "text": str(reminder.get("text") or ""),
         "remind_at": reminder.get("remind_at"),
+        "scheduled_at": reminder.get("scheduled_at") or reminder.get("remind_at"),
         "status": reminder.get("status"),
         "repeat_rule": reminder.get("repeat_rule"),
         "repeat_timezone": reminder.get("repeat_timezone"),
