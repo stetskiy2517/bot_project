@@ -45,7 +45,7 @@ AUDIT_JS = r"""
     const s = getComputedStyle(el);
     const active = s.pointerEvents !== 'none' && intersectsViewport(r);
     if (active && (r.width < 44 || r.height < 44) && !el.matches('input[type="checkbox"],input[type="radio"]')) {
-      findings.push({kind:'small-target', selector:path(el), width:+r.width.toFixed(1), height:+r.height.toFixed(1), text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
+      findings.push({kind:'small-target', selector:path(el), width:+r.width.toFixed(1), height:+r.height.toFixed(1), cssHeight:s.height, cssMinHeight:s.minHeight, transform:s.transform, parentTransform:getComputedStyle(el.parentElement).transform, text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
     }
     if (intersectsViewport(r) && +s.opacity < 0.1 && s.pointerEvents !== 'none') {
       findings.push({kind:'invisible-clickable', selector:path(el), opacity:s.opacity, text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
