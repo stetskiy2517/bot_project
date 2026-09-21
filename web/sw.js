@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v18-account-visual";
+const CACHE = "personal-secretary-v19-appearance";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
@@ -18,6 +18,7 @@ const STATIC = [
   "/mobile-ui.css",
   "/mobile-ui-overlays.css",
   "/attention-center.css",
+  "/appearance.css",
   "/mobile-ui.js",
   "/mobile-ui-fixes.js",
   "/swipe-navigation.js",
@@ -26,6 +27,7 @@ const STATIC = [
   "/attention-center.js",
   "/reminder-editor.js",
   "/settings-themes.js",
+  "/appearance.js",
   "/prebeta-polish.js",
   "/ux-polish.js",
 ];

@@ -132,6 +132,14 @@ def main():
     def settings(page, summary):
         page.locator("#accountBtn").click()
         target = page.locator("#assistantSettings summary", has_text=summary).first
+        page.wait_for_function(
+            """summary => {
+                const targets = [...document.querySelectorAll('#assistantSettings summary')];
+                const target = targets.find(item => (item.textContent || '').includes(summary));
+                return Boolean(target?.closest('[data-settings-theme]')?.dataset.settingsTheme);
+            }""",
+            arg=summary,
+        )
         theme = target.evaluate("el => el.closest('[data-settings-theme]')?.dataset.settingsTheme || ''")
         assert theme, f"No settings theme found for {summary}"
         page.locator(f'[data-settings-open="{theme}"]').click()
@@ -180,7 +188,8 @@ def main():
         loaded(page)
         page.locator("#accountBtn").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
-        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
+        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
+        expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")
