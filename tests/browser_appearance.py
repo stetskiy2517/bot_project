@@ -65,7 +65,7 @@ def main() -> int:
             page.goto(base)
             page.wait_for_function("window.PlannerAppearance && document.documentElement.dataset.appearance === 'auto'")
             page.wait_for_function("document.documentElement.dataset.colorScheme === 'dark'")
-            assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(17, 18, 20)"
+            assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(18, 20, 23)"
 
             page.evaluate(
                 """() => {
@@ -89,22 +89,22 @@ def main() -> int:
             )
             assert page.locator("#appearanceDarkFixture .planner-task-card").first.evaluate(
                 "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(26, 29, 34)"
+            ) == "rgb(29, 33, 39)"
             assert page.locator("#appearanceDarkFixture .planner-task-title").first.evaluate(
                 "el => getComputedStyle(el).color"
-            ) == "rgb(242, 244, 246)"
+            ) == "rgb(247, 248, 250)"
             assert page.locator("#appearanceDarkFixture .planner-task-meta").first.evaluate(
                 "el => getComputedStyle(el).color"
-            ) == "rgb(157, 165, 176)"
+            ) == "rgb(173, 181, 192)"
             assert page.locator("#appearanceDarkFixture .planner-task-card.completed .planner-task-title").evaluate(
                 "el => getComputedStyle(el).color"
-            ) == "rgb(142, 150, 162)"
+            ) == "rgb(159, 167, 178)"
             assert page.locator("#appearanceDarkFixture .planner-task-filter").evaluate(
                 "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(27, 30, 35)"
+            ) == "rgb(29, 33, 39)"
             assert page.locator("#appearanceDarkFixture .library-tab.active").evaluate(
                 "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(42, 46, 53)"
+            ) == "rgb(48, 54, 64)"
             page.locator("#appearanceDarkFixture").evaluate("el => el.remove()")
 
             page.locator("#accountBtn").click()
