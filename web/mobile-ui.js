@@ -353,24 +353,14 @@
   }
 
   function openLibrarySection(name, {fromSettings = false} = {}) {
-    const library = document.getElementById("libraryOpenBtn");
-    if (!library) {
+    const libraryApi = window.PlannerLibrary;
+    if (!libraryApi?.open) {
       if (name === "tasks") setActiveNav(currentView);
       return showToast("Раздел ещё загружается");
     }
     if (fromSettings) closeSettingsForNavigation();
 
-    const open = () => {
-      if (name === "saved") {
-        const notes = document.getElementById("libraryNotesTab");
-        if (!notes) return showToast("Раздел ещё загружается");
-        notes.click();
-        library.click();
-        return;
-      }
-      library.click();
-      requestAnimationFrame(() => document.getElementById("libraryTasksTab")?.click());
-    };
+    const open = () => libraryApi.open(name === "saved" ? "notes" : "tasks");
     if (fromSettings) requestAnimationFrame(open);
     else open();
   }
