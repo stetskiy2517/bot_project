@@ -689,258 +689,6 @@
         font-weight: 600;
         cursor: pointer;
       }
-      .appearance-picker {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 4px;
-        padding: 4px;
-        border-radius: 14px;
-        background: #ececea;
-      }
-      .appearance-option {
-        min-height: 44px;
-        padding: 9px 8px;
-        border-radius: 11px;
-        background: transparent;
-        color: #6f6f6b;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .appearance-option.active {
-        background: #fff;
-        color: #111;
-        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.07);
-      }
-      :root[data-color-scheme="dark"] {
-        color: #f5f5f7;
-        background: #111214;
-        --bg: #111214;
-        --text: #f5f5f7;
-        --muted: #a1a1a6;
-        --line: #2c2e32;
-      }
-      html[data-color-scheme="dark"] .account-button,
-      html[data-color-scheme="dark"] .library-open-button,
-      html[data-color-scheme="dark"] .library-back-button {
-        background: rgba(29, 30, 33, 0.94);
-        color: #f5f5f7;
-        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
-      }
-      html[data-color-scheme="dark"] .account-button svg {
-        stroke: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .record-button,
-      html[data-color-scheme="dark"] .send-button,
-      html[data-color-scheme="dark"] .day.on,
-      html[data-color-scheme="dark"] .action.primary,
-      html[data-color-scheme="dark"] .avatar,
-      html[data-color-scheme="dark"] .google-btn,
-      html[data-color-scheme="dark"] .reminder-snooze-save {
-        background: #f5f5f7;
-        color: #111214;
-      }
-      html[data-color-scheme="dark"] .record-button.recording {
-        background: #dedee2;
-        box-shadow:
-          0 0 0 10px #2b2d31,
-          0 18px 46px rgba(0, 0, 0, 0.34);
-      }
-      html[data-color-scheme="dark"] .record-button svg,
-      html[data-color-scheme="dark"] .send-button svg,
-      html[data-color-scheme="dark"] .login-mark svg {
-        stroke: #111214;
-      }
-      html[data-color-scheme="dark"] .chat-label,
-      html[data-color-scheme="dark"] .collapse-chat {
-        color: #a1a1a6;
-      }
-      html[data-color-scheme="dark"] .collapse-chat:hover {
-        background: #232428;
-      }
-      html[data-color-scheme="dark"] .chat:empty::before {
-        color: #73747a;
-      }
-      html[data-color-scheme="dark"] .msg {
-        background: #232428;
-        color: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .msg.user {
-        background: #f5f5f7;
-        color: #111214;
-      }
-      html[data-color-scheme="dark"] .composer-wrap {
-        background: linear-gradient(180deg, rgba(17, 18, 20, 0), #111214 24%);
-      }
-      html[data-color-scheme="dark"] .composer {
-        background: #1b1c1f;
-        border-color: #303237;
-        box-shadow: 0 4px 22px rgba(0, 0, 0, 0.24);
-      }
-      html[data-color-scheme="dark"] .composer:focus-within {
-        border-color: #44464d;
-        box-shadow: 0 5px 28px rgba(0, 0, 0, 0.3);
-      }
-      html[data-color-scheme="dark"] .composer input,
-      html[data-color-scheme="dark"] .field input,
-      html[data-color-scheme="dark"] .field select,
-      html[data-color-scheme="dark"] .assistant-section input,
-      html[data-color-scheme="dark"] .assistant-section select,
-      html[data-color-scheme="dark"] .assistant-section textarea {
-        color: #f5f5f7;
-        background: #232428;
-        border-color: #34363b;
-      }
-      html[data-color-scheme="dark"] .composer input::placeholder {
-        color: #77787e;
-      }
-      html[data-color-scheme="dark"] .composer-voice-button,
-      html[data-color-scheme="dark"] .close-button,
-      html[data-color-scheme="dark"] .action,
-      html[data-color-scheme="dark"] .day,
-      html[data-color-scheme="dark"] .notice {
-        background: #292a2f;
-        color: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .composer-voice-button.recording {
-        background: #f5f5f7;
-        color: #111214;
-      }
-      html[data-color-scheme="dark"] .panel,
-      html[data-color-scheme="dark"] .login {
-        background: rgba(17, 18, 20, 0.86);
-      }
-      html[data-color-scheme="dark"] .sheet,
-      html[data-color-scheme="dark"] .login-card,
-      html[data-color-scheme="dark"] .settings-group,
-      html[data-color-scheme="dark"] .field {
-        background: #1b1c1f;
-      }
-      html[data-color-scheme="dark"] .sheet,
-      html[data-color-scheme="dark"] .login-card,
-      html[data-color-scheme="dark"] .settings-group,
-      html[data-color-scheme="dark"] .grid {
-        border-color: #2c2e32;
-      }
-      html[data-color-scheme="dark"] .handle {
-        background: #46484e;
-      }
-      html[data-color-scheme="dark"] .account-card,
-      html[data-color-scheme="dark"] .settings-group[open] summary {
-        border-color: #2c2e32;
-      }
-      html[data-color-scheme="dark"] .section-title {
-        color: #8e8f95;
-      }
-      html[data-color-scheme="dark"] .grid {
-        background: #2c2e32;
-      }
-      html[data-color-scheme="dark"] .settings-group-chevron {
-        stroke: #a1a1a6;
-      }
-      html[data-color-scheme="dark"] .action.danger {
-        color: #c5c5ca;
-      }
-      html[data-color-scheme="dark"] .login-mark {
-        background: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .appearance-picker,
-      html[data-color-scheme="dark"] .library-tabs {
-        background: #292a2f;
-      }
-      html[data-color-scheme="dark"] .appearance-option,
-      html[data-color-scheme="dark"] .library-tab {
-        color: #a1a1a6;
-      }
-      html[data-color-scheme="dark"] .appearance-option.active,
-      html[data-color-scheme="dark"] .library-tab.active {
-        background: #3a3b40;
-        color: #f5f5f7;
-        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.24);
-      }
-      html[data-color-scheme="dark"] .library-head {
-        background: rgba(17, 18, 20, 0.92);
-        border-bottom-color: rgba(44, 46, 50, 0.9);
-      }
-      html[data-color-scheme="dark"] .library-card,
-      html[data-color-scheme="dark"] .library-swipe-row .library-card {
-        background: #1b1c1f;
-        color: #f5f5f7;
-        border-color: #2c2e32;
-        box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
-      }
-      html[data-color-scheme="dark"] .library-swipe-row {
-        background: #292a2f;
-      }
-      html[data-color-scheme="dark"] .library-card-preview {
-        color: #b4b4b9;
-      }
-      html[data-color-scheme="dark"] .library-card-meta,
-      html[data-color-scheme="dark"] .library-empty,
-      html[data-color-scheme="dark"] .library-loading {
-        color: #8e8f95;
-      }
-      html[data-color-scheme="dark"] .library-card.completed .library-card-title {
-        color: #8e8f95;
-        text-decoration-color: #696a70;
-      }
-      html[data-color-scheme="dark"] .library-card.completed .library-card-meta {
-        color: #6f7076;
-      }
-      html[data-color-scheme="dark"] .reminder-action.delete {
-        background: #3a2628;
-        color: #ffb4b8;
-      }
-      html[data-color-scheme="dark"] .reminder-action.complete {
-        background: #24372a;
-        color: #a9d9b1;
-      }
-      html[data-color-scheme="dark"] .reminder-action.reschedule {
-        background: #2d2e36;
-        color: #c7c7d3;
-      }
-      html[data-color-scheme="dark"] .reminder-snooze-backdrop {
-        background: rgba(0, 0, 0, 0.44);
-      }
-      html[data-color-scheme="dark"] .reminder-snooze-sheet {
-        background: #1b1c1f;
-      }
-      html[data-color-scheme="dark"] .reminder-snooze-button {
-        background: #292a2f;
-        color: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .reminder-snooze-custom input {
-        background: #232428;
-        color: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .library-error {
-        color: #d7a4a4;
-      }
-      html[data-color-scheme="dark"] .voice-trash-target {
-        background: rgba(29, 30, 33, 0.96);
-        border-color: rgba(245, 245, 247, 0.1);
-        color: #f5f5f7;
-      }
-      html[data-color-scheme="dark"] .voice-trash-target.armed {
-        background: #f5f5f7;
-        color: #111214;
-      }
-      html[data-color-scheme="dark"] .assistant-section {
-        border-top-color: #2c2e32 !important;
-      }
-      html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section {
-        border-color: #2c2e32 !important;
-        background: #1b1c1f !important;
-      }
-      html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section[open] > summary {
-        border-bottom-color: #2c2e32 !important;
-      }
-      @media (min-width: 760px) {
-        html[data-color-scheme="dark"] .app {
-          border-color: #2c2e32;
-          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
-        }
-      }
       @media (max-width: 759px) {
         .composer input,
         .field input,
@@ -1085,13 +833,6 @@
             <div id="accountEmail" class="account-email">Google Calendar</div>
           </div>
         </div>
-        <div class="section-title">Оформление</div>
-        <div id="appearanceTheme" class="appearance-picker" role="radiogroup" aria-label="Тема оформления">
-          <button class="appearance-option" type="button" data-appearance-theme="light" role="radio" aria-checked="false">Светлая</button>
-          <button class="appearance-option" type="button" data-appearance-theme="dark" role="radio" aria-checked="false">Тёмная</button>
-          <button class="appearance-option" type="button" data-appearance-theme="auto" role="radio" aria-checked="false">Авто</button>
-        </div>
-        <p class="settings-help">Авто повторяет светлую или тёмную тему устройства.</p>
         <div class="section-title">Настройки календаря</div>
         <div class="grid">
           <label class="field"
@@ -1188,57 +929,6 @@
       const voiceButtons = [voiceBtn, chatVoiceBtn];
       const MIN_VOICE_DURATION_MS = 400;
       const CHAT_IDLE_MS = 30000;
-      const APPEARANCE_THEME_KEY = "personal-secretary:appearance-theme";
-      const APPEARANCE_THEMES = new Set(["auto", "light", "dark"]);
-      const systemThemeMedia = window.matchMedia("(prefers-color-scheme: dark)");
-      let appearanceTheme = APPEARANCE_THEMES.has(document.documentElement.dataset.appearance)
-        ? document.documentElement.dataset.appearance
-        : "auto";
-
-      function resolvedAppearanceTheme(theme = appearanceTheme) {
-        return theme === "auto" ? (systemThemeMedia.matches ? "dark" : "light") : theme;
-      }
-
-      function applyAppearanceTheme(theme, {persist = true} = {}) {
-        const next = APPEARANCE_THEMES.has(theme) ? theme : "auto";
-        appearanceTheme = next;
-        const resolved = resolvedAppearanceTheme(next);
-        const root = document.documentElement;
-        root.dataset.appearance = next;
-        root.dataset.colorScheme = resolved;
-        root.style.colorScheme = resolved;
-        const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.content = resolved === "dark" ? "#111214" : "#f7f7f5";
-        document.querySelectorAll("[data-appearance-theme]").forEach((button) => {
-          const active = button.dataset.appearanceTheme === next;
-          button.classList.toggle("active", active);
-          button.setAttribute("aria-checked", String(active));
-        });
-        if (persist) {
-          try { localStorage.setItem(APPEARANCE_THEME_KEY, next); } catch (_error) {}
-        }
-        document.dispatchEvent(new CustomEvent("planner-theme-changed", {
-          detail: {theme: next, resolved},
-        }));
-      }
-
-      function bindAppearanceSettings() {
-        document.querySelectorAll("[data-appearance-theme]").forEach((button) => {
-          button.addEventListener("click", () => {
-            applyAppearanceTheme(button.dataset.appearanceTheme);
-            scheduleSettingsSave(0);
-          });
-        });
-        const onSystemThemeChange = () => {
-          if (appearanceTheme === "auto") applyAppearanceTheme("auto", {persist: false});
-        };
-        if (systemThemeMedia.addEventListener) {
-          systemThemeMedia.addEventListener("change", onSystemThemeChange);
-        } else if (systemThemeMedia.addListener) {
-          systemThemeMedia.addListener(onSystemThemeChange);
-        }
-        applyAppearanceTheme(appearanceTheme, {persist: false});
-      }
 
       let workDays = [0, 1, 2, 3, 4],
         recorder = null,
@@ -1554,7 +1244,6 @@
           work_days: workDays,
           buffer_minutes: Number(document.getElementById("buffer").value),
           category_colors: categoryColors,
-          appearance_theme: appearanceTheme,
           navigation: navigationForm(),
         };
       }
@@ -1631,7 +1320,6 @@
 
       function loadSettings(status) {
         const preferences = status.preferences || {};
-        applyAppearanceTheme(status.appearance_theme || "auto");
         document.getElementById("workStart").value =
           preferences.work_start || "09:00";
         document.getElementById("workEnd").value =
@@ -2024,7 +1712,6 @@
 
       renderDays();
       renderCategoryColors();
-      bindAppearanceSettings();
       bindSettingsAutosave();
       refresh();
     </script>
