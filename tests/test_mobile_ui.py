@@ -76,7 +76,7 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertNotIn('if (name === "saved") return openLibrarySection("saved", {fromSettings: true});', mobile)
         self.assertIn('["route", "Маршрут"', mobile)
         self.assertIn('#lifeWheelBtn {', css)
-        self.assertIn('right: 60px', css)
+        self.assertIn('right: 66px', css)
         self.assertIn('aria-label="Аккаунт"', html)
         self.assertIn('button.setAttribute("aria-label", "Баланс жизни")', life)
         self.assertIn("mobile-card-icon-button", mobile)
