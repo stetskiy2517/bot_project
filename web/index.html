@@ -812,24 +812,8 @@
             <div id="accountEmail" class="account-email">Google Calendar</div>
           </div>
         </div>
-        <div id="onboardingNotice" class="notice" style="display: none">
-          Выбери часовой пояс, чтобы события создавались с правильным временем.
-        </div>
         <div class="section-title">Настройки календаря</div>
         <div class="grid">
-          <label class="field"
-            >Часовой пояс<select id="timezone">
-              <option value="Europe/Moscow">Москва — Europe/Moscow</option>
-              <option value="Europe/Saratov">Саратов — Europe/Saratov</option>
-              <option value="Europe/Amsterdam">Амстердам — Europe/Amsterdam</option>
-              <option value="Europe/Tallinn">Таллин — Europe/Tallinn</option>
-              <option value="Europe/Helsinki">Хельсинки — Europe/Helsinki</option>
-              <option value="Europe/Berlin">Берлин — Europe/Berlin</option>
-              <option value="Europe/London">Лондон — Europe/London</option>
-              <option value="Asia/Dubai">Дубай — Asia/Dubai</option>
-              <option value="Asia/Almaty">Алматы — Asia/Almaty</option>
-            </select></label
-          >
           <label class="field"
             >Рабочий день
             <div class="row">
@@ -1234,7 +1218,6 @@
 
       function settingsPayload() {
         return {
-          timezone: document.getElementById("timezone").value,
           work_start: document.getElementById("workStart").value,
           work_end: document.getElementById("workEnd").value,
           work_days: workDays,
@@ -1271,7 +1254,7 @@
 
       function bindSettingsAutosave() {
         const ids = [
-          "timezone", "workStart", "workEnd", "buffer",
+          "workStart", "workEnd", "buffer",
           "navigationEnabled", "homeAddress", "officeAddress",
           "defaultPlace", "travelMode", "arrivalBuffer",
         ];
@@ -1295,7 +1278,7 @@
 
       async function syncDeviceTimezone(status) {
         const detected = deviceTimezone();
-        if (!detected) return status;
+        if (!detected || (status?.timezone_set && detected === status?.timezone)) return status;
         try {
           const updated = await api("/api/settings", {
             method: "POST",
@@ -1316,15 +1299,6 @@
 
       function loadSettings(status) {
         const preferences = status.preferences || {};
-        const timezoneControl = document.getElementById("timezone");
-        const timezoneValue = status.timezone || "Europe/Moscow";
-        if (![...timezoneControl.options].some(option => option.value === timezoneValue)) {
-          const option = document.createElement("option");
-          option.value = timezoneValue;
-          option.textContent = timezoneValue + " — устройство";
-          timezoneControl.appendChild(option);
-        }
-        timezoneControl.value = timezoneValue;
         document.getElementById("workStart").value =
           preferences.work_start || "09:00";
         document.getElementById("workEnd").value =
@@ -1370,11 +1344,9 @@
           restoreDraft();
           document.dispatchEvent(new Event("planner-ready"));
           if (!status.timezone_set) {
-            document.getElementById("onboardingNotice").style.display = "block";
-            settingsPanel.classList.add("open");
-            clearChatIdleTimer();
-          } else {
-            document.getElementById("onboardingNotice").style.display = "none";
+            showChat();
+            msg("Не удалось определить часовой пояс устройства. Проверь системные настройки даты и времени.");
+            armChatIdleTimer();
           }
         } catch (error) {
           if (error.message !== "unauthorized") {

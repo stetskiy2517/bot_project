@@ -549,6 +549,13 @@
       const touch = event.changedTouches[0];
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
+      const horizontalBack = dx >= SWIPE_MIN_X && Math.abs(dx) >= Math.abs(dy) * DIRECTION_RATIO;
+      if (!start.dragging && horizontalBack && closeSheetRoot(start.root)) {
+        suppressNextClick(touch);
+        event.stopPropagation();
+        event.preventDefault();
+        return;
+      }
       const vertical = dy > 0 && dy > Math.abs(dx) * 1.1;
       const fastDismiss = dy >= SHEET_FAST_DISMISS_MIN_Y && start.velocityY >= SHEET_FAST_DISMISS_VELOCITY;
       if (vertical && (dy >= SWIPE_DOWN_MIN_Y || fastDismiss) && animateSheetDismiss(start)) {

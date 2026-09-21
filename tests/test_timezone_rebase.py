@@ -120,7 +120,7 @@ class TimezoneRebaseTests(unittest.TestCase):
                 (self.USER_ID,),
             ).fetchall()
             task = conn.execute(
-                "SELECT due_at FROM tasks WHERE user_id=?",
+                "SELECT due_at FROM tasks WHERE user_id=? AND title=\'Задача на вечер\'",
                 (self.USER_ID,),
             ).fetchone()
 
@@ -216,7 +216,7 @@ class TimezoneRebaseTests(unittest.TestCase):
                 (self.USER_ID,),
             ).fetchone()
             task = conn.execute(
-                "SELECT due_at FROM tasks WHERE user_id=?",
+                "SELECT due_at FROM tasks WHERE user_id=? AND title=\'Задача на вечер\'",
                 (self.USER_ID,),
             ).fetchone()
 

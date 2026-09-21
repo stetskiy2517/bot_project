@@ -156,7 +156,13 @@ def build_life_wheel_snapshot(
 ) -> dict:
     timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
     period_start, period_end = _period_bounds(timezone_name, int(days), now)
-    calendar_events = events if events is not None else _list_events(user_id, period_start, period_end)
+    if events is not None:
+        calendar_events = events
+    else:
+        try:
+            calendar_events = _list_events(user_id, period_start, period_end)
+        except PermissionError:
+            calendar_events = []
     saved_reminders = reminders if reminders is not None else list_saved_reminders(user_id, limit=500)
     planner_tasks = tasks if tasks is not None else list_planner_tasks(user_id, status=None, limit=500)
     ratings = get_life_balance_ratings(user_id)
