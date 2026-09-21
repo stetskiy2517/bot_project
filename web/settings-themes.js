@@ -253,7 +253,7 @@
       ensureTheme(definition);
     });
 
-    const groups = Array.from(sheet.querySelectorAll("details.settings-group"));
+    const groups = Array.from(sheet.querySelectorAll("details.settings-group, details.assistant-section"));
     for (const group of groups) {
       const key = themeFor(group);
       const body = key ? themeBody(key) : null;
