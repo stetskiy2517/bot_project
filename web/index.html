@@ -1278,7 +1278,7 @@
 
       async function syncDeviceTimezone(status) {
         const detected = deviceTimezone();
-        if (!detected) return status;
+        if (!detected || (status?.timezone_set && detected === status?.timezone)) return status;
         try {
           const updated = await api("/api/settings", {
             method: "POST",
