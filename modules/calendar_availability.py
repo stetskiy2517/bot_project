@@ -171,13 +171,27 @@ def _busy_intervals(
     buffer: timedelta = timedelta(0),
 ) -> list[tuple[datetime, datetime]]:
     intervals: list[tuple[datetime, datetime]] = []
+    zone = _user_zone(timezone)
     for event in events:
         if event.get("transparency") == "transparent":
             continue
         start, _ = _event_start(event, timezone)
         end = _event_end(event, timezone)
-        if start and end and end > start:
-            intervals.append((start - buffer, end + buffer))
+        if not start or not end or end <= start:
+            continue
+
+        # Keep meeting buffers inside the event's local calendar day. A flight
+        # ending exactly at midnight must not consume the first minutes of the
+        # next day just because the user configured a meeting buffer.
+        local_start = start.astimezone(zone)
+        local_end = end.astimezone(zone)
+        day_start = datetime.combine(local_start.date(), time.min, tzinfo=zone)
+        day_end = day_start + timedelta(days=1)
+        buffered_start = max(local_start - buffer, day_start)
+        buffered_end = local_end + buffer
+        if local_end <= day_end:
+            buffered_end = min(buffered_end, day_end)
+        intervals.append((buffered_start, buffered_end))
     intervals.sort(key=lambda item: item[0])
     return intervals
 
@@ -244,6 +258,7 @@ def suggest_alternatives(
     duration: timedelta,
     *,
     limit: int = 3,
+    exclude_event_ids: set[str] | None = None,
 ) -> list[tuple[datetime, datetime]]:
     prefs = get_calendar_preferences(user_id)
     zone = _user_zone(timezone)
@@ -256,6 +271,19 @@ def suggest_alternatives(
     search_start = start
     search_end = start + timedelta(days=7)
     events = _list_events(user_id, search_start, search_end)
+    excluded = {str(value) for value in (exclude_event_ids or set()) if str(value)}
+    if excluded:
+        filtered = []
+        for event in events:
+            private = ((event.get("extendedProperties") or {}).get("private") or {})
+            if (
+                str(event.get("id") or "") in excluded
+                or str(event.get("recurringEventId") or "") in excluded
+                or str(private.get("smartPlannerSourceEventId") or "") in excluded
+            ):
+                continue
+            filtered.append(event)
+        events = filtered
     return find_free_slots(
         events,
         timezone,
