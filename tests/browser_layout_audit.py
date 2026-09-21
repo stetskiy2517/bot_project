@@ -242,7 +242,7 @@ def main() -> None:
                         page.locator("#taskEditorBackdrop .task-editor-close").click()
 
                         # Notes and note window/editor.
-                        page.evaluate("window.PlannerLibrary.setTab('notes')")
+                        page.locator("#libraryNotesTab").click()
                         page.wait_for_function(
                             "document.querySelector('#libraryNotesTab')?.getAttribute('aria-selected') === 'true'"
                         )
