@@ -169,6 +169,24 @@ def main() -> None:
                             ],
                             f"home-{width}",
                         )
+                        # Chat composer must stay usable on narrow phones and must not
+                        # trigger Safari auto-zoom due to undersized controls.
+                        page.locator('#mobileBottomNav [data-view="chat"]').click()
+                        page.wait_for_function(
+                            "document.getElementById('app').classList.contains('mobile-view-chat')"
+                        )
+                        assert_no_horizontal_overflow(page, f"chat-{width}")
+                        assert_touch_targets(
+                            page,
+                            ["#chatVoiceBtn", "#sendButton"],
+                            f"chat-{width}",
+                        )
+                        composer_font = page.locator("#message").evaluate(
+                            "node => parseFloat(getComputedStyle(node).fontSize)"
+                        )
+                        assert composer_font >= 16, f"chat-{width}: input font {composer_font}px can trigger iOS zoom"
+                        page.locator('#mobileBottomNav [data-view="home"]').click()
+
                         hidden_library = page.locator("#libraryOpenBtn").evaluate(
                             """node => {
                               const style = getComputedStyle(node);
