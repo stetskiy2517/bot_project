@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 from pathlib import Path
+import uuid
 from unittest import TestCase
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
