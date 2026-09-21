@@ -12,6 +12,7 @@ class DesignHuntRegressionTest(TestCase):
         cls.swipes = Path("web/task-swipe.js").read_text(encoding="utf-8")
         cls.tasks = Path("web/task-editor.js").read_text(encoding="utf-8")
         cls.mobile = Path("web/mobile-ui.css").read_text(encoding="utf-8")
+        cls.mobile_fixes = Path("web/mobile-ui-fixes.js").read_text(encoding="utf-8")
         cls.notes = Path("web/note-tools.js").read_text(encoding="utf-8")
         cls.reminders = Path("web/reminder-editor.js").read_text(encoding="utf-8")
 
@@ -55,6 +56,8 @@ class DesignHuntRegressionTest(TestCase):
     def test_12_mobile_message_input_has_actual_touch_height(self):
         self.assertIn(".app.mobile-shell #message", self.mobile)
         self.assertIn("height: 44px;", self.mobile)
+        self.assertIn("min-height: 44px;", self.mobile_fixes)
+        self.assertIn("Math.max(44, editor.scrollHeight || 44)", self.mobile_fixes)
 
 
 if __name__ == "__main__":
