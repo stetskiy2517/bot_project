@@ -147,12 +147,12 @@
   }
 
   function placeLegacyCalendar() {
-    const timezone = document.getElementById("timezone");
+    const workStart = document.getElementById("workStart");
     const planning = themeBody("planning");
-    if (!timezone || !planning) return;
-    if (timezone.closest("details.settings-group")) return;
+    if (!workStart || !planning) return;
+    if (workStart.closest("details.settings-group")) return;
 
-    const grid = timezone.closest(".grid");
+    const grid = workStart.closest(".grid");
     if (!grid) return;
     const title = grid.previousElementSibling?.classList.contains("section-title")
       ? grid.previousElementSibling
