@@ -43,7 +43,6 @@ class SettingsUiGroupsTests(unittest.TestCase):
         response.close()
 
         for control_id in (
-            "timezone",
             "workStart",
             "workEnd",
             "buffer",
@@ -54,6 +53,7 @@ class SettingsUiGroupsTests(unittest.TestCase):
 
         self.assertNotIn('id="saveSettings"', html)
         self.assertIn("scheduleSettingsSave", html)
+        self.assertNotIn('id="timezone"', html)
 
     def test_settings_modules_use_autosave_instead_of_save_buttons(self):
         for path, removed_id, autosave_marker in (
