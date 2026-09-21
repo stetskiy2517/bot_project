@@ -451,9 +451,19 @@
     if (!visible) {
       noteSearchOpen = false;
       toolbar.querySelector(".notes-search-shell")?.classList.remove("open");
-      toolbar.querySelector("#notesSearchBtn")?.setAttribute("aria-expanded", "false");
-      toolbar.querySelector("#notesLibrarySearch")?.blur();
+      const searchButton = toolbar.querySelector("#notesSearchBtn");
+      searchButton?.setAttribute("aria-expanded", "false");
+      searchButton?.classList.remove("active");
+      const input = toolbar.querySelector("#notesLibrarySearch");
+      if (input) input.value = "";
+      input?.blur();
+      const status = document.getElementById("notesSearchStatus");
+      if (status) {
+        status.textContent = "";
+        status.classList.remove("visible");
+      }
       document.querySelector("#libraryScreen .library-nav")?.classList.remove("note-search-open");
+      filterRows();
     }
     if (visible) setTimeout(() => decorateRows(), 50);
   }
