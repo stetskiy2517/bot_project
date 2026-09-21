@@ -245,28 +245,34 @@
     if (text.includes("включены на этом устройстве")) return "Включены";
     if (text.includes("запрещены")) return "Запрещены";
     if (text.includes("не поддерживает")) return "Недоступно";
-    if (text.includes("подключить push")) return "Не подключены";
+    if (text.includes("подключить push")) return "Выключены";
     if (text.includes("экран «домой»")) return "Нужна установка";
-    return "Push";
+    return "";
   }
 
   function wrapPush() {
-    if (document.getElementById("notificationsGroup")) return;
     const grid = document.getElementById("pushNotificationSettings");
-    if (!grid || grid.closest("details")) return;
-    const heading = grid.previousElementSibling?.classList.contains("section-title")
-      ? grid.previousElementSibling
-      : null;
-    const group = document.createElement("details");
-    group.id = "notificationsGroup";
-    group.className = "settings-group";
-    const summary = document.createElement("summary");
-    group.appendChild(summary);
-    const anchor = heading || grid;
-    anchor.parentNode.insertBefore(group, anchor);
-    group.appendChild(grid);
-    if (heading) heading.remove();
-    const meta = decorateSummary(group, "Уведомления", "Push", "notificationsMeta");
+    if (!grid) return;
+
+    let group = document.getElementById("notificationsGroup");
+    if (!group) {
+      const heading = grid.previousElementSibling?.classList.contains("section-title")
+        ? grid.previousElementSibling
+        : null;
+      group = document.createElement("details");
+      group.id = "notificationsGroup";
+      group.className = "settings-group";
+      const summary = document.createElement("summary");
+      group.appendChild(summary);
+      const anchor = heading || grid;
+      anchor.parentNode.insertBefore(group, anchor);
+      group.appendChild(grid);
+      if (heading) heading.remove();
+    } else if (grid.parentElement !== group) {
+      group.appendChild(grid);
+    }
+
+    const meta = decorateSummary(group, "На устройстве", "", "notificationsMeta");
     const status = document.getElementById("pushNotificationStatus");
     const sync = () => {
       if (meta) meta.textContent = pushMetaText(status?.textContent);
