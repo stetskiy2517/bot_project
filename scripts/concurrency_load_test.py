@@ -395,6 +395,7 @@ def recurring_completion_race(app, recorder, concurrency=50):
     task_id = int(task["task_id"])
     barrier = threading.Barrier(concurrency)
     returned_next_ids = []
+    race_statuses = Counter()
     ids_lock = threading.Lock()
 
     def worker(index):
@@ -404,8 +405,15 @@ def recurring_completion_race(app, recorder, concurrency=50):
         response = recorder.request(
             "recurring_complete_race",
             lambda: client.patch(f"/api/tasks/{task_id}", json={"status": "done"}),
-            expected=(200,),
+            expected=(200, 409),
         )
+        with ids_lock:
+            race_statuses[response.status_code] += 1
+        if response.status_code == 409:
+            payload = response.get_json() or {}
+            if payload.get("error") != "user_busy":
+                raise AssertionError(f"Unexpected 409 during recurring race: {payload!r}")
+            return
         next_task = response.get_json().get("next_task")
         if next_task:
             with ids_lock:
@@ -429,9 +437,16 @@ def recurring_completion_race(app, recorder, concurrency=50):
     ]
     return {
         "concurrency": concurrency,
+        "http_200": int(race_statuses[200]),
+        "http_409_user_busy": int(race_statuses[409]),
         "returned_next_ids": returned_next_ids,
         "generated_next_tasks": [int(item["task_id"]) for item in generated],
-        "ok": len(generated) == 1 and len(set(returned_next_ids)) <= 1,
+        "ok": (
+            len(generated) == 1
+            and len(set(returned_next_ids)) == 1
+            and race_statuses[200] == 1
+            and race_statuses[409] == concurrency - 1
+        ),
     }
 
 
