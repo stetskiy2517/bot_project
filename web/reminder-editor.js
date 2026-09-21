@@ -248,7 +248,17 @@
     if (!edit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    openEditor(Number(edit.dataset.reminderEdit)).catch(() => {});
+    openEditor(Number(edit.dataset.reminderEdit)).catch(error => {
+      const message = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.";
+      let feedback = document.getElementById("plannerUnifiedTaskFeedback");
+      if (!feedback) {
+        feedback = document.createElement("div");
+        feedback.id = "plannerUnifiedTaskFeedback";
+        feedback.className = "planner-task-feedback";
+        list.prepend(feedback);
+      }
+      feedback.textContent = message;
+    });
   }, true);
 
   backdrop.addEventListener("click", event => {
