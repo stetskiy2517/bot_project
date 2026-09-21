@@ -25,6 +25,7 @@
   style.id = "reminderEditorStyles";
   style.textContent = `
     .reminder-action.edit{background:#e8e8e5;color:#31312f}.reminder-category-chip{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border-radius:999px;background:#efefec;color:#666662;font-size:11px;line-height:1.2;white-space:nowrap}
+    .reminder-editor-feedback{margin:0 0 10px;padding:10px 12px;border:1px solid #dddcd8;border-radius:12px;background:#f0f0ed;color:#6b3d3d;font-size:12px;line-height:1.4}
     .reminder-edit-backdrop{position:absolute;z-index:180;inset:0;background:#fff;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(24px);transition:opacity .18s ease,transform .2s cubic-bezier(.22,.8,.24,1),visibility 0s linear .2s;overflow:hidden}
     .reminder-edit-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
     .reminder-edit-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
@@ -249,12 +250,12 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     openEditor(Number(edit.dataset.reminderEdit)).catch(error => {
-      const message = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.";
-      let feedback = document.getElementById("plannerUnifiedTaskFeedback");
+      const message = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть напоминание.";
+      let feedback = document.getElementById("reminderEditorFeedback");
       if (!feedback) {
         feedback = document.createElement("div");
-        feedback.id = "plannerUnifiedTaskFeedback";
-        feedback.className = "planner-task-feedback";
+        feedback.id = "reminderEditorFeedback";
+        feedback.className = "reminder-editor-feedback";
         list.prepend(feedback);
       }
       feedback.textContent = message;
