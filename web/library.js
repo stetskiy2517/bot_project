@@ -1033,4 +1033,14 @@
     if (event.key === "ArrowLeft" && app.classList.contains("library-active")) closeLibrary();
     else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) navigateBackFromChat();
   });
+
+  window.PlannerLibrary = {
+    open(tab = "notes") {
+      setTab(tab);
+      openLibrary();
+    },
+    close: closeLibrary,
+    setTab,
+    get activeTab() { return activeTab; },
+  };
 })();
