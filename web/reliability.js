@@ -106,10 +106,10 @@
     }
     #settingsPanel .settings-group.assistant-section {
       padding: 0 !important;
-      border: 1px solid var(--settings-line, #ececea) !important;
+      border: 1px solid #ececea !important;
       border-radius: 16px !important;
       overflow: hidden !important;
-      background: var(--settings-surface, #fff) !important;
+      background: #fff !important;
     }
     #settingsPanel .settings-group.assistant-section > summary {
       min-height: 48px !important;
@@ -122,7 +122,7 @@
       font-weight: 400 !important;
     }
     #settingsPanel .settings-group.assistant-section[open] > summary {
-      border-bottom: 1px solid var(--settings-line, #ececea) !important;
+      border-bottom: 1px solid #ececea !important;
     }
     #settingsPanel .settings-group.assistant-section .field {
       margin: 0 !important;
@@ -149,41 +149,11 @@
       min-width: 0;
     }
     #settingsPanel .settings-group-meta {
-      max-width: 42%;
-      min-width: 0;
+      max-width: 46%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: right;
-    }
-    #settingsPanel .settings-group,
-    #settingsPanel .settings-group > summary,
-    #settingsPanel .settings-group .grid,
-    #settingsPanel .settings-group .field,
-    #settingsPanel .settings-theme-body,
-    #settingsPanel .settings-theme-body > * {
-      min-width: 0;
-      max-width: 100%;
-    }
-    #settingsPanel .settings-group-title {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    #settingsPanel .field,
-    #settingsPanel .settings-help,
-    #settingsPanel .assistant-section,
-    #settingsPanel .assistant-section label {
-      overflow-wrap: anywhere;
-      word-break: normal;
-    }
-    #settingsPanel input,
-    #settingsPanel select,
-    #settingsPanel textarea,
-    #settingsPanel .row > * {
-      min-width: 0;
-      max-width: 100%;
     }
   `;
   document.head.appendChild(style);
@@ -275,34 +245,28 @@
     if (text.includes("включены на этом устройстве")) return "Включены";
     if (text.includes("запрещены")) return "Запрещены";
     if (text.includes("не поддерживает")) return "Недоступно";
-    if (text.includes("подключить push")) return "Выключены";
+    if (text.includes("подключить push")) return "Не подключены";
     if (text.includes("экран «домой»")) return "Нужна установка";
-    return "";
+    return "Push";
   }
 
   function wrapPush() {
+    if (document.getElementById("notificationsGroup")) return;
     const grid = document.getElementById("pushNotificationSettings");
-    if (!grid) return;
-
-    let group = document.getElementById("notificationsGroup");
-    if (!group) {
-      const heading = grid.previousElementSibling?.classList.contains("section-title")
-        ? grid.previousElementSibling
-        : null;
-      group = document.createElement("details");
-      group.id = "notificationsGroup";
-      group.className = "settings-group";
-      const summary = document.createElement("summary");
-      group.appendChild(summary);
-      const anchor = heading || grid;
-      anchor.parentNode.insertBefore(group, anchor);
-      group.appendChild(grid);
-      if (heading) heading.remove();
-    } else if (grid.parentElement !== group) {
-      group.appendChild(grid);
-    }
-
-    const meta = decorateSummary(group, "На устройстве", "", "notificationsMeta");
+    if (!grid || grid.closest("details")) return;
+    const heading = grid.previousElementSibling?.classList.contains("section-title")
+      ? grid.previousElementSibling
+      : null;
+    const group = document.createElement("details");
+    group.id = "notificationsGroup";
+    group.className = "settings-group";
+    const summary = document.createElement("summary");
+    group.appendChild(summary);
+    const anchor = heading || grid;
+    anchor.parentNode.insertBefore(group, anchor);
+    group.appendChild(grid);
+    if (heading) heading.remove();
+    const meta = decorateSummary(group, "Уведомления", "Push", "notificationsMeta");
     const status = document.getElementById("pushNotificationStatus");
     const sync = () => {
       if (meta) meta.textContent = pushMetaText(status?.textContent);
@@ -345,7 +309,7 @@
   function decorateAssistantGroups() {
     const root = document.getElementById("assistantSettings");
     if (!root) return;
-    const groups = Array.from(root.querySelectorAll("details.assistant-section"));
+    const groups = Array.from(root.querySelectorAll(":scope > details.assistant-section"));
     groups.forEach(details => {
       const config = assistantGroupConfig(details);
       if (!config) return;

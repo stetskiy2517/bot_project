@@ -130,11 +130,7 @@ def install_web_security(app, states: dict[int, dict]) -> None:
         if request.path == "/api/status":
             csrf_token()
         writes = request.method not in SAFE_METHODS
-        # Read-only API calls must not occupy the exclusive per-user command lock.
-        # /api/reminders/due mutates reminder delivery state atomically inside
-        # claim_due_reminders() with BEGIN IMMEDIATE, so it is safe to bypass
-        # the command lock as well.
-        if not writes:
+        if not writes and request.path != "/api/reminders/due":
             return None
 
         legacy_client = False

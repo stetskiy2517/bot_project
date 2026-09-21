@@ -12,8 +12,6 @@ DEFAULT_WORK_START = "09:00"
 DEFAULT_WORK_END = "18:00"
 DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]
 DEFAULT_BUFFER_MINUTES = 15
-DEFAULT_APPEARANCE_THEME = "auto"
-APPEARANCE_THEMES = {"auto", "light", "dark"}
 DEFAULT_CATEGORY_COLORS = {
     "work": "3",
     "health": "6",
@@ -36,9 +34,9 @@ db_lock = threading.RLock()
 
 def init_db():
     with db_lock:
-        conn.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, google_token TEXT, timezone TEXT, work_start TEXT, work_end TEXT, work_days TEXT, buffer_minutes INTEGER, category_colors TEXT, appearance_theme TEXT)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, google_token TEXT, timezone TEXT, work_start TEXT, work_end TEXT, work_days TEXT, buffer_minutes INTEGER, category_colors TEXT)""")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-        for column, sql_type in {"timezone":"TEXT","work_start":"TEXT","work_end":"TEXT","work_days":"TEXT","buffer_minutes":"INTEGER","category_colors":"TEXT","appearance_theme":"TEXT"}.items():
+        for column, sql_type in {"timezone":"TEXT","work_start":"TEXT","work_end":"TEXT","work_days":"TEXT","buffer_minutes":"INTEGER","category_colors":"TEXT"}.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {sql_type}")
         conn.execute("""CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, user_id INTEGER, created_at TEXT NOT NULL)""")
@@ -375,24 +373,6 @@ def get_calendar_preferences(user_id:int)->dict:
 
 def get_category_colors(user_id:int)->dict[str,str|None]:
     return get_calendar_preferences(user_id)["category_colors"]
-
-
-def get_user_appearance_theme(user_id: int) -> str:
-    with db_lock:
-        row = conn.execute("SELECT appearance_theme FROM users WHERE user_id=?", (int(user_id),)).fetchone()
-    value = str(row[0]).strip().lower() if row and row[0] else DEFAULT_APPEARANCE_THEME
-    return value if value in APPEARANCE_THEMES else DEFAULT_APPEARANCE_THEME
-
-
-def save_user_appearance_theme(user_id: int, theme: str, *, commit: bool = True) -> None:
-    value = str(theme or "").strip().lower()
-    if value not in APPEARANCE_THEMES:
-        raise ValueError("Неизвестная тема оформления")
-    with db_lock:
-        conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (int(user_id),))
-        conn.execute("UPDATE users SET appearance_theme=? WHERE user_id=?", (value, int(user_id)))
-        if commit:
-            conn.commit()
 
 
 def get_onboarding_status(user_id:int)->dict:

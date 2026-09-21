@@ -10,12 +10,31 @@
   if (!panel || !sheet || !assistantRoot || !sheetHead || !sheetTitle) return;
 
   const themes = [
-    { key: "appearance", title: "Оформление" },
-    { key: "planning", title: "Планирование" },
-    { key: "notifications", title: "Уведомления" },
-    { key: "assistant", title: "Ассистент" },
-    { key: "integrations", title: "Интеграции" },
-    { key: "account", title: "Аккаунт и данные" },
+    {
+      key: "planning",
+      title: "Планирование",
+      note: "Календарь, маршруты и категории",
+    },
+    {
+      key: "notifications",
+      title: "Уведомления",
+      note: "Push, обзоры и тихие часы",
+    },
+    {
+      key: "assistant",
+      title: "Ассистент",
+      note: "ИИ, память и быстрые команды",
+    },
+    {
+      key: "integrations",
+      title: "Интеграции",
+      note: "Почта и внешние сервисы",
+    },
+    {
+      key: "account",
+      title: "Аккаунт и данные",
+      note: "Экспорт, удаление и выход",
+    },
   ];
 
   let activeTheme = "";
@@ -72,7 +91,10 @@
     button.dataset.settingsOpen = definition.key;
     button.setAttribute("aria-controls", `settingsTheme-${definition.key}`);
     button.innerHTML = `
-      <span class="settings-theme-link-title">${definition.title}</span>
+      <span class="settings-theme-link-main">
+        <span class="settings-theme-link-title">${definition.title}</span>
+        <span class="settings-theme-link-note">${definition.note}</span>
+      </span>
       <svg class="settings-theme-link-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>`;
     button.addEventListener("click", () => openTheme(definition.key));
     root.appendChild(button);
@@ -124,33 +146,22 @@
     return document.querySelector(`#settingsTheme-${key} .settings-theme-body`);
   }
 
-  function ensureCalendarGroup() {
-    let group = document.getElementById("calendarSettingsGroup");
-    if (group) return group;
+  function placeLegacyCalendar() {
     const workStart = document.getElementById("workStart");
-    const grid = workStart?.closest(".grid");
-    if (!grid) return null;
-    group = document.createElement("details");
-    group.id = "calendarSettingsGroup";
-    group.className = "settings-group";
-    const summary = document.createElement("summary");
-    summary.innerHTML = '<span class="settings-group-title">Календарь</span><span id="calendarSettingsMeta" class="settings-group-meta">График</span><svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
-    group.appendChild(summary);
-    const heading = grid.previousElementSibling?.classList.contains("section-title")
+    const planning = themeBody("planning");
+    if (!workStart || !planning) return;
+    if (workStart.closest("details.settings-group")) return;
+
+    const grid = workStart.closest(".grid");
+    if (!grid) return;
+    const title = grid.previousElementSibling?.classList.contains("section-title")
       ? grid.previousElementSibling
       : null;
-    const anchor = heading || grid;
-    anchor.parentNode.insertBefore(group, anchor);
-    group.appendChild(grid);
-    if (heading) heading.remove();
-    return group;
-  }
-
-  function placeLegacyCalendar() {
-    const planning = themeBody("planning");
-    const group = ensureCalendarGroup();
-    if (!group || !planning) return;
-    if (group.parentElement !== planning) planning.prepend(group);
+    if (title && title.parentElement !== planning) planning.prepend(title);
+    if (grid.parentElement !== planning) {
+      if (title && title.parentElement === planning) title.insertAdjacentElement("afterend", grid);
+      else planning.prepend(grid);
+    }
   }
 
   function placeActions() {
@@ -226,9 +237,8 @@
       ensureTheme(definition);
     });
 
-    const groups = Array.from(sheet.querySelectorAll("details.settings-group, details.assistant-section"));
+    const groups = Array.from(sheet.querySelectorAll("details.settings-group"));
     for (const group of groups) {
-      group.classList.add("settings-group");
       const key = themeFor(group);
       const body = key ? themeBody(key) : null;
       if (body && group.parentElement !== body) body.appendChild(group);
@@ -301,26 +311,22 @@
     #settingsPanel .settings-theme-back svg{width:18px;height:18px;fill:none;stroke:#555;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
     #settingsPanel .settings-themes-menu{display:grid;gap:1px;margin-top:18px;border:1px solid #ececea;border-radius:16px;overflow:hidden;background:#ececea}
     #settingsPanel .settings-themes-menu[hidden]{display:none}
-    #settingsPanel .settings-theme-link{width:100%;min-height:52px;padding:11px 14px;background:#fff;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
+    #settingsPanel .settings-theme-link{width:100%;min-height:62px;padding:12px 14px;background:#fff;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
     #settingsPanel .settings-theme-link[hidden]{display:none}
-    #settingsPanel .settings-theme-link-title{font-size:15px;font-weight:600;color:#111;min-width:0;flex:1}
+    #settingsPanel .settings-theme-link-main{display:grid;gap:3px;min-width:0;flex:1}
+    #settingsPanel .settings-theme-link-title{font-size:15px;font-weight:600;color:#111}
+    #settingsPanel .settings-theme-link-note{font-size:12px;color:#92928e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #settingsPanel .settings-theme-link-chevron{width:18px;height:18px;fill:none;stroke:#8d8d88;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
     #settingsPanel .settings-theme-screen[hidden]{display:none}
-    #settingsPanel .settings-theme-screen{min-width:0;max-width:100%}
-    #settingsPanel .settings-theme-body{display:grid;gap:8px;margin-top:8px;min-width:0;max-width:100%}
-    #settingsPanel .settings-theme-body>.settings-group{margin-top:0!important;width:100%;min-width:0;max-width:100%}
-    #settingsPanel .settings-theme-body>.settings-group>summary{min-width:0;max-width:100%}
-    #settingsPanel .settings-theme-body>.settings-group .field{min-width:0;max-width:100%;overflow-wrap:anywhere}
-    #settingsPanel .settings-theme-body>.settings-group input,
-    #settingsPanel .settings-theme-body>.settings-group select,
-    #settingsPanel .settings-theme-body>.settings-group textarea{min-width:0;max-width:100%}
+    #settingsPanel .settings-theme-body{display:grid;gap:8px;margin-top:8px}
+    #settingsPanel .settings-theme-body>.settings-group{margin-top:0!important}
     #settingsPanel .settings-theme-body>.section-title{margin-top:8px}
     #settingsPanel .settings-theme-actions{display:grid;gap:8px;margin-top:2px}
     #settingsPanel .settings-theme-actions>.action{width:100%}
     #settingsPanel .sheet-actions[hidden]{display:none}
     #settingsPanel .sheet.settings-detail-open>.account-card,
     #settingsPanel .sheet.settings-detail-open>#onboardingNotice{display:none!important}
-    @media(max-width:430px){#settingsPanel .settings-theme-link{min-height:52px}}
+    @media(max-width:430px){#settingsPanel .settings-theme-link{min-height:60px}}
   `;
   document.head.appendChild(style);
 

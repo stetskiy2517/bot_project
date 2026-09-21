@@ -90,7 +90,7 @@ def export_account(user_id: int) -> dict:
                 "reminder_details": "reminder_id,category,updated_at",
                 "reminders": "reminder_id,text,remind_at,status,created_at,delivered_at,completed_at,deleted_at,repeat_rule,repeat_timezone,next_remind_at",
                 "tasks": "task_id,title,description,due_at,status,priority,created_at,completed_at,category,estimate_minutes,flexible,calendar_event_id,scheduled_start,parent_task_id,repeat_rule,updated_at",
-                "users": "timezone,work_start,work_end,work_days,buffer_minutes,category_colors,appearance_theme",
+                "users": "timezone,work_start,work_end,work_days,buffer_minutes,category_colors",
                 "user_categories": "category_key,label,color_id,semantic_key,position",
                 "navigation_preferences": "enabled,default_origin,office_address,home_address,mode,arrival_buffer_minutes,parking_buffer_minutes,walking_buffer_minutes,pending_origin_json",
                 "assistant_preferences": "settings_json",

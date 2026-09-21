@@ -169,12 +169,6 @@ class RequestSecurityTests(unittest.TestCase):
         self.assertIn("no-store", response.headers["Cache-Control"])
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
 
-    def test_due_reminder_poll_does_not_take_exclusive_command_lock(self):
-        with patch("core.web_security.user_operation", side_effect=AssertionError("read poll must not lock")):
-            response = self.client.get("/api/reminders/due")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("reminders", response.get_json())
-
 
     def test_google_timeout_readback_uses_same_id_without_second_insert(self):
         from modules import calendar

@@ -24,8 +24,6 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Run browser feature regression
         run: python tests/browser_features.py --output evidence/browser-features
-      - name: Test appearance themes
-        run: python tests/browser_appearance.py
       - name: Test swipe-first tasks
         run: python tests/browser_task_swipes.py
       - name: Test pre-beta polish flow
@@ -88,8 +86,6 @@ jobs:
               raise SystemExit(124)
           raise SystemExit(completed.returncode)
           PY
-      - name: Test appearance themes in WebKit
-        run: python tests/browser_appearance.py --engine webkit
       - name: Test swipe-first tasks in WebKit
         run: python tests/browser_task_swipes.py --engine webkit
       - name: Test pre-beta polish in WebKit

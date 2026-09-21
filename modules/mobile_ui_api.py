@@ -89,7 +89,6 @@ def inject_mobile_ui(response):
         '<link rel="stylesheet" href="/mobile-ui.css" />',
         '<link rel="stylesheet" href="/mobile-ui-overlays.css" />',
         '<link rel="stylesheet" href="/attention-center.css" />',
-        '<link rel="stylesheet" href="/appearance.css" />',
     )
     scripts = (
         '<script src="/mobile-ui.js"></script>',
@@ -100,7 +99,6 @@ def inject_mobile_ui(response):
         '<script src="/attention-center.js"></script>',
         '<script src="/reminder-editor.js"></script>',
         '<script src="/settings-themes.js"></script>',
-        '<script src="/appearance.js"></script>',
         '<script src="/prebeta-polish.js"></script>',
         '<script src="/ux-polish.js"></script>',
     )
@@ -131,11 +129,6 @@ def attention_center_css():
     return send_from_directory(WEB_DIR, "attention-center.css", mimetype="text/css")
 
 
-@mobile_ui_api.get("/appearance.css")
-def appearance_css():
-    return send_from_directory(WEB_DIR, "appearance.css", mimetype="text/css")
-
-
 @mobile_ui_api.get("/mobile-ui.js")
 def mobile_ui_js():
     return send_from_directory(WEB_DIR, "mobile-ui.js", mimetype="application/javascript")
@@ -164,11 +157,6 @@ def attention_center_js():
 @mobile_ui_api.get("/settings-themes.js")
 def settings_themes_js():
     return send_from_directory(WEB_DIR, "settings-themes.js", mimetype="application/javascript")
-
-
-@mobile_ui_api.get("/appearance.js")
-def appearance_js():
-    return send_from_directory(WEB_DIR, "appearance.js", mimetype="application/javascript")
 
 
 @mobile_ui_api.get("/prebeta-polish.js")

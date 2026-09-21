@@ -7,25 +7,6 @@
       content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#f7f7f5" />
-    <meta name="color-scheme" content="light dark" />
-    <script>
-      (() => {
-        const key = "personal-secretary:appearance-theme";
-        let theme = "auto";
-        try {
-          const stored = localStorage.getItem(key);
-          if (["auto", "light", "dark"].includes(stored)) theme = stored;
-        } catch (_) {}
-        const resolved = theme === "auto"
-          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-          : theme;
-        document.documentElement.dataset.appearance = theme;
-        document.documentElement.dataset.colorScheme = resolved;
-        document.documentElement.style.colorScheme = resolved;
-        const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.content = resolved === "dark" ? "#121417" : "#f7f7f5";
-      })();
-    </script>
     <title>Personal Secretary</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
