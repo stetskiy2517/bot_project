@@ -37,7 +37,7 @@
     .task-editor-section{display:grid;gap:11px;padding:14px;border:1px solid #e8e8e5;border-radius:18px;background:#fff}
     .task-editor-section-title{font-size:12px;font-weight:700;color:#777772;text-transform:uppercase;letter-spacing:.035em}
     .task-editor-field{display:grid;gap:6px;min-width:0;max-width:100%;color:#6f6f6a;font-size:12px}
-    .task-editor-field input,.task-editor-field select,.task-editor-field textarea{display:block;width:100%;min-width:0;max-width:100%;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:15px;box-sizing:border-box;outline:0}
+    .task-editor-field input,.task-editor-field select,.task-editor-field textarea{display:block;width:100%;min-width:0;max-width:100%;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:16px;box-sizing:border-box;outline:0}
     .task-editor-field input[type="date"],.task-editor-field input[type="time"]{inline-size:100%;min-inline-size:0;max-inline-size:100%;overflow:hidden}
     .task-editor-field textarea{min-height:118px;resize:vertical;line-height:1.45}
     .task-editor-field input:focus,.task-editor-field select:focus,.task-editor-field textarea:focus{border-color:#aaa9a5;box-shadow:0 0 0 3px rgba(0,0,0,.04)}
