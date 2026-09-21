@@ -85,7 +85,7 @@ class BugHuntWaveTest(TestCase):
                 "/api/navigation/origin-request",
                 json={"event_id": "evt-1", "choice": "teleport"},
             )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 400, response.get_json())
         self.assertEqual(response.get_json()["error"], "invalid_navigation_origin")
 
     def test_07_missing_file_is_400_not_500(self):
