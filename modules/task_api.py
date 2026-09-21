@@ -92,8 +92,8 @@ def tasks_list():
     if parent_raw not in {None, ""}:
         try:
             parent_id = int(parent_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Некорректный идентификатор родительской задачи") from exc
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_task_filter", message="Некорректный идентификатор родительской задачи"), 400
         tasks = [task for task in tasks if task.get("parent_task_id") == parent_id]
 
     return {"tasks": tasks, "summary": task_summary(_user())}
@@ -111,18 +111,21 @@ def tasks_get(task_id: int):
 @task_api.post("/api/tasks")
 def tasks_create():
     payload = request.get_json(silent=True) or {}
-    task = create_planner_task(
-        _user(),
-        payload.get("title"),
-        description=payload.get("description", ""),
-        due_at=payload.get("due_at"),
-        priority=payload.get("priority", "normal"),
-        category=payload.get("category", "other"),
-        estimate_minutes=payload.get("estimate_minutes"),
-        flexible=payload.get("flexible", True),
-        parent_task_id=payload.get("parent_task_id"),
-        repeat_rule=payload.get("repeat_rule"),
-    )
+    try:
+        task = create_planner_task(
+            _user(),
+            payload.get("title"),
+            description=payload.get("description", ""),
+            due_at=payload.get("due_at"),
+            priority=payload.get("priority", "normal"),
+            category=payload.get("category", "other"),
+            estimate_minutes=payload.get("estimate_minutes"),
+            flexible=payload.get("flexible", True),
+            parent_task_id=payload.get("parent_task_id"),
+            repeat_rule=payload.get("repeat_rule"),
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_task", message=str(exc)), 400
     return {"task": task}, 201
 
 
@@ -134,7 +137,10 @@ def tasks_update(task_id: int):
     if not current:
         return jsonify(error="task_not_found"), 404
     status = payload.get("status")
-    task = update_planner_task(user_id, task_id, payload)
+    try:
+        task = update_planner_task(user_id, task_id, payload)
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_task", message=str(exc)), 400
     next_task = None
     if status == "done" and current.get("status") != "done":
         remove_future_task_block(user_id, current)
