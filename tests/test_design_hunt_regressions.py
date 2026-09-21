@@ -5,42 +5,43 @@ from unittest import TestCase
 class DesignHuntRegressionTest(TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.index = Path("web/index.html").read_text(encoding="utf-8")
         cls.event = Path("web/event-editor.js").read_text(encoding="utf-8")
-        cls.attention = Path("web/attention-center.css").read_text(encoding="utf-8")
-        cls.life = Path("web/life-balance.js").read_text(encoding="utf-8")
+        cls.files = Path("web/file-ingest.js").read_text(encoding="utf-8")
+        cls.library = Path("web/library.js").read_text(encoding="utf-8")
+        cls.swipes = Path("web/task-swipe.js").read_text(encoding="utf-8")
         cls.tasks = Path("web/task-editor.js").read_text(encoding="utf-8")
+        cls.mobile = Path("web/mobile-ui.css").read_text(encoding="utf-8")
         cls.notes = Path("web/note-tools.js").read_text(encoding="utf-8")
         cls.reminders = Path("web/reminder-editor.js").read_text(encoding="utf-8")
 
     def test_01_event_close_is_full_touch_target(self):
         self.assertIn(".event-detail-close { flex:0 0 auto; width:44px; height:44px;", self.event)
 
-    def test_02_attention_actions_are_full_touch_targets(self):
-        self.assertIn("min-height: 44px;", self.attention)
-        self.assertNotIn("min-height: 31px;", self.attention)
+    def test_02_file_attach_is_full_touch_target(self):
+        self.assertIn(".file-attach-button {\n      width: 44px;\n      height: 44px;", self.files)
 
-    def test_03_attention_ai_badge_is_not_nine_pixels(self):
-        self.assertNotIn("font-size: 9px;", self.attention)
+    def test_03_chat_input_has_full_touch_height(self):
+        self.assertIn(".composer input {\n        flex: 1;\n        min-height: 44px;", self.index)
 
-    def test_04_attention_action_text_is_readable(self):
-        self.assertNotIn("font-size: 10px;", self.attention)
+    def test_04_library_tabs_keep_full_touch_height(self):
+        self.assertIn(".library-tab {\n      min-width: 0;\n      min-height: 44px;", self.library)
 
-    def test_05_attention_count_is_readable(self):
-        self.assertIn(".mobile-attention-count", self.attention)
-        self.assertIn("font-size: 11px;", self.attention)
+    def test_05_settings_close_is_full_touch_target(self):
+        self.assertIn(".close-button {\n        width: 44px;\n        height: 44px;", self.index)
 
-    def test_06_life_balance_labels_are_not_ten_pixels(self):
-        self.assertIn(".life-balance-row label", self.life)
-        self.assertNotIn("font-size:10px}", self.life)
+    def test_06_task_notification_bell_is_full_touch_target(self):
+        self.assertIn(".planner-task-bell{display:inline-flex;flex:0 0 auto;width:44px;height:44px;", self.swipes)
 
-    def test_07_life_balance_inputs_have_touch_height(self):
-        self.assertIn(".life-balance-row input{width:100%;min-height:44px;", self.life)
-
-    def test_08_snackbar_undo_has_touch_height(self):
+    def test_07_snackbar_undo_has_full_touch_height(self):
         self.assertIn(".planner-snackbar-action{flex:0 0 auto;min-height:44px;", self.tasks)
 
+    def test_08_bottom_navigation_text_is_not_tiny(self):
+        self.assertIn(".mobile-nav-label", self.mobile)
+        self.assertNotIn("font-size: 10.5px;", self.mobile)
+
     def test_09_note_badges_are_legible(self):
-        self.assertIn("min-height:24px", self.notes)
+        self.assertIn(".note-card-badge{display:inline-flex;align-items:center;min-height:24px;", self.notes)
         self.assertIn("font-size:11px", self.notes)
 
     def test_10_reminder_category_chip_is_legible(self):
