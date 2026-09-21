@@ -36,6 +36,8 @@ jobs:
         run: python tests/browser_attention_center.py
       - name: Test reminder editor
         run: python tests/browser_reminder_editor.py
+      - name: Adversarial mobile UI quality
+        run: python tests/browser_ui_quality.py --output evidence/browser-features/ui-quality
       - name: Upload browser evidence
         if: always()
         continue-on-error: true
@@ -86,6 +88,8 @@ jobs:
         run: python tests/browser_task_swipes.py --engine webkit
       - name: Test pre-beta polish in WebKit
         run: python tests/browser_prebeta_polish.py --engine webkit
+      - name: Adversarial UI quality in WebKit
+        run: python tests/browser_ui_quality.py --engine webkit --output evidence/browser-webkit-ios/ui-quality
       - name: Upload WebKit evidence
         if: always()
         continue-on-error: true
