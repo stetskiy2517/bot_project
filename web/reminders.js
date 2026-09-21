@@ -4,6 +4,8 @@
   const PUSH_SELF_TEST_KEY = "personal-secretary-push-self-test-v2";
 
   let reminderPollBusy = false;
+  let reminderPollController = null;
+  let reminderPageActive = true;
   let chatClearTimer = null;
   let pushConfig = null;
   let pushManager = null;
@@ -451,10 +453,13 @@
   }
 
   async function pollDueReminders() {
-    if (reminderPollBusy) return;
+    if (reminderPollBusy || !reminderPageActive || document.hidden) return;
     reminderPollBusy = true;
+    const controller = new AbortController();
+    reminderPollController = controller;
     try {
-      const result = await api("/api/reminders/due");
+      const result = await api("/api/reminders/due", { signal: controller.signal });
+      if (!reminderPageActive || document.hidden) return;
       const reminders = result.reminders || [];
       if (!reminders.length) return;
       showChat();
@@ -464,9 +469,10 @@
       }
       armChatIdleTimer();
     } catch (error) {
-      if (error.message !== "unauthorized")
+      if (error?.name !== "AbortError" && error.message !== "unauthorized")
         console.warn("Reminder poll failed", error);
     } finally {
+      if (reminderPollController === controller) reminderPollController = null;
       reminderPollBusy = false;
     }
   }
@@ -547,6 +553,24 @@
       await runPushTest({ announce: false });
     } catch (_error) {}
   }
+
+  window.addEventListener("pagehide", () => {
+    reminderPageActive = false;
+    reminderPollController?.abort();
+    reminderPollController = null;
+  });
+  window.addEventListener("pageshow", () => {
+    reminderPageActive = true;
+    window.setTimeout(pollDueReminders, 0);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      reminderPollController?.abort();
+      reminderPollController = null;
+      return;
+    }
+    window.setTimeout(pollDueReminders, 0);
+  });
 
   installTransientChatCleanup();
   ensurePushSettingsUi();
