@@ -270,8 +270,8 @@ def simulate_user(
     metrics.require(local_clock(reminder["remind_at"], source_tz) == (23, 0), f"reminder local time mismatch before travel user {index}")
 
     library = metrics.response(client.get("/api/library"), 200, "library_read").get_json()
-    metrics.require(any(int(item["note_id"]) == note_id for item in library["notes"]), f"library missed note user {index}")
-    metrics.require(any(int(item["reminder_id"]) == reminder_id for item in library["reminders"]), f"library missed reminder user {index}")
+    metrics.require(any(int(item["id"]) == note_id for item in library["notes"]), f"library missed note user {index}")
+    metrics.require(any(int(item["id"]) == reminder_id for item in library["reminders"]), f"library missed reminder user {index}")
 
     task_list = metrics.response(client.get(f"/api/tasks?status=all&q={index}"), 200, "task_search").get_json()["tasks"]
     metrics.require(any(int(item["task_id"]) == task_id for item in task_list), f"task search missed user {index}")
