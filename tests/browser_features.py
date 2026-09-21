@@ -197,7 +197,10 @@ def main():
             return Boolean(group && group.closest('[data-settings-theme="notifications"]'));
         }""")
         expect(page.locator("#notificationsGroup")).to_have_count(1)
+        expect(page.locator("#notificationsGroup .settings-group-title")).to_have_text("На устройстве")
         expect(page.locator("#settingsTheme-notifications #pushNotificationSettings")).to_have_count(1)
+        expect(page.locator("#settingsPanel .section-title", has_text="Уведомления")).to_have_count(0)
+        expect(page.locator("#appearanceThemeControl")).to_have_count(1)
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")
