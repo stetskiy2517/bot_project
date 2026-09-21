@@ -146,7 +146,9 @@
 
   function compactReview(text) {
     const lines = String(text || "").split("\n").map(line => line.trim()).filter(Boolean);
-    return lines.slice(1, 7).join("\n");
+    const knownHeading = /^(?:утренняя сводка|вечерний разбор|сводка дня)$/i;
+    if (lines.length && knownHeading.test(lines[0])) lines.shift();
+    return lines.slice(0, 6).join("\n");
   }
 
   function renderToday(data, route) {
@@ -155,7 +157,15 @@
     const date = new Date(`${data.date}T12:00:00`);
     document.getElementById("mobileTodayDate").textContent = date.toLocaleDateString("ru-RU", {weekday: "long", day: "numeric", month: "long"});
     const summary = data.task_summary || {};
-    const upcoming = (data.events || []).filter(item => item.is_travel || !item.starts_at || new Date(item.starts_at).getTime() >= Date.now()).slice(0, 5);
+    const nowMs = Date.now();
+    const upcoming = (data.events || []).filter(item => {
+      if (item.all_day || !item.starts_at) return true;
+      const startMs = new Date(item.starts_at).getTime();
+      if (!Number.isFinite(startMs)) return false;
+      if (!item.is_travel) return startMs >= nowMs;
+      const endMs = new Date(item.ends_at || item.starts_at).getTime();
+      return Number.isFinite(endMs) && endMs >= nowMs;
+    }).slice(0, 5);
     const tasks = (data.tasks || []).slice(0, 3);
     const reviewText = compactReview(data.review?.text);
     const reviewNeedsToggle = reviewText.length > 150 || reviewText.split("\n").length > 3;
