@@ -338,11 +338,29 @@
 
   async function openRoute() {
     let route = routePayload;
+    let popup = null;
     if (!route) {
-      try { route = await request("/api/navigation/next-route"); }
-      catch (error) { return showToast(friendly(error)); }
+      popup = window.open("about:blank", "_blank");
+      if (popup) {
+        try { popup.opener = null; } catch (_) {}
+      }
+      try {
+        route = await request("/api/navigation/next-route");
+      } catch (error) {
+        try { popup?.close(); } catch (_) {}
+        return showToast(friendly(error));
+      }
     }
-    if (route?.url) window.open(route.url, "_blank", "noopener,noreferrer");
+    if (!route?.url) {
+      try { popup?.close(); } catch (_) {}
+      return showToast("Маршрут не найден");
+    }
+    if (popup) {
+      popup.location.replace(route.url);
+      return;
+    }
+    const opened = window.open(route.url, "_blank", "noopener,noreferrer");
+    if (!opened) window.location.assign(route.url);
   }
 
   function closeSettingsForNavigation() {
