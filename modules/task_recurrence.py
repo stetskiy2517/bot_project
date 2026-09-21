@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from calendar import monthrange
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from core.task_planner_store import create_planner_task
+from core.db import get_user_timezone
+from core.task_planner_store import TASK_REPEAT_RULES, create_planner_task
 
-SUPPORTED_TASK_REPEAT_RULES = {"daily", "weekly", "monthly"}
+SUPPORTED_TASK_REPEAT_RULES = set(TASK_REPEAT_RULES)
 
 
 def _parse_due(value: object) -> datetime | None:
@@ -30,13 +32,27 @@ def _add_month(value: datetime) -> datetime:
     return value.replace(year=year, month=month, day=day)
 
 
-def next_task_due(due_at: object, repeat_rule: object, *, now: datetime | None = None) -> datetime | None:
+def _zone(name: str | None):
+    try:
+        return ZoneInfo(str(name or "UTC"))
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def next_task_due(
+    due_at: object,
+    repeat_rule: object,
+    *,
+    now: datetime | None = None,
+    timezone_name: str | None = None,
+) -> datetime | None:
     due = _parse_due(due_at)
     rule = str(repeat_rule or "").strip().lower()
     if due is None or rule not in SUPPORTED_TASK_REPEAT_RULES:
         return None
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    candidate = due
+    zone = _zone(timezone_name)
+    current = (now or datetime.now(timezone.utc)).astimezone(zone)
+    candidate = due.astimezone(zone)
     for _ in range(500):
         if rule == "daily":
             candidate += timedelta(days=1)
@@ -45,12 +61,18 @@ def next_task_due(due_at: object, repeat_rule: object, *, now: datetime | None =
         else:
             candidate = _add_month(candidate)
         if candidate > current:
-            return candidate
+            return candidate.astimezone(timezone.utc)
     return None
 
 
 def create_next_recurring_task(user_id: int, completed_task: dict, *, now: datetime | None = None) -> dict | None:
-    next_due = next_task_due(completed_task.get("due_at"), completed_task.get("repeat_rule"), now=now)
+    timezone_name = get_user_timezone(user_id, default="UTC") or "UTC"
+    next_due = next_task_due(
+        completed_task.get("due_at"),
+        completed_task.get("repeat_rule"),
+        now=now,
+        timezone_name=timezone_name,
+    )
     if next_due is None:
         return None
     return create_planner_task(
