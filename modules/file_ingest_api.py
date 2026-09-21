@@ -50,6 +50,11 @@ def _user() -> int:
     return int(session["user_id"])
 
 
+@file_ingest_api.errorhandler(ValueError)
+def _invalid_file_request(error):
+    return jsonify(error="invalid_file_request", message=str(error)), 400
+
+
 def _file_type(upload) -> tuple[str, str, int]:
     raw_name = Path(str(upload.filename or "")).name
     suffix = Path(raw_name).suffix.lower()
