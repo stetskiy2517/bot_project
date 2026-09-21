@@ -177,6 +177,13 @@ body {
   background: #fff;
 }
 
+.app.mobile-shell #message {
+  height: 44px;
+  min-height: 44px;
+  line-height: 22px;
+  box-sizing: border-box;
+}
+
 .app.mobile-shell .composer-voice-button {
   background: #efefed;
 }
