@@ -116,6 +116,13 @@ class BugHuntWaveTest(TestCase):
         self.assertIn('reminderEditorFeedback', source)
         self.assertIn('"Не удалось открыть напоминание."', source)
 
+    def test_11_reminder_poll_is_cancelled_when_page_unloads(self):
+        source = Path("web/reminders.js").read_text(encoding="utf-8")
+        self.assertIn('window.addEventListener("pagehide"', source)
+        self.assertIn("reminderPollController?.abort()", source)
+        self.assertIn('api("/api/reminders/due", { signal: controller.signal })', source)
+        self.assertIn("document.hidden", source)
+
 
 if __name__ == "__main__":
     import unittest
