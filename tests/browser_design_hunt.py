@@ -39,11 +39,17 @@ AUDIT_JS = r"""
   };
   const findings = [];
   const intersectsViewport = r => r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
+  const isTopmost = (el, r) => {
+    const x = Math.min(innerWidth - 1, Math.max(0, (Math.max(0, r.left) + Math.min(innerWidth, r.right)) / 2));
+    const y = Math.min(innerHeight - 1, Math.max(0, (Math.max(0, r.top) + Math.min(innerHeight, r.bottom)) / 2));
+    const hit = document.elementFromPoint(x, y);
+    return Boolean(hit && (hit === el || el.contains(hit)));
+  };
   const controls = [...document.querySelectorAll('button,a,input,select,textarea,[role="button"],[tabindex]')].filter(visible);
   for (const el of controls) {
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
-    const active = s.pointerEvents !== 'none' && intersectsViewport(r);
+    const active = s.pointerEvents !== 'none' && intersectsViewport(r) && isTopmost(el, r);
     if (active && (r.width < 44 || r.height < 44) && !el.matches('input[type="checkbox"],input[type="radio"]')) {
       findings.push({kind:'small-target', selector:path(el), width:+r.width.toFixed(1), height:+r.height.toFixed(1), cssHeight:s.height, cssMinHeight:s.minHeight, transform:s.transform, parentTransform:getComputedStyle(el.parentElement).transform, text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
     }
