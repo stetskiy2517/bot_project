@@ -45,8 +45,8 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
         self.assertIn('return !root.classList.contains("open")', self.script)
 
     def test_note_sheet_has_local_right_swipe_fallback(self):
-        self.assertIn('root.addEventListener("touchstart"', self.note_script)
-        self.assertIn('root.addEventListener("touchend"', self.note_script)
+        self.assertIn('windowElement.addEventListener("touchstart"', self.note_script)
+        self.assertIn('windowElement.addEventListener("touchend"', self.note_script)
         self.assertIn("dx < 64", self.note_script)
         self.assertIn('root.addEventListener("wheel"', self.note_script)
 
