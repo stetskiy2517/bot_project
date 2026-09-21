@@ -7,9 +7,12 @@ from unittest import TestCase
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from flask import session
+
 from core.db import get_or_create_google_user
 from core.task_planner_store import create_planner_task
 from modules.calendar_availability import find_free_slots
+from modules.navigation_extra_api import answer_navigation_origin
 from tests.web_test_support import web_test_app
 
 
@@ -80,12 +83,15 @@ class BugHuntWaveTest(TestCase):
             "timezone": "Europe/Moscow",
             "destination": "Москва",
         }]
-        with patch("modules.navigation_extra_api.list_pending_navigation_origins", return_value=pending):
-            response = self.client.post(
-                "/api/navigation/origin-request",
-                json={"event_id": "evt-1", "choice": "teleport"},
-            )
-        self.assertEqual(response.status_code, 400, response.get_json())
+        with self.app.test_request_context(
+            "/api/navigation/origin-request",
+            method="POST",
+            json={"event_id": "evt-1", "choice": "teleport"},
+        ):
+            session["user_id"] = self.user_id
+            with patch("modules.navigation_extra_api.list_pending_navigation_origins", return_value=pending):
+                response = self.app.make_response(answer_navigation_origin())
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "invalid_navigation_origin")
 
     def test_07_missing_file_is_400_not_500(self):
