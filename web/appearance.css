@@ -4,19 +4,19 @@
 
 html[data-color-scheme="dark"] {
   color-scheme: dark;
-  --bg: #111214;
-  --text: #f4f5f7;
-  --muted: #a4aab3;
-  --line: #30343b;
-  --mobile-bg: #111214;
-  --mobile-surface: #1b1e23;
-  --mobile-surface-soft: #23272e;
-  --mobile-text: #f4f5f7;
-  --mobile-muted: #a4aab3;
-  --mobile-line: #30343b;
-  --mobile-dark: #2b3037;
-  background: #111214;
-  color: #f4f5f7;
+  --bg: #121417;
+  --text: #f7f8fa;
+  --muted: #b3bac4;
+  --line: #343942;
+  --mobile-bg: #121417;
+  --mobile-surface: #1d2127;
+  --mobile-surface-soft: #252a31;
+  --mobile-text: #f7f8fa;
+  --mobile-muted: #b3bac4;
+  --mobile-line: #343942;
+  --mobile-dark: #2d333b;
+  background: #121417;
+  color: #f7f8fa;
 }
 
 html[data-color-scheme="dark"] body,
@@ -475,6 +475,154 @@ html[data-color-scheme="dark"] .mobile-more-meta {
 html[data-color-scheme="dark"] .mobile-icon-button {
   background: #23272e !important;
   color: #e8ebef !important;
+}
+
+
+/* Dark theme readability pass. Keep contrast comfortable and remove any
+   leftover light surfaces from dynamically injected task/library UI. */
+html[data-color-scheme="dark"] body,
+html[data-color-scheme="dark"] .app,
+html[data-color-scheme="dark"] .library-screen,
+html[data-color-scheme="dark"] .mobile-screen {
+  background: #121417 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .library-head {
+  background: rgba(18, 20, 23, .97) !important;
+  border-bottom-color: #2b3037 !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,.025) !important;
+}
+
+html[data-color-scheme="dark"] .library-tabs {
+  background: #1b1f24 !important;
+  border: 1px solid #2c3138 !important;
+}
+
+html[data-color-scheme="dark"] .library-tab {
+  color: #aeb5bf !important;
+}
+
+html[data-color-scheme="dark"] .library-tab.active {
+  background: #303640 !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px #414854 !important;
+}
+
+html[data-color-scheme="dark"] .library-back-button,
+html[data-color-scheme="dark"] .library-header-icon,
+html[data-color-scheme="dark"] .notes-header-icon,
+html[data-color-scheme="dark"] .planner-task-header-icon,
+html[data-color-scheme="dark"] .mobile-icon-button {
+  background: #242930 !important;
+  border-color: #353b44 !important;
+  color: #eef1f5 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-header-icon.primary {
+  background: #f3f5f7 !important;
+  border-color: #f3f5f7 !important;
+  color: #171a1e !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-summary {
+  color: #b2bac5 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-filter,
+html[data-color-scheme="dark"] .planner-task-search-input {
+  background: #1d2127 !important;
+  border-color: #383f49 !important;
+  color: #f1f3f6 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-filter option {
+  background: #1d2127 !important;
+  color: #f1f3f6 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-card,
+html[data-color-scheme="dark"] .planner-task-swipe-row > .planner-task-card,
+html[data-color-scheme="dark"] .planner-task-swipe-row > .planner-reminder-task,
+html[data-color-scheme="dark"] .library-card,
+html[data-color-scheme="dark"] .library-swipe-row .library-card {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f6f7f9 !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18) !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-title,
+html[data-color-scheme="dark"] .planner-task-title-text,
+html[data-color-scheme="dark"] .library-card-title {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-description,
+html[data-color-scheme="dark"] .library-card-preview {
+  color: #c9ced6 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-meta,
+html[data-color-scheme="dark"] .library-card-meta {
+  color: #adb5c0 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-card.completed,
+html[data-color-scheme="dark"] .planner-reminder-task.completed,
+html[data-color-scheme="dark"] .library-card.completed {
+  background: #1a1e23 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-card.completed .planner-task-title,
+html[data-color-scheme="dark"] .planner-reminder-task.completed .planner-task-title,
+html[data-color-scheme="dark"] .planner-task-card.completed .planner-task-title-text,
+html[data-color-scheme="dark"] .planner-reminder-task.completed .planner-task-title-text,
+html[data-color-scheme="dark"] .library-card.completed .library-card-title {
+  color: #9fa7b2 !important;
+  text-decoration-color: #7c8591 !important;
+  opacity: 1 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-card.completed .planner-task-meta,
+html[data-color-scheme="dark"] .planner-reminder-task.completed .planner-task-meta,
+html[data-color-scheme="dark"] .library-card.completed .library-card-meta {
+  color: #89929e !important;
+  opacity: 1 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-bell,
+html[data-color-scheme="dark"] .reminder-repeat-icon {
+  color: #c1c8d2 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-swipe-row,
+html[data-color-scheme="dark"] .planner-task-swipe-actions,
+html[data-color-scheme="dark"] .library-swipe-row {
+  background: #252a31 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-swipe-action,
+html[data-color-scheme="dark"] .planner-task-action {
+  background: #2c323a !important;
+  color: #eef1f5 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-swipe-action.danger,
+html[data-color-scheme="dark"] .planner-task-action.danger {
+  background: #40272b !important;
+  color: #ffc1c5 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-primary-cue {
+  background: #21362a !important;
+  color: #b7e0c1 !important;
+}
+
+html[data-color-scheme="dark"] .library-empty,
+html[data-color-scheme="dark"] .planner-task-empty,
+html[data-color-scheme="dark"] .planner-task-empty strong {
+  color: #b7bec8 !important;
 }
 
 .appearance-settings {
