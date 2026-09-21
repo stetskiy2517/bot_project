@@ -304,11 +304,15 @@ class WebLibraryTests(unittest.TestCase):
             'method: "DELETE"',
             'data-snooze="hour"',
             'data-snooze="tomorrow"',
+            "tomorrowSameLocalTime",
+            "result.setDate(result.getDate() + 1)",
+            "window.PlannerLibrary",
             "Выполнено",
             'dx > 0 && app.classList.contains("chat-active")',
             'wheelX < 0 && app.classList.contains("chat-active")',
         ]:
             self.assertIn(marker, script)
+        self.assertNotIn("Date.now() + 24 * 60 * 60 * 1000", script)
         self.assertNotIn("Сработало", script)
 
 
