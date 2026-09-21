@@ -48,6 +48,14 @@ class DesignHuntRegressionTest(TestCase):
         self.assertIn(".reminder-category-chip{display:inline-flex;align-items:center;min-height:24px;", self.reminders)
         self.assertIn("font-size:11px", self.reminders)
 
+    def test_11_narrow_library_tabs_are_not_squeezed(self):
+        self.assertIn("@media (max-width:360px)", self.library)
+        self.assertIn(".library-tab { min-width:44px; }", self.library)
+
+    def test_12_mobile_message_input_has_actual_touch_height(self):
+        self.assertIn(".app.mobile-shell #message", self.mobile)
+        self.assertIn("height: 44px;", self.mobile)
+
 
 if __name__ == "__main__":
     import unittest
