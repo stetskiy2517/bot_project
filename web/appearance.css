@@ -216,24 +216,6 @@ html[data-color-scheme="dark"] .planner-system-banner-action {
   margin-top: 4px;
 }
 
-.appearance-settings-copy {
-  display: grid;
-  gap: 5px;
-  padding: 2px 2px 0;
-}
-
-.appearance-settings-title {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--text);
-}
-
-.appearance-settings-note {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
 .appearance-choice-list {
   display: grid;
   gap: 8px;
@@ -241,7 +223,7 @@ html[data-color-scheme="dark"] .planner-system-banner-action {
 
 .appearance-choice {
   width: 100%;
-  min-height: 66px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 24px;
   align-items: center;
@@ -269,11 +251,6 @@ html[data-color-scheme="dark"] .planner-system-banner-action {
 .appearance-choice-copy strong {
   font-size: 14px;
   font-weight: 650;
-}
-
-.appearance-choice-copy small {
-  color: #8e8e89;
-  font-size: 11px;
 }
 
 .appearance-choice-mark {
@@ -339,10 +316,6 @@ html[data-color-scheme="dark"] .appearance-choice.active {
   border-color: #66676d;
   background: #222327;
   box-shadow: none;
-}
-
-html[data-color-scheme="dark"] .appearance-choice-copy small {
-  color: #999a9f;
 }
 
 @media (prefers-reduced-motion: reduce) {
