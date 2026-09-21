@@ -189,7 +189,15 @@ def main():
         page.locator("#accountBtn").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
         expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
+        expect(page.locator("#settingsThemes .settings-theme-link-note")).to_have_count(0)
+        expect(page.locator('[data-settings-open="appearance"]')).to_have_count(1)
         expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()
+        page.wait_for_function("""() => {
+            const group = document.getElementById("notificationsGroup");
+            return Boolean(group && group.closest('[data-settings-theme="notifications"]'));
+        }""")
+        expect(page.locator("#notificationsGroup")).to_have_count(1)
+        expect(page.locator("#settingsTheme-notifications #pushNotificationSettings")).to_have_count(1)
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")
