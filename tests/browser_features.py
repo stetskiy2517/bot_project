@@ -138,7 +138,7 @@ def main():
                 const target = targets.find(item => (item.textContent || '').includes(summary));
                 return Boolean(target?.closest('[data-settings-theme]')?.dataset.settingsTheme);
             }""",
-            summary,
+            arg=summary,
         )
         theme = target.evaluate("el => el.closest('[data-settings-theme]')?.dataset.settingsTheme || ''")
         assert theme, f"No settings theme found for {summary}"
