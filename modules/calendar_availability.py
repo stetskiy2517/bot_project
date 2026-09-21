@@ -230,6 +230,8 @@ def find_free_slots(
             remainder = rounded.minute % 30
             if remainder:
                 rounded += timedelta(minutes=30 - remainder)
+            elif local_now.second or local_now.microsecond:
+                rounded += timedelta(minutes=30)
             window_start = max(window_start, rounded)
 
         cursor = window_start
