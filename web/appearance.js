@@ -23,7 +23,7 @@
       meta.name = "theme-color";
       document.head.appendChild(meta);
     }
-    meta.content = resolved === "dark" ? "#111214" : "#f7f7f5";
+    meta.content = resolved === "dark" ? "#121417" : "#f7f7f5";
   }
 
   function updateSelection() {
