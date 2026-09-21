@@ -79,6 +79,13 @@ class MobileDesignAuditTests(unittest.TestCase):
         self.assertIn("category-manager-add button{min-height:44px", categories)
         self.assertNotIn("font-size:12px!important", categories)
 
+    def test_system_banner_does_not_block_top_controls(self):
+        polish = (ROOT / "web" / "prebeta-polish.js").read_text(encoding="utf-8")
+        self.assertIn("bottom:calc(env(safe-area-inset-bottom) + 82px)", polish)
+        self.assertIn(".planner-system-banner.show{opacity:1;visibility:visible;transform:translate(-50%,0);pointer-events:none", polish)
+        self.assertIn(".planner-system-banner-action{flex:0 0 auto;min-height:44px", polish)
+        self.assertIn("pointer-events:auto", polish)
+
 
 if __name__ == "__main__":
     unittest.main()
