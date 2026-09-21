@@ -158,6 +158,22 @@ class LifeWheelCalculationTests(unittest.TestCase):
         self.assertEqual(result["totals"]["events"], 0)
         self.assertEqual(result["totals"]["skipped_events"], 2)
 
+    def test_missing_calendar_access_still_returns_tasks_and_reminders(self):
+        with patch("modules.life_wheel.get_user_timezone", return_value="Europe/Moscow"), patch(
+            "modules.life_wheel.get_category_colors", return_value=COLORS
+        ), patch("modules.life_wheel._list_events", side_effect=PermissionError("GOOGLE_AUTH_REQUIRED")):
+            result = build_life_wheel_snapshot(
+                1,
+                days=30,
+                now=self.now,
+                reminders=[
+                    reminder("Принять лекарство", datetime(2026, 9, 13, 22, 0, tzinfo=self.zone))
+                ],
+                tasks=[],
+            )
+        self.assertEqual(result["totals"]["events"], 0)
+        self.assertEqual(result["totals"]["reminders"], 1)
+
     def test_invalid_period_is_rejected(self):
         with self.assertRaises(ValueError):
             self.snapshot([], days=14)
