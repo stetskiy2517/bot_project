@@ -113,36 +113,6 @@
     root.id = "noteWindowBackdrop";
     root.className = "note-window-backdrop";
 
-    root.addEventListener("touchstart", event => {
-      if (!root.classList.contains("open") || event.touches.length !== 1) {
-        noteBackTouch = null;
-        return;
-      }
-      if (event.target.closest?.("input, textarea, select, button")) {
-        noteBackTouch = null;
-        return;
-      }
-      const touch = event.touches[0];
-      noteBackTouch = {x: touch.clientX, y: touch.clientY};
-    }, {passive: true});
-
-    root.addEventListener("touchend", event => {
-      const start = noteBackTouch;
-      noteBackTouch = null;
-      if (!start || !root.classList.contains("open") || event.changedTouches.length !== 1) return;
-      const touch = event.changedTouches[0];
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      if (dx < 64 || dx < Math.abs(dy) * 1.25) return;
-      close();
-      event.preventDefault();
-      event.stopPropagation();
-    }, {passive: false});
-
-    root.addEventListener("touchcancel", () => {
-      noteBackTouch = null;
-    }, {passive: true});
-
     root.addEventListener("wheel", event => {
       if (!root.classList.contains("open")) return;
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 1.1) return;
@@ -162,9 +132,38 @@
     return root;
   }
 
+  function bindWindowBackGesture(windowElement) {
+    if (!windowElement || windowElement.dataset.noteBackGestureBound === "1") return;
+    windowElement.dataset.noteBackGestureBound = "1";
+    windowElement.addEventListener("touchstart", event => {
+      if (event.touches.length !== 1 || event.target.closest?.("input, textarea, select, button")) {
+        noteBackTouch = null;
+        return;
+      }
+      const touch = event.touches[0];
+      noteBackTouch = {x: touch.clientX, y: touch.clientY};
+    }, {passive: true});
+    windowElement.addEventListener("touchend", event => {
+      const start = noteBackTouch;
+      noteBackTouch = null;
+      if (!start || event.changedTouches.length !== 1) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (dx < 64 || dx < Math.abs(dy) * 1.25) return;
+      close();
+      event.preventDefault();
+      event.stopPropagation();
+    }, {passive: false});
+    windowElement.addEventListener("touchcancel", () => {
+      noteBackTouch = null;
+    }, {passive: true});
+  }
+
   function show(html) {
     const root = modal();
     root.innerHTML = `<section class="note-window" role="dialog" aria-modal="true" aria-label="Заметка"><div class="note-window-handle"></div>${html}</section>`;
+    bindWindowBackGesture(root.querySelector(".note-window"));
     root.classList.add("open");
   }
 
