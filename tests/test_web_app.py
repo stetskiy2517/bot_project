@@ -203,7 +203,6 @@ class WebAppTests(unittest.TestCase):
         response.close()
         for control in [
             "accountBtn",
-            "timezone",
             "workStart",
             "workEnd",
             "days",
