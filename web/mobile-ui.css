@@ -717,7 +717,7 @@ body {
 .mobile-sheet-field input,
 .mobile-sheet-field select {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 11px;
   border: 1px solid #dededb;
   border-radius: 12px;
