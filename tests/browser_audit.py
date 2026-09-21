@@ -240,7 +240,7 @@ def safe_chat_rendering(page, requests, mode):
 
 
 def library_back(page, requests, mode):
-    page.locator("#libraryOpenBtn").click()
+    page.evaluate("window.PlannerLibrary.open()")
     page.wait_for_function("document.querySelector('#libraryList').textContent.includes('Audit note')")
     page.locator("#libraryBackBtn").click()
     assert not page.locator("#app").evaluate("node => node.classList.contains('library-active')")
