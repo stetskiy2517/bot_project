@@ -1,5 +1,8 @@
 :root {
   color-scheme: light;
+  --settings-surface: #ffffff;
+  --settings-line: #ececea;
+  --settings-field: #f5f5f3;
 }
 
 html[data-color-scheme="dark"] {
@@ -15,6 +18,9 @@ html[data-color-scheme="dark"] {
   --mobile-muted: #b3bac4;
   --mobile-line: #343942;
   --mobile-dark: #2d333b;
+  --settings-surface: #1d2127;
+  --settings-line: #343a43;
+  --settings-field: #252a31;
   background: #121417;
   color: #f7f8fa;
 }
@@ -731,6 +737,311 @@ html[data-color-scheme="dark"] .appearance-choice.active {
   border-color: #66676d;
   background: #222327;
   box-shadow: none;
+}
+
+
+/* Final dark-mode stability layer.
+   Only appearance is changed here; layout stays identical to the light theme. */
+html[data-color-scheme="dark"] #settingsPanel .sheet {
+  background: #171a1f !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .account-card,
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-screen,
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-body {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-themes-menu {
+  background: #343a43 !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-link,
+html[data-color-scheme="dark"] #settingsPanel .settings-group,
+html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+  box-shadow: none !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-link-title,
+html[data-color-scheme="dark"] #settingsPanel .settings-group-title,
+html[data-color-scheme="dark"] #settingsPanel .account-name {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-link-chevron,
+html[data-color-scheme="dark"] #settingsPanel .settings-group-chevron {
+  stroke: #aab3bf !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-group > summary,
+html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section > summary {
+  background: #1d2127 !important;
+  color: #f7f8fa !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-group[open] > summary,
+html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section[open] > summary {
+  border-bottom-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-group .grid,
+html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section .grid {
+  background: #343a43 !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-group .field,
+html[data-color-scheme="dark"] #settingsPanel .settings-group.assistant-section .field {
+  background: #1d2127 !important;
+  color: #e9edf2 !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel input,
+html[data-color-scheme="dark"] #settingsPanel select,
+html[data-color-scheme="dark"] #settingsPanel textarea {
+  background: #252a31 !important;
+  border-color: #3b424c !important;
+  color: #f4f6f8 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-help,
+html[data-color-scheme="dark"] #settingsPanel .settings-group-meta,
+html[data-color-scheme="dark"] #settingsPanel .account-email,
+html[data-color-scheme="dark"] #settingsPanel .section-title {
+  color: #aab3bf !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-back,
+html[data-color-scheme="dark"] #settingsPanel .close-button {
+  background: #252a31 !important;
+  color: #eef1f5 !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-back svg,
+html[data-color-scheme="dark"] #settingsPanel .close-button svg {
+  stroke: #eef1f5 !important;
+}
+
+/* Mobile shell */
+html[data-color-scheme="dark"] .app.mobile-shell,
+html[data-color-scheme="dark"] .mobile-screen {
+  background: #121417 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-card {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18) !important;
+}
+
+html[data-color-scheme="dark"] .mobile-list {
+  background: #343a43 !important;
+  border-color: #343a43 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-row {
+  background: #1d2127 !important;
+  color: #f5f7f9 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-row-title,
+html[data-color-scheme="dark"] .mobile-card-title,
+html[data-color-scheme="dark"] .mobile-summary-number,
+html[data-color-scheme="dark"] .mobile-more-title,
+html[data-color-scheme="dark"] .mobile-sheet-title {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-row-subtitle,
+html[data-color-scheme="dark"] .mobile-row-meta,
+html[data-color-scheme="dark"] .mobile-card-meta,
+html[data-color-scheme="dark"] .mobile-route-meta,
+html[data-color-scheme="dark"] .mobile-summary-label,
+html[data-color-scheme="dark"] .mobile-more-meta,
+html[data-color-scheme="dark"] .mobile-sheet-field {
+  color: #aeb7c2 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-summary-strip,
+html[data-color-scheme="dark"] .mobile-summary-item,
+html[data-color-scheme="dark"] .mobile-more-group,
+html[data-color-scheme="dark"] .mobile-more-row {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-more-icon,
+html[data-color-scheme="dark"] .mobile-route-icon {
+  background: #2a3038 !important;
+  color: #dce2e9 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-sheet,
+html[data-color-scheme="dark"] .mobile-drawer,
+html[data-color-scheme="dark"] .library-sheet {
+  background: #171a1f !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-sheet-field input,
+html[data-color-scheme="dark"] .mobile-sheet-field select {
+  background: #252a31 !important;
+  border-color: #3b424c !important;
+  color: #f7f8fa !important;
+}
+
+/* Bottom navigation must remain readable in every state. */
+html[data-color-scheme="dark"] .mobile-bottom-nav {
+  background: rgba(18,20,23,.96) !important;
+  border-top-color: #30363f !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-nav-button {
+  background: transparent !important;
+  color: #8f99a6 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-nav-button.active {
+  background: #2a3038 !important;
+  color: #ffffff !important;
+}
+
+html[data-color-scheme="dark"] .mobile-nav-button.active svg,
+html[data-color-scheme="dark"] .mobile-nav-button.active .mobile-nav-label {
+  color: #ffffff !important;
+}
+
+html[data-color-scheme="dark"] .mobile-nav-button:not(.active) svg,
+html[data-color-scheme="dark"] .mobile-nav-button:not(.active) .mobile-nav-label {
+  color: #8f99a6 !important;
+}
+
+/* Today/attention/actions */
+html[data-color-scheme="dark"] .mobile-attention-section,
+html[data-color-scheme="dark"] .mobile-attention-card,
+html[data-color-scheme="dark"] .mobile-attention-empty {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-attention-title {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .mobile-attention-ai-badge,
+html[data-color-scheme="dark"] .mobile-attention-icon {
+  background: #2a3038 !important;
+  color: #dce2e9 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-action-button {
+  background: #e9edf2 !important;
+  color: #171a1f !important;
+}
+
+html[data-color-scheme="dark"] .mobile-action-button.secondary,
+html[data-color-scheme="dark"] .mobile-attention-actions button.secondary {
+  background: #2a3038 !important;
+  color: #edf1f5 !important;
+  border-color: #3b424c !important;
+}
+
+/* Library / tasks */
+html[data-color-scheme="dark"] .library-screen {
+  background: #121417 !important;
+}
+
+html[data-color-scheme="dark"] .library-head {
+  background: rgba(18,20,23,.97) !important;
+  border-bottom-color: #30363f !important;
+}
+
+html[data-color-scheme="dark"] .library-tabs {
+  background: #1b1f24 !important;
+  border-color: #30363f !important;
+}
+
+html[data-color-scheme="dark"] .library-tab {
+  color: #9ca6b3 !important;
+}
+
+html[data-color-scheme="dark"] .library-tab.active {
+  background: #303640 !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px #414854 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-card,
+html[data-color-scheme="dark"] .planner-reminder-task,
+html[data-color-scheme="dark"] .library-card {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-title,
+html[data-color-scheme="dark"] .planner-task-title-text,
+html[data-color-scheme="dark"] .library-card-title {
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-meta,
+html[data-color-scheme="dark"] .library-card-meta {
+  color: #aeb7c2 !important;
+}
+
+html[data-color-scheme="dark"] .planner-task-filter,
+html[data-color-scheme="dark"] .planner-task-search-input,
+html[data-color-scheme="dark"] .notes-search-input {
+  background: #1d2127 !important;
+  border-color: #3b424c !important;
+  color: #f1f4f7 !important;
+}
+
+/* Editors and overlays */
+html[data-color-scheme="dark"] .task-editor-backdrop,
+html[data-color-scheme="dark"] .reminder-edit-backdrop,
+html[data-color-scheme="dark"] .note-window,
+html[data-color-scheme="dark"] .event-detail-backdrop {
+  background: #121417 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .task-editor-sheet,
+html[data-color-scheme="dark"] .task-editor-section,
+html[data-color-scheme="dark"] .reminder-edit-sheet,
+html[data-color-scheme="dark"] .reminder-edit-section,
+html[data-color-scheme="dark"] .note-window-body,
+html[data-color-scheme="dark"] .event-detail-row {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .appearance-choice {
+  background: #1d2127 !important;
+  border-color: #343a43 !important;
+  color: #f7f8fa !important;
+}
+
+html[data-color-scheme="dark"] .appearance-choice.active {
+  background: #2a3038 !important;
+  border-color: #4a535f !important;
+  color: #ffffff !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
