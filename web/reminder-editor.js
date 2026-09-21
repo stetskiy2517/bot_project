@@ -72,6 +72,7 @@
 
   function closeEditor() {
     backdrop.classList.remove("open");
+    delete backdrop.dataset.originalReminderLocal;
     setTimeout(() => { if (!backdrop.classList.contains("open")) backdrop.replaceChildren(); }, 190);
   }
 
@@ -96,6 +97,8 @@
     }
 
     const remind = localParts(item.scheduled_at || item.remind_at);
+    const originalLocal = remind.date && remind.time ? `${remind.date}T${remind.time}` : "";
+    backdrop.dataset.originalReminderLocal = originalLocal;
     backdrop.innerHTML = `
       <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить задачу с уведомлением">
         <div class="reminder-edit-head">
@@ -151,14 +154,33 @@
     if (!dateRaw || !timeRaw) { error.textContent = "Выберите дату и время уведомления."; return; }
     const at = new Date(`${dateRaw}T${timeRaw}`);
     if (!Number.isFinite(at.getTime())) { error.textContent = "Проверьте дату и время."; return; }
-    if (at.getTime() <= Date.now()) { error.textContent = "Время уведомления должно быть в будущем."; return; }
+    const [year, month, day] = dateRaw.split("-").map(Number);
+    const [hour, minute] = timeRaw.split(":").map(Number);
+    if (
+      at.getFullYear() !== year ||
+      at.getMonth() + 1 !== month ||
+      at.getDate() !== day ||
+      at.getHours() !== hour ||
+      at.getMinutes() !== minute
+    ) {
+      error.textContent = "Такого местного времени нет из-за смены часового пояса.";
+      return;
+    }
+    const localValue = `${dateRaw}T${timeRaw}`;
+    const timeChanged = localValue !== String(backdrop.dataset.originalReminderLocal || "");
+    if (timeChanged && at.getTime() <= Date.now()) {
+      error.textContent = "Новое время уведомления должно быть в будущем.";
+      return;
+    }
 
     save.disabled = true;
     error.textContent = "";
     try {
+      const update = {text, category, repeat_rule: repeatRule};
+      if (timeChanged) update.remind_at = at.toISOString();
       const payload = await request(`/api/mobile/reminders/${Number(reminderId)}/details`, {
         method: "PATCH",
-        body: JSON.stringify({text, remind_at: at.toISOString(), category, repeat_rule: repeatRule}),
+        body: JSON.stringify(update),
       });
       details.set(Number(reminderId), payload.reminder);
       closeEditor();
