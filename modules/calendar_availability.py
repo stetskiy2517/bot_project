@@ -265,11 +265,18 @@ def suggest_alternatives(
     events = _list_events(user_id, search_start, search_end)
     excluded = {str(value) for value in (exclude_event_ids or set()) if str(value)}
     if excluded:
-        events = [
-            event for event in events
-            if str(event.get("id") or "") not in excluded
-            and str(event.get("recurringEventId") or "") not in excluded
-        ]
+        filtered_events = []
+        for event in events:
+            private = ((event.get("extendedProperties") or {}).get("private") or {})
+            source_event_id = str(private.get("smartPlannerSourceEventId") or "")
+            if (
+                str(event.get("id") or "") in excluded
+                or str(event.get("recurringEventId") or "") in excluded
+                or source_event_id in excluded
+            ):
+                continue
+            filtered_events.append(event)
+        events = filtered_events
     return find_free_slots(
         events,
         timezone,
