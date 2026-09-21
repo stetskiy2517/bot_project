@@ -77,7 +77,7 @@
       border-bottom: 1px solid rgba(230,230,227,.8);
     }
     .library-nav {
-      height: 44px;
+      height: 52px;
       display: grid;
       grid-template-columns: 44px minmax(0,1fr) auto;
       align-items: center;
@@ -85,7 +85,7 @@
     }
     .library-tabs {
       min-width: 0;
-      height: 44px;
+      height: 52px;
       margin: 0;
       padding: 4px;
       display: grid;
@@ -106,6 +106,7 @@
     .library-nav-actions:empty { width: 44px; }
     .library-tab {
       min-width: 0;
+      min-height: 44px;
       padding: 9px 10px;
       border-radius: 11px;
       background: transparent;
