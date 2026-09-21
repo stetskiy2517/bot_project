@@ -123,6 +123,24 @@
       color: #111;
       box-shadow: 0 1px 5px rgba(0,0,0,.07);
     }
+    @media (max-width:360px) {
+      .library-nav {
+        height:auto;
+        min-height:104px;
+        grid-template-columns:44px minmax(0,1fr) auto;
+        grid-template-rows:44px 52px;
+        row-gap:8px;
+      }
+      .library-back-button { grid-column:1; grid-row:1; }
+      .library-nav-actions { grid-column:3; grid-row:1; }
+      .library-tabs {
+        grid-column:1 / -1;
+        grid-row:2;
+        width:100%;
+        box-sizing:border-box;
+      }
+      .library-tab { min-width:44px; }
+    }
     .library-list {
       flex: 1;
       min-height: 0;
