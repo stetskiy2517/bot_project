@@ -204,15 +204,11 @@
   }
 
   function calendarMeta() {
-    const timezone = document.getElementById("timezone");
     const start = document.getElementById("workStart");
     const end = document.getElementById("workEnd");
     const meta = document.getElementById("calendarSettingsMeta");
-    if (!timezone || !meta) return;
-    const selected = timezone.options?.[timezone.selectedIndex]?.textContent || timezone.value;
-    const place = selected.split("—")[0].trim();
-    const hours = start?.value && end?.value ? `${start.value}–${end.value}` : "";
-    meta.textContent = [place, hours].filter(Boolean).join(" · ");
+    if (!meta) return;
+    meta.textContent = start?.value && end?.value ? `${start.value}–${end.value}` : "График";
   }
 
   function wrapCalendar() {
@@ -220,8 +216,8 @@
       calendarMeta();
       return;
     }
-    const timezone = document.getElementById("timezone");
-    const grid = timezone?.closest(".grid");
+    const workStart = document.getElementById("workStart");
+    const grid = workStart?.closest(".grid");
     if (!grid) return;
     const heading = grid.previousElementSibling?.classList.contains("section-title")
       ? grid.previousElementSibling
@@ -235,8 +231,8 @@
     anchor.parentNode.insertBefore(group, anchor);
     group.appendChild(grid);
     if (heading) heading.remove();
-    decorateSummary(group, "Календарь", "График и часовой пояс", "calendarSettingsMeta");
-    for (const id of ["timezone", "workStart", "workEnd"]) {
+    decorateSummary(group, "Календарь", "График", "calendarSettingsMeta");
+    for (const id of ["workStart", "workEnd"]) {
       const input = document.getElementById(id);
       input?.addEventListener("change", calendarMeta);
       input?.addEventListener("input", calendarMeta);
