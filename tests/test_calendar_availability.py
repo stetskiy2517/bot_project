@@ -129,6 +129,33 @@ class CalendarAvailabilityTests(unittest.TestCase):
 
     @patch("modules.calendar_availability.get_calendar_preferences")
     @patch("modules.calendar_availability._list_events")
+    def test_suggest_alternatives_exclude_travel_linked_to_edited_event(self, list_events, get_prefs):
+        get_prefs.return_value = {
+            "work_start": "09:00", "work_end": "18:00",
+            "work_days": [0, 1, 2, 3, 4], "buffer_minutes": 15,
+        }
+        travel = {
+            "id": "travel-1",
+            "start": {"dateTime": "2026-09-03T14:00:00+03:00"},
+            "end": {"dateTime": "2026-09-03T15:00:00+03:00"},
+            "extendedProperties": {
+                "private": {
+                    "smartPlannerType": "travel",
+                    "smartPlannerManaged": "1",
+                    "smartPlannerSourceEventId": "edited-event",
+                }
+            },
+        }
+        list_events.return_value = [travel]
+        desired = datetime(2026, 9, 3, 15, 0, tzinfo=self.zone)
+        slots = suggest_alternatives(
+            1, self.tz, desired, timedelta(hours=1), limit=1,
+            exclude_event_ids={"edited-event"},
+        )
+        self.assertEqual(slots[0][0], desired)
+
+    @patch("modules.calendar_availability.get_calendar_preferences")
+    @patch("modules.calendar_availability._list_events")
     def test_suggest_alternative_after_conflict(self, list_events, get_prefs):
         get_prefs.return_value = {
             "work_start": "09:00", "work_end": "18:00",
