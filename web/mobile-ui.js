@@ -395,19 +395,16 @@
     root.querySelector('[data-settings-utility="saved"]')?.remove();
 
     const shortcuts = [
-      ["route", "Маршрут", "К следующей встрече"],
+      ["route", "Маршрут"],
     ];
-    for (const [name, title, note] of shortcuts) {
+    for (const [name, title] of shortcuts) {
       if (root.querySelector(`[data-settings-utility="${name}"]`)) continue;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "settings-theme-link";
       button.dataset.settingsUtility = name;
       button.innerHTML = `
-        <span class="settings-theme-link-main">
-          <span class="settings-theme-link-title">${title}</span>
-          <span class="settings-theme-link-note">${note}</span>
-        </span>
+        <span class="settings-theme-link-title">${title}</span>
         <svg class="settings-theme-link-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>`;
       root.appendChild(button);
     }
