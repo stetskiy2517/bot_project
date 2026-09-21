@@ -81,6 +81,17 @@ class NoteProductStoreTests(unittest.TestCase):
                 category="finance-secret-category",
             )
 
+    def test_direct_search_supports_english_category_names(self):
+        notes = [{
+            "note_id": 7,
+            "title": "Квартальный план",
+            "text": "Список дел",
+            "category": "work",
+            "tags": [],
+            "checklist": [],
+        }]
+        self.assertEqual(_direct_matches(notes, "work")[0]["note_id"], 7)
+
     def test_direct_search_uses_category_tags_and_checklist(self):
         notes = [{
             "note_id": 1,
@@ -168,6 +179,11 @@ class NoteProductApiTests(unittest.TestCase):
         self.assertEqual(payload["category"], "personal")
         self.assertFalse(payload["pinned"])
         self.assertTrue(payload["checklist"][0]["done"])
+
+    def test_short_semantic_search_returns_400_not_500(self):
+        response = self.client.post("/api/note-tools/search", json={"query": "a"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_note_search")
 
     def test_invalid_metadata_is_rejected_before_note_creation(self):
         response = self.client.post(
