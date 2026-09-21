@@ -79,7 +79,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("reminders.hidden = true", self.unified)
         self.assertIn("repeat(2, minmax(0, 1fr))", self.unified)
         self.assertIn("planner-reminder-task", self.unified)
-        self.assertIn("Уведомление ${formatDate(item.remind_at)}", self.unified)
+        self.assertIn("Уведомление ${formatDate(item.scheduled_at || item.remind_at)}", self.unified)
         self.assertIn("data-reminder-edit", self.unified)
         self.assertIn("updateTaskSummary", self.unified)
         self.assertIn("· С уведомлением ${count}", self.unified)
