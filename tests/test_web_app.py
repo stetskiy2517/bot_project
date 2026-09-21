@@ -73,21 +73,6 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(a.get("/api/status").get_json()["preferences"]["category_colors"], colors)
         self.assertNotEqual(b.get("/api/status").get_json()["preferences"]["category_colors"], colors)
 
-    def test_appearance_theme_is_saved_per_user(self):
-        a = self.app.test_client()
-        b = self.app.test_client()
-        self._google_session(a, "theme-a", "theme-a@example.test", "A")
-        self._google_session(b, "theme-b", "theme-b@example.test", "B")
-        self.assertEqual(a.post("/api/settings", json={"appearance_theme": "dark"}).status_code, 200)
-        self.assertEqual(a.get("/api/status").get_json()["appearance_theme"], "dark")
-        self.assertEqual(b.get("/api/status").get_json()["appearance_theme"], "auto")
-
-    def test_appearance_theme_rejects_unknown_value(self):
-        self._google_session(self.client, "theme-invalid", "theme-invalid@example.test", "Invalid")
-        response = self.client.post("/api/settings", json={"appearance_theme": "sepia"})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"], "invalid_settings")
-
     def test_category_colors_reject_unknown_color(self):
         self._google_session(self.client, "colors-invalid", "invalid@example.test", "Invalid")
         colors = {
@@ -223,7 +208,6 @@ class WebAppTests(unittest.TestCase):
             "days",
             "buffer",
             "categoryColors",
-            "appearanceTheme",
             "voiceBtn",
             "chatVoiceBtn",
             "chatCollapseBtn",
@@ -234,13 +218,6 @@ class WebAppTests(unittest.TestCase):
             self.assertIn(f'id="{control}"', html)
         self.assertNotIn('id="saveSettings"', html)
         self.assertIn("scheduleSettingsSave", html)
-        self.assertIn('data-appearance-theme="light"', html)
-        self.assertIn('data-appearance-theme="dark"', html)
-        self.assertIn('data-appearance-theme="auto"', html)
-        self.assertIn('appearance_theme: appearanceTheme', html)
-        self.assertIn('applyAppearanceTheme(status.appearance_theme || "auto")', html)
-        self.assertIn('systemThemeMedia.addEventListener("change"', html)
-        self.assertIn(':root[data-color-scheme="dark"]', html)
         self.assertIn("MediaRecorder", html)
         self.assertIn("/api/voice", html)
         self.assertIn("Войти через Google", html)
