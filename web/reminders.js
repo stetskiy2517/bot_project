@@ -194,8 +194,8 @@
 
     const summary = document.createElement("summary");
     summary.innerHTML = `
-      <span class="settings-group-title">Уведомления</span>
-      <span id="notificationsMeta" class="settings-group-meta">Push</span>
+      <span class="settings-group-title">На устройстве</span>
+      <span id="notificationsMeta" class="settings-group-meta"></span>
       <svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m6 9 6 6 6-6"></path>
       </svg>`;
