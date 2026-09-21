@@ -65,6 +65,22 @@ class CalendarAvailabilityTests(unittest.TestCase):
         )
         self.assertEqual(slots[0][0], datetime(2026, 9, 3, 10, 30, tzinfo=self.zone))
 
+    def test_previous_day_buffer_does_not_block_midnight_next_day(self):
+        start = datetime(2026, 9, 3, 0, 0, tzinfo=self.zone)
+        end = datetime(2026, 9, 3, 2, 0, tzinfo=self.zone)
+        previous = {
+            "id": "flight-yesterday",
+            "start": {"dateTime": datetime(2026, 9, 2, 23, 40, tzinfo=self.zone).isoformat()},
+            "end": {"dateTime": datetime(2026, 9, 2, 23, 55, tzinfo=self.zone).isoformat()},
+        }
+        slots = find_free_slots(
+            [previous], self.tz, start, end, timedelta(minutes=30),
+            work_start=time(0, 0), work_end=time(2, 0),
+            work_days=[0, 1, 2, 3, 4, 5, 6],
+            buffer=timedelta(minutes=15), now=datetime(2026, 9, 2, 20, 0, tzinfo=self.zone), limit=1,
+        )
+        self.assertEqual(slots[0][0], start)
+
     def test_non_work_day_has_no_slots(self):
         saturday = datetime(2026, 9, 5, 0, 0, tzinfo=self.zone)
         sunday = datetime(2026, 9, 6, 0, 0, tzinfo=self.zone)
@@ -93,6 +109,50 @@ class CalendarAvailabilityTests(unittest.TestCase):
             timedelta(hours=1), now=self.now, limit=1,
         )
         self.assertEqual(slots[0][0].hour, 9)
+
+    @patch("modules.calendar_availability.get_calendar_preferences")
+    @patch("modules.calendar_availability._list_events")
+    def test_suggest_alternatives_can_exclude_event_being_edited(self, list_events, get_prefs):
+        get_prefs.return_value = {
+            "work_start": "09:00", "work_end": "18:00",
+            "work_days": [0, 1, 2, 3, 4], "buffer_minutes": 15,
+        }
+        current = self.event(15, 16)
+        current["id"] = "edited-event"
+        list_events.return_value = [current]
+        desired = datetime(2026, 9, 3, 15, 0, tzinfo=self.zone)
+        slots = suggest_alternatives(
+            1, self.tz, desired, timedelta(hours=1), limit=1,
+            exclude_event_ids={"edited-event"},
+        )
+        self.assertEqual(slots[0][0], desired)
+
+    @patch("modules.calendar_availability.get_calendar_preferences")
+    @patch("modules.calendar_availability._list_events")
+    def test_suggest_alternatives_exclude_travel_linked_to_edited_event(self, list_events, get_prefs):
+        get_prefs.return_value = {
+            "work_start": "09:00", "work_end": "18:00",
+            "work_days": [0, 1, 2, 3, 4], "buffer_minutes": 15,
+        }
+        travel = {
+            "id": "travel-1",
+            "start": {"dateTime": "2026-09-03T14:00:00+03:00"},
+            "end": {"dateTime": "2026-09-03T15:00:00+03:00"},
+            "extendedProperties": {
+                "private": {
+                    "smartPlannerType": "travel",
+                    "smartPlannerManaged": "1",
+                    "smartPlannerSourceEventId": "edited-event",
+                }
+            },
+        }
+        list_events.return_value = [travel]
+        desired = datetime(2026, 9, 3, 15, 0, tzinfo=self.zone)
+        slots = suggest_alternatives(
+            1, self.tz, desired, timedelta(hours=1), limit=1,
+            exclude_event_ids={"edited-event"},
+        )
+        self.assertEqual(slots[0][0], desired)
 
     @patch("modules.calendar_availability.get_calendar_preferences")
     @patch("modules.calendar_availability._list_events")

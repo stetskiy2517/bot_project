@@ -66,7 +66,7 @@
     .event-edit-field { display:grid; gap:6px; color:#74746f; font-size:12px; }
     .event-edit-field input, .event-edit-field select, .event-edit-field textarea {
       width:100%; min-width:0; min-height:44px; box-sizing:border-box; padding:10px 11px;
-      border:1px solid #dededb; border-radius:13px; background:#fff; color:#171717; font:inherit; font-size:15px;
+      border:1px solid #dededb; border-radius:13px; background:#fff; color:#171717; font:inherit; font-size:16px;
     }
     .event-edit-field textarea { min-height:68px; resize:vertical; }
     .event-edit-two { display:grid; grid-template-columns:1fr 1fr; gap:9px; }

@@ -43,25 +43,3 @@
   opacity: .45;
   cursor: default;
 }
-
-/* Compatibility hook for the pre-mobile browser regression suite. It remains
-   imperceptible to users; notes are opened from the Tasks screen via the Notes tab. */
-.app.mobile-shell #libraryOpenBtn {
-  display: block !important;
-  position: fixed !important;
-  top: 8px !important;
-  left: 8px !important;
-  width: 10px !important;
-  height: 10px !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  opacity: 0.001 !important;
-  overflow: hidden !important;
-  z-index: 2147483647 !important;
-  pointer-events: auto !important;
-}

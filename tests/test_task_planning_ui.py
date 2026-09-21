@@ -48,7 +48,7 @@ class TaskPlanningUiTests(unittest.TestCase):
     def test_notification_tasks_edit_time_in_same_sheet(self):
         self.assertIn('id="reminderEditDate"', self.reminder_editor)
         self.assertIn('id="reminderEditTime"', self.reminder_editor)
-        self.assertIn("remind_at: at.toISOString()", self.reminder_editor)
+        self.assertIn("if (timeChanged) update.remind_at = at.toISOString()", self.reminder_editor)
         self.assertIn("height:100%", self.reminder_editor)
         self.assertIn("PlannerReminderEditor.open(reminderId, {focusTime: true})", self.unified)
 
@@ -68,6 +68,8 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("planner-task-search-shell.open .planner-task-search-input", self.script)
         self.assertIn("task-search-open", self.script)
         self.assertIn("closeTaskSearch", self.script)
+        self.assertIn("resetTaskSearch", self.script)
+        self.assertIn('taskQuery = ""', self.script)
         self.assertIn("taskSearchObserved", self.script)
         self.assertIn('!app.classList.contains("library-active")', self.script)
         self.assertIn("transition:width .24s", self.script)

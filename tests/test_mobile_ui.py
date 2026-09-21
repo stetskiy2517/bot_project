@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
-from modules.mobile_ui_api import _task_payload, mobile_ui_api
+from modules.mobile_ui_api import _event_payload, _task_payload, mobile_ui_api
 
 
 class MobileUiHelpersTests(unittest.TestCase):
@@ -30,6 +30,23 @@ class MobileUiHelpersTests(unittest.TestCase):
         payload = _task_payload(task, now_utc=now)
         self.assertTrue(payload["overdue"])
         self.assertEqual(payload["task_id"], 7)
+
+    def test_event_payload_exposes_end_time_for_finished_travel_filter(self):
+        event = {
+            "id": "travel-1",
+            "summary": "В пути",
+            "start": {"dateTime": "2026-09-21T09:00:00+03:00"},
+            "end": {"dateTime": "2026-09-21T10:00:00+03:00"},
+            "extendedProperties": {
+                "private": {
+                    "smartPlannerType": "travel",
+                    "smartPlannerManaged": "1",
+                }
+            },
+        }
+        payload = _event_payload(event, "Europe/Moscow")
+        self.assertEqual(payload["ends_at"], "2026-09-21T10:00:00+03:00")
+        self.assertTrue(payload["is_travel"])
 
     def test_swipe_navigation_matches_bottom_nav_contract(self):
         source = (
@@ -59,7 +76,7 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertNotIn('if (name === "saved") return openLibrarySection("saved", {fromSettings: true});', mobile)
         self.assertIn('["route", "Маршрут"', mobile)
         self.assertIn('#lifeWheelBtn {', css)
-        self.assertIn('right: 60px', css)
+        self.assertIn('right: 66px', css)
         self.assertIn('aria-label="Аккаунт"', html)
         self.assertIn('button.setAttribute("aria-label", "Баланс жизни")', life)
         self.assertIn("mobile-card-icon-button", mobile)
@@ -67,6 +84,10 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn("mobile-review-toggle", mobile)
         self.assertIn("Сводка секретаря", mobile)
         self.assertIn("mobile-summary-item + .mobile-summary-item", css)
+        self.assertIn("knownHeading", mobile)
+        self.assertIn("if (item.all_day || !item.starts_at) return true", mobile)
+        self.assertIn("item.ends_at || item.starts_at", mobile)
+        self.assertNotIn("item.is_travel || !item.starts_at", mobile)
 
 
 class MobileUiApiTests(unittest.TestCase):

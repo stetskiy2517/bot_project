@@ -98,6 +98,19 @@ class ReminderEditingTests(unittest.TestCase):
         self.assertIsNone(response.get_json()["reminder"]["repeat_rule"])
         self.assertIsNone(get_saved_reminder(self.user_id, reminder_id)["next_remind_at"])
 
+    def test_overdue_reminder_text_can_change_without_rescheduling(self):
+        reminder = create_reminder(
+            self.user_id,
+            "Старое название",
+            datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+        response = self.client.patch(
+            f"/api/mobile/reminders/{reminder['reminder_id']}/details",
+            json={"text": "Исправленное название"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["reminder"]["text"], "Исправленное название")
+
     def test_detail_edit_rejects_other_users_reminder(self):
         other = create_reminder(
             self.other_user_id,
@@ -130,6 +143,9 @@ class ReminderEditingTests(unittest.TestCase):
             'method: "PATCH"',
             "Авто ·",
             "Повтор",
+            "originalReminderLocal",
+            "if (timeChanged) update.remind_at = at.toISOString()",
+            "Такого местного времени нет из-за смены часового пояса.",
         ):
             self.assertIn(marker, script)
 

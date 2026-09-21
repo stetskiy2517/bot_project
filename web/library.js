@@ -449,6 +449,12 @@
     toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
   }
 
+  function tomorrowSameLocalTime(value = new Date()) {
+    const result = new Date(value.getTime());
+    result.setDate(result.getDate() + 1);
+    return result;
+  }
+
   function formatDate(value, withYear = true) {
     if (!value) return "";
     const parsed = new Date(value);
@@ -907,7 +913,7 @@
       if (mode === "hour") {
         rescheduleReminder(snoozeReminderId, new Date(Date.now() + 60 * 60 * 1000).toISOString());
       } else if (mode === "tomorrow") {
-        rescheduleReminder(snoozeReminderId, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+        rescheduleReminder(snoozeReminderId, tomorrowSameLocalTime().toISOString());
       } else {
         snoozeCustom.classList.add("open");
         snoozeInput.focus();
@@ -1033,4 +1039,11 @@
     if (event.key === "ArrowLeft" && app.classList.contains("library-active")) closeLibrary();
     else if (event.key === "ArrowLeft" && app.classList.contains("chat-active")) navigateBackFromChat();
   });
+
+  window.PlannerLibrary = {
+    open: openLibrary,
+    close: closeLibrary,
+    setTab,
+    tomorrowSameLocalTime,
+  };
 })();

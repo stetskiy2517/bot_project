@@ -104,7 +104,7 @@ def main() -> None:
                     }
                 }"""
             )
-            page.locator("#libraryOpenBtn").click()
+            page.evaluate("window.PlannerLibrary.open()")
             page.locator("#libraryTasksTab").click()
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
@@ -260,7 +260,7 @@ def main() -> None:
             page.wait_for_function("!document.getElementById('app').classList.contains('library-active')")
             expect(page.locator("#plannerTaskSearchBtn")).to_have_attribute("aria-expanded", "false")
             expect(page.locator(".planner-task-search-shell")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
-            page.locator("#libraryOpenBtn").click()
+            page.evaluate("window.PlannerLibrary.open()")
             page.wait_for_function("document.getElementById('app').classList.contains('library-active')")
             expect(page.locator("#plannerTaskSearchBtn")).to_have_attribute("aria-expanded", "false")
 

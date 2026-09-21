@@ -29,12 +29,12 @@
     .reminder-edit-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
     .reminder-edit-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
     .reminder-edit-head{position:sticky;z-index:3;top:0;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:0 -16px 18px;padding:calc(env(safe-area-inset-top) + 8px) 12px 10px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-bottom:1px solid #eeeeeb}
-    .reminder-edit-back{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
-    .reminder-edit-head-spacer{width:40px;height:40px}.task-notification-edit-title{margin:0;text-align:center;font-size:19px;font-weight:700}
+    .reminder-edit-back{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
+    .reminder-edit-head-spacer{width:44px;height:44px}.task-notification-edit-title{margin:0;text-align:center;font-size:19px;font-weight:700}
     .reminder-edit-content{display:grid;gap:14px;max-width:680px;margin:0 auto}
     .reminder-edit-section{display:grid;gap:11px;padding:14px;border:1px solid #e8e8e5;border-radius:18px;background:#fff}
     .reminder-edit-section-title{font-size:12px;font-weight:700;color:#777772;text-transform:uppercase;letter-spacing:.035em}
-    .reminder-edit-field{display:grid;gap:7px;color:#696965;font-size:12px}.reminder-edit-field input,.reminder-edit-field select{width:100%;min-width:0;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#151515;font:inherit;font-size:15px;box-sizing:border-box;outline:0}
+    .reminder-edit-field{display:grid;gap:7px;color:#696965;font-size:12px}.reminder-edit-field input,.reminder-edit-field select{width:100%;min-width:0;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#151515;font:inherit;font-size:16px;box-sizing:border-box;outline:0}
     .reminder-edit-field input:focus,.reminder-edit-field select:focus{border-color:#aaa9a5;box-shadow:0 0 0 3px rgba(0,0,0,.04)}
     .reminder-edit-two{display:grid;grid-template-columns:1fr 1fr;gap:9px}.reminder-edit-help{color:#92928e;font-size:11px;line-height:1.4}
     .reminder-edit-actions{position:sticky;bottom:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:2px -16px -20px;padding:12px 16px calc(env(safe-area-inset-bottom) + 14px);background:linear-gradient(to bottom,rgba(255,255,255,.84),#fff 24%);backdrop-filter:blur(18px)}
@@ -72,6 +72,7 @@
 
   function closeEditor() {
     backdrop.classList.remove("open");
+    delete backdrop.dataset.originalReminderLocal;
     setTimeout(() => { if (!backdrop.classList.contains("open")) backdrop.replaceChildren(); }, 190);
   }
 
@@ -96,6 +97,8 @@
     }
 
     const remind = localParts(item.scheduled_at || item.remind_at);
+    const originalLocal = remind.date && remind.time ? `${remind.date}T${remind.time}` : "";
+    backdrop.dataset.originalReminderLocal = originalLocal;
     backdrop.innerHTML = `
       <section class="reminder-edit-sheet" role="dialog" aria-modal="true" aria-label="Изменить задачу с уведомлением">
         <div class="reminder-edit-head">
@@ -151,14 +154,33 @@
     if (!dateRaw || !timeRaw) { error.textContent = "Выберите дату и время уведомления."; return; }
     const at = new Date(`${dateRaw}T${timeRaw}`);
     if (!Number.isFinite(at.getTime())) { error.textContent = "Проверьте дату и время."; return; }
-    if (at.getTime() <= Date.now()) { error.textContent = "Время уведомления должно быть в будущем."; return; }
+    const [year, month, day] = dateRaw.split("-").map(Number);
+    const [hour, minute] = timeRaw.split(":").map(Number);
+    if (
+      at.getFullYear() !== year ||
+      at.getMonth() + 1 !== month ||
+      at.getDate() !== day ||
+      at.getHours() !== hour ||
+      at.getMinutes() !== minute
+    ) {
+      error.textContent = "Такого местного времени нет из-за смены часового пояса.";
+      return;
+    }
+    const localValue = `${dateRaw}T${timeRaw}`;
+    const timeChanged = localValue !== String(backdrop.dataset.originalReminderLocal || "");
+    if (timeChanged && at.getTime() <= Date.now()) {
+      error.textContent = "Новое время уведомления должно быть в будущем.";
+      return;
+    }
 
     save.disabled = true;
     error.textContent = "";
     try {
+      const update = {text, category, repeat_rule: repeatRule};
+      if (timeChanged) update.remind_at = at.toISOString();
       const payload = await request(`/api/mobile/reminders/${Number(reminderId)}/details`, {
         method: "PATCH",
-        body: JSON.stringify({text, remind_at: at.toISOString(), category, repeat_rule: repeatRule}),
+        body: JSON.stringify(update),
       });
       details.set(Number(reminderId), payload.reminder);
       closeEditor();

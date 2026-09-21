@@ -36,13 +36,17 @@ jobs:
         run: python tests/browser_attention_center.py
       - name: Test reminder editor
         run: python tests/browser_reminder_editor.py
+      - name: Audit mobile layout at 320-430px
+        run: python tests/browser_layout_audit.py --output evidence/layout-audit
       - name: Upload browser evidence
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: browser-features
-          path: evidence/browser-features
+          path: |
+            evidence/browser-features
+            evidence/layout-audit
           if-no-files-found: ignore
 
   webkit-ios-smoke:

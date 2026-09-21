@@ -177,7 +177,13 @@ def _busy_intervals(
         start, _ = _event_start(event, timezone)
         end = _event_end(event, timezone)
         if start and end and end > start:
-            intervals.append((start - buffer, end + buffer))
+            # Keep an artificial meeting buffer inside the local calendar days
+            # occupied by the event itself. A 15-minute buffer around a late
+            # flight must not make 00:00 on the next day look busy.
+            start_day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_last = end - timedelta(microseconds=1)
+            end_day = end_last.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            intervals.append((max(start - buffer, start_day), min(end + buffer, end_day)))
     intervals.sort(key=lambda item: item[0])
     return intervals
 
@@ -244,6 +250,7 @@ def suggest_alternatives(
     duration: timedelta,
     *,
     limit: int = 3,
+    exclude_event_ids: set[str] | None = None,
 ) -> list[tuple[datetime, datetime]]:
     prefs = get_calendar_preferences(user_id)
     zone = _user_zone(timezone)
@@ -256,6 +263,20 @@ def suggest_alternatives(
     search_start = start
     search_end = start + timedelta(days=7)
     events = _list_events(user_id, search_start, search_end)
+    excluded = {str(value) for value in (exclude_event_ids or set()) if str(value)}
+    if excluded:
+        filtered_events = []
+        for event in events:
+            private = ((event.get("extendedProperties") or {}).get("private") or {})
+            source_event_id = str(private.get("smartPlannerSourceEventId") or "")
+            if (
+                str(event.get("id") or "") in excluded
+                or str(event.get("recurringEventId") or "") in excluded
+                or source_event_id in excluded
+            ):
+                continue
+            filtered_events.append(event)
+        events = filtered_events
     return find_free_slots(
         events,
         timezone,

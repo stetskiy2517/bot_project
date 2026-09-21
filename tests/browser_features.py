@@ -241,7 +241,7 @@ def main():
     def reminder_policy(page, user):
         reminder = create_reminder(user, "Повтор проверки", datetime.now(timezone.utc) + timedelta(hours=3))
         loaded(page)
-        page.locator("#libraryOpenBtn").click()
+        page.evaluate("window.PlannerLibrary.open()")
         expect(page.locator("#libraryRemindersTab")).to_have_attribute("aria-hidden", "true")
         page.locator("#libraryTasksTab").click()
         card = page.locator(f'.planner-reminder-task[data-reminder-id="{reminder["reminder_id"]}"]')

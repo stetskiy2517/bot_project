@@ -306,7 +306,7 @@
   style.id = "settingsThemesStyle";
   style.textContent = `
     #settingsPanel .sheet-head h2{flex:1;min-width:0}
-    #settingsPanel .settings-theme-back{width:34px;height:34px;border-radius:50%;background:#f1f1ef;display:grid;place-items:center;cursor:pointer;flex:0 0 auto;margin-right:8px}
+    #settingsPanel .settings-theme-back{width:44px;height:44px;border-radius:50%;background:#f1f1ef;display:grid;place-items:center;cursor:pointer;flex:0 0 auto;margin-right:8px}
     #settingsPanel .settings-theme-back[hidden]{display:none}
     #settingsPanel .settings-theme-back svg{width:18px;height:18px;fill:none;stroke:#555;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
     #settingsPanel .settings-themes-menu{display:grid;gap:1px;margin-top:18px;border:1px solid #ececea;border-radius:16px;overflow:hidden;background:#ececea}
