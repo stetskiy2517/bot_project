@@ -52,7 +52,7 @@
     .note-window-button:disabled,.notes-header-icon:disabled{opacity:.5;cursor:default}
     .note-editor-grid{display:grid;gap:11px}
     .note-editor-field{display:grid;gap:6px;color:#767671;font-size:11px}
-    .note-editor-field input,.note-editor-field select,.note-editor-field textarea{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:14px;outline:none}
+    .note-editor-field input,.note-editor-field select,.note-editor-field textarea{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#171717;font:inherit;font-size:16px;outline:none}
     .note-editor-field input,.note-editor-field select{min-height:48px}
     .note-editor-field textarea{min-height:180px;resize:vertical;line-height:1.45}
     .note-editor-field textarea.note-checklist-editor{min-height:100px}
