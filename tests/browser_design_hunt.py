@@ -156,7 +156,11 @@ def main():
                             all_rows.append(row)
                         page.keyboard.press("Escape")
 
-                # Settings.
+                # Settings. Return from the library first so the account
+                # control is actually in the active viewport.
+                if page.locator("#app").evaluate("el => el.classList.contains('library-active')"):
+                    page.locator("#libraryBackBtn").click()
+                    page.wait_for_timeout(200)
                 page.locator("#accountBtn").click()
                 page.wait_for_timeout(250)
                 for row in page.evaluate(AUDIT_JS):
