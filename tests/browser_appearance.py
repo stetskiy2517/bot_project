@@ -67,6 +67,46 @@ def main() -> int:
             page.wait_for_function("document.documentElement.dataset.colorScheme === 'dark'")
             assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(17, 18, 20)"
 
+            page.evaluate(
+                """() => {
+                    const fixture = document.createElement("section");
+                    fixture.id = "appearanceDarkFixture";
+                    fixture.innerHTML =
+                      '<div class="library-head">' +
+                      '<div class="library-tabs"><button class="library-tab active">Задачи</button></div>' +
+                      '</div>' +
+                      '<select class="planner-task-filter"><option>Все категории</option></select>' +
+                      '<div class="planner-task-card">' +
+                      '<div class="planner-task-title">Активная задача</div>' +
+                      '<div class="planner-task-meta">Прочее · Обычный · 23:00</div>' +
+                      '</div>' +
+                      '<div class="planner-task-card completed">' +
+                      '<div class="planner-task-title">Выполненная задача</div>' +
+                      '<div class="planner-task-meta">Прочее · Выполнено</div>' +
+                      '</div>';
+                    document.body.appendChild(fixture);
+                }"""
+            )
+            assert page.locator("#appearanceDarkFixture .planner-task-card").first.evaluate(
+                "el => getComputedStyle(el).backgroundColor"
+            ) == "rgb(26, 29, 34)"
+            assert page.locator("#appearanceDarkFixture .planner-task-title").first.evaluate(
+                "el => getComputedStyle(el).color"
+            ) == "rgb(242, 244, 246)"
+            assert page.locator("#appearanceDarkFixture .planner-task-meta").first.evaluate(
+                "el => getComputedStyle(el).color"
+            ) == "rgb(157, 165, 176)"
+            assert page.locator("#appearanceDarkFixture .planner-task-card.completed .planner-task-title").evaluate(
+                "el => getComputedStyle(el).color"
+            ) == "rgb(142, 150, 162)"
+            assert page.locator("#appearanceDarkFixture .planner-task-filter").evaluate(
+                "el => getComputedStyle(el).backgroundColor"
+            ) == "rgb(27, 30, 35)"
+            assert page.locator("#appearanceDarkFixture .library-tab.active").evaluate(
+                "el => getComputedStyle(el).backgroundColor"
+            ) == "rgb(42, 46, 53)"
+            page.locator("#appearanceDarkFixture").evaluate("el => el.remove()")
+
             page.locator("#accountBtn").click()
             page.wait_for_selector('[data-settings-open="appearance"]:not([hidden])')
             page.locator('[data-settings-open="appearance"]').click()
