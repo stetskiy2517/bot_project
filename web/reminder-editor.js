@@ -20,6 +20,7 @@
   let details = new Map();
   let refreshTimer = null;
   let loading = false;
+  let errorToastTimer = null;
 
   const style = document.createElement("style");
   style.id = "reminderEditorStyles";
@@ -57,6 +58,16 @@
       if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
       return data;
     });
+  }
+
+  function reportOpenError(error) {
+    const message = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.";
+    const toast = document.querySelector(".library-toast");
+    if (!toast) return;
+    clearTimeout(errorToastTimer);
+    toast.textContent = message;
+    toast.classList.add("show");
+    errorToastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
   }
 
   function localParts(value) {
@@ -226,7 +237,7 @@
     if (!edit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    openEditor(Number(edit.dataset.reminderEdit)).catch(() => {});
+    openEditor(Number(edit.dataset.reminderEdit)).catch(reportOpenError);
   }, true);
 
   backdrop.addEventListener("click", event => {
