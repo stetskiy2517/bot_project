@@ -408,6 +408,75 @@ html[data-color-scheme="dark"] .reminder-repeat-icon {
   color: #aeb6c1 !important;
 }
 
+/* Main mobile shell: remove the remaining light-only surfaces. */
+html[data-color-scheme="dark"] .app.mobile-shell #lifeWheelBtn,
+html[data-color-scheme="dark"] .app.mobile-shell .account-button {
+  background: rgba(35, 39, 46, .94) !important;
+  border-color: #323740 !important;
+  color: #e8ebef !important;
+  box-shadow: none !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell #lifeWheelBtn svg,
+html[data-color-scheme="dark"] .app.mobile-shell .account-button svg {
+  stroke: currentColor !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .voice-title {
+  color: #aab1bb !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .voice-sub {
+  color: #8f97a2 !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .msg {
+  background: #20242a !important;
+  color: #e7eaee !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .msg.user {
+  background: #2b3037 !important;
+  color: #f4f5f7 !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .composer-wrap {
+  background: linear-gradient(180deg, rgba(17, 18, 20, 0), #111214 26%) !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .composer-voice-button {
+  background: #292d34 !important;
+  color: #e4e7eb !important;
+}
+
+html[data-color-scheme="dark"] .app.mobile-shell .send-button {
+  background: #f0f1f3 !important;
+  color: #15171b !important;
+}
+
+html[data-color-scheme="dark"] .mobile-row,
+html[data-color-scheme="dark"] .mobile-summary-strip,
+html[data-color-scheme="dark"] .mobile-summary-item,
+html[data-color-scheme="dark"] .mobile-more-group,
+html[data-color-scheme="dark"] .mobile-more-row,
+html[data-color-scheme="dark"] .app.mobile-shell #settingsThemes .settings-utility-link {
+  background: #1b1e23 !important;
+  border-color: #30343b !important;
+  color: #f1f3f5 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-screen-subtitle,
+html[data-color-scheme="dark"] .mobile-row-meta,
+html[data-color-scheme="dark"] .mobile-summary-label,
+html[data-color-scheme="dark"] .mobile-more-meta {
+  color: #9da5b0 !important;
+}
+
+html[data-color-scheme="dark"] .mobile-icon-button {
+  background: #23272e !important;
+  color: #e8ebef !important;
+}
+
 .appearance-settings {
   display: grid;
   gap: 14px;
