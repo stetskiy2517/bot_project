@@ -53,9 +53,11 @@ class ChatCleanupTests(unittest.TestCase):
         script = response.get_data(as_text=True)
         response.close()
 
-        self.assertIn('api("/api/reminders/due")', script)
+        self.assertIn('api("/api/reminders/due", { signal: controller.signal })', script)
         self.assertIn('registration.showNotification("Напоминание"', script)
         self.assertIn("window.setInterval(pollDueReminders, REMINDER_POLL_MS)", script)
+        self.assertIn('window.addEventListener("pagehide"', script)
+        self.assertIn("reminderPollController?.abort()", script)
 
 
 if __name__ == "__main__":
