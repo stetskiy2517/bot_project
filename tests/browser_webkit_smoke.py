@@ -226,7 +226,7 @@ def main() -> int:
                     "document.getElementById('notesSearchBtn').getAttribute('aria-expanded') === 'false'",
                     timeout=5000,
                 )
-                page.locator("#libraryOpenBtn").click()
+                page.evaluate("window.PlannerLibrary.open(\'notes\')")
                 page.wait_for_function(
                     "document.getElementById('app').classList.contains('library-active')",
                     timeout=5000,
