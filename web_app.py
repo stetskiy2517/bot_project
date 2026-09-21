@@ -25,9 +25,11 @@ from core.db import (
     get_google_account,
     get_onboarding_status,
     get_user_timezone,
+    get_user_appearance_theme,
     init_db,
     save_calendar_preferences,
     save_user_timezone,
+    save_user_appearance_theme,
 )
 from core.assistant_preferences import quiet_until
 from core.library_store import get_saved_reminder, list_saved_reminders
@@ -107,6 +109,7 @@ def _validate_time_range(start: str, end: str) -> None:
 def _status_payload(user_id: int) -> dict:
     result = get_onboarding_status(user_id)
     result["timezone"] = get_user_timezone(user_id, default=None)
+    result["appearance_theme"] = get_user_appearance_theme(user_id)
     navigation = get_navigation_preferences(user_id)
     navigation["provider"] = navigation_provider()
     navigation["configured"] = navigation_configured()
@@ -699,6 +702,7 @@ def create_web_app() -> Flask:
         preferences = {}
         navigation_settings = None
         user_timezone = None
+        appearance_theme = None
         try:
             if "timezone" in payload:
                 user_timezone = str(payload["timezone"]).strip()
@@ -751,6 +755,11 @@ def create_web_app() -> Flask:
                         raise ValueError("Неизвестный цвет категории")
                 preferences["category_colors"] = parsed_colors
 
+            if "appearance_theme" in payload:
+                appearance_theme = str(payload["appearance_theme"] or "").strip().lower()
+                if appearance_theme not in {"auto", "light", "dark"}:
+                    raise ValueError("Тема должна быть auto, light или dark")
+
             if "navigation" in payload:
                 navigation = payload["navigation"]
                 if not isinstance(navigation, dict):
@@ -770,6 +779,8 @@ def create_web_app() -> Flask:
             try:
                 if user_timezone is not None:
                     save_user_timezone(user_id, user_timezone, commit=False)
+                if appearance_theme is not None:
+                    save_user_appearance_theme(user_id, appearance_theme, commit=False)
                 if preferences:
                     save_calendar_preferences(user_id, **preferences, commit=False)
                 if navigation_settings is not None:
