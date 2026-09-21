@@ -49,7 +49,7 @@
     .event-detail-sheet { max-height:92%; overflow:auto; }
     .event-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .event-detail-title { margin:0; font-size:21px; line-height:1.18; font-weight:700; overflow-wrap:anywhere; }
-    .event-detail-close { flex:0 0 auto; width:36px; height:36px; border-radius:50%; background:#efefec; color:#333; font-size:20px; cursor:pointer; }
+    .event-detail-close { flex:0 0 auto; width:44px; height:44px; border-radius:50%; background:#efefec; color:#333; font-size:20px; cursor:pointer; }
     .event-detail-meta { display:grid; gap:1px; margin:0 0 14px; border:1px solid #e8e8e5; border-radius:16px; overflow:hidden; background:#e8e8e5; }
     .event-detail-row { display:grid; grid-template-columns:92px minmax(0,1fr); gap:12px; padding:11px 13px; background:#fff; align-items:start; }
     .event-detail-label { color:#8c8c87; font-size:12px; }

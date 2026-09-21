@@ -51,7 +51,9 @@ class MobileDesignAuditTests(unittest.TestCase):
         self.assertIn(".reminder-edit-back{display:inline-flex;width:44px;height:44px;", self.reminder_editor)
 
     def test_small_mobile_text_is_readable(self):
-        self.assertIn("font-size: 10.5px;", self.mobile)
+        self.assertNotIn("font-size: 10.5px;", self.mobile)
+        self.assertIn(".mobile-nav-label", self.mobile)
+        self.assertIn("font-size: 11px;", self.mobile)
         self.assertIn(".mobile-summary-label {\n  color: #7d7d78;\n  font-size: 11px;", self.mobile)
         self.assertIn("font-size: 14px;", self.mobile)
         self.assertIn("font-size: 12px;", self.mobile)

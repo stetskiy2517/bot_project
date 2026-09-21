@@ -75,7 +75,7 @@
     .notes-search-status{display:none;margin:6px 2px 0;color:#858580;font-size:12px;line-height:1.35}
     .notes-search-status.visible{display:block}
     .note-card-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-    .note-card-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:999px;background:#f0f0ed;color:#666660;font-size:10px;line-height:1.1}
+    .note-card-badge{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border-radius:999px;background:#f0f0ed;color:#666660;font-size:11px;line-height:1.1}
     .note-card-badge.pin{background:#ece8dc;color:#695f3c}
     .note-search-answer{padding:12px 13px;margin-bottom:12px;border-radius:14px;background:#ececea;color:#4a4a46;font-size:13px;line-height:1.45;white-space:pre-wrap}
     .note-search-results{display:grid;gap:8px}

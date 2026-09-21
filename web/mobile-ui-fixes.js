@@ -119,7 +119,7 @@
     #composer textarea#message {
       flex: 1;
       min-width: 0;
-      min-height: 36px;
+      min-height: 44px;
       max-height: min(40dvh, 220px);
       margin: 0;
       border: 0;
@@ -188,7 +188,7 @@
     editor.style.height = "0px";
     const viewportHeight = Math.max(240, Number(window.visualViewport?.height || window.innerHeight || 0));
     const limit = Math.max(96, Math.min(220, Math.round(viewportHeight * 0.4)));
-    const wanted = Math.max(36, editor.scrollHeight || 36);
+    const wanted = Math.max(44, editor.scrollHeight || 44);
     const height = Math.min(wanted, limit);
     editor.style.height = height + "px";
     editor.style.overflowY = wanted > limit ? "auto" : "hidden";

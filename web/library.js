@@ -77,7 +77,7 @@
       border-bottom: 1px solid rgba(230,230,227,.8);
     }
     .library-nav {
-      height: 44px;
+      height: 52px;
       display: grid;
       grid-template-columns: 44px minmax(0,1fr) auto;
       align-items: center;
@@ -85,7 +85,7 @@
     }
     .library-tabs {
       min-width: 0;
-      height: 44px;
+      height: 52px;
       margin: 0;
       padding: 4px;
       display: grid;
@@ -106,6 +106,7 @@
     .library-nav-actions:empty { width: 44px; }
     .library-tab {
       min-width: 0;
+      min-height: 44px;
       padding: 9px 10px;
       border-radius: 11px;
       background: transparent;
@@ -121,6 +122,24 @@
       background: #fff;
       color: #111;
       box-shadow: 0 1px 5px rgba(0,0,0,.07);
+    }
+    @media (max-width:360px) {
+      .library-nav {
+        height:auto;
+        min-height:104px;
+        grid-template-columns:44px minmax(0,1fr) auto;
+        grid-template-rows:44px 52px;
+        row-gap:8px;
+      }
+      .library-back-button { grid-column:1; grid-row:1; }
+      .library-nav-actions { grid-column:3; grid-row:1; }
+      .library-tabs {
+        grid-column:1 / -1;
+        grid-row:2;
+        width:100%;
+        box-sizing:border-box;
+      }
+      .library-tab { min-width:44px; }
     }
     .library-list {
       flex: 1;

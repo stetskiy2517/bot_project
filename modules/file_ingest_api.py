@@ -50,6 +50,11 @@ def _user() -> int:
     return int(session["user_id"])
 
 
+@file_ingest_api.errorhandler(ValueError)
+def _invalid_file_request(error):
+    return jsonify(error="invalid_file_request", message=str(error)), 400
+
+
 def _file_type(upload) -> tuple[str, str, int]:
     raw_name = Path(str(upload.filename or "")).name
     suffix = Path(raw_name).suffix.lower()
@@ -107,15 +112,18 @@ def analyze_uploaded_file():
             message="Разбор файлов требует доступа к ИИ.",
         ), 403
     upload = request.files.get("file")
-    if upload is None or not upload.filename:
-        raise ValueError("Выбери файл для загрузки")
-    provider_name, mimetype, limit = _file_type(upload)
-    content = upload.stream.read(limit + 1)
-    if not content:
-        raise ValueError("Файл пустой")
-    if len(content) > limit:
-        size_mb = limit // (1024 * 1024)
-        raise ValueError(f"Файл слишком большой. Максимум {size_mb} МБ")
+    try:
+        if upload is None or not upload.filename:
+            raise ValueError("Выбери файл для загрузки")
+        provider_name, mimetype, limit = _file_type(upload)
+        content = upload.stream.read(limit + 1)
+        if not content:
+            raise ValueError("Файл пустой")
+        if len(content) > limit:
+            size_mb = limit // (1024 * 1024)
+            raise ValueError(f"Файл слишком большой. Максимум {size_mb} МБ")
+    except ValueError as exc:
+        return jsonify(error="invalid_file", message=str(exc)), 400
     timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
     result = analyze_file_bytes(
         content,

@@ -129,23 +129,26 @@ def navigation_buffers():
 
 @navigation_extra_api.put("/api/navigation/buffers")
 def update_navigation_buffers():
-    payload = request.get_json(silent=True) or {}
-    if set(payload) != {"parking_buffer_minutes", "walking_buffer_minutes"}:
-        raise ValueError("Нужны буфер парковки и пеший буфер")
-    values = []
-    for key in ("parking_buffer_minutes", "walking_buffer_minutes"):
-        value = payload.get(key)
-        if isinstance(value, bool):
-            raise ValueError("Буфер должен быть целым числом минут")
-        try:
-            value = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Буфер должен быть целым числом минут") from exc
-        if not 0 <= value <= 180:
-            raise ValueError("Буфер должен быть от 0 до 180 минут")
-        values.append(value)
-    prefs = save_navigation_buffers(_user(), parking_minutes=values[0], walking_minutes=values[1])
-    return {"preferences": prefs}
+    try:
+        payload = request.get_json(silent=True) or {}
+        if set(payload) != {"parking_buffer_minutes", "walking_buffer_minutes"}:
+            raise ValueError("Нужны буфер парковки и пеший буфер")
+        values = []
+        for key in ("parking_buffer_minutes", "walking_buffer_minutes"):
+            value = payload.get(key)
+            if isinstance(value, bool):
+                raise ValueError("Буфер должен быть целым числом минут")
+            try:
+                value = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Буфер должен быть целым числом минут") from exc
+            if not 0 <= value <= 180:
+                raise ValueError("Буфер должен быть от 0 до 180 минут")
+            values.append(value)
+        prefs = save_navigation_buffers(_user(), parking_minutes=values[0], walking_minutes=values[1])
+        return {"preferences": prefs}
+    except ValueError as exc:
+        return jsonify(error="invalid_navigation_buffers", message=str(exc)), 400
 
 
 @navigation_extra_api.get("/api/navigation/origin-request")
@@ -195,7 +198,7 @@ def answer_navigation_origin():
     if item is None:
         return jsonify(error="origin_request_not_found", message="Этот вопрос уже неактуален."), 404
     if choice not in {"home", "office", "other"}:
-        raise ValueError("Выбери дом, офис или другое место")
+        return jsonify(error="invalid_navigation_origin", message="Выбери дом, офис или другое место"), 400
 
     prefs = get_navigation_preferences(user_id)
     if choice == "home":

@@ -229,7 +229,7 @@
       .planner-task-primary-proxy{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
       .planner-task-title{display:flex;align-items:center;gap:7px}
       .planner-task-title-text{min-width:0;overflow-wrap:anywhere}
-      .planner-task-bell{display:inline-flex;flex:0 0 auto;width:22px;height:22px;padding:2px;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:#777772;cursor:pointer;touch-action:manipulation}
+      .planner-task-bell{display:inline-flex;flex:0 0 auto;width:44px;height:44px;padding:10px;align-items:center;justify-content:center;border:0;border-radius:7px;background:transparent;color:#777772;cursor:pointer;touch-action:manipulation}
       .planner-task-bell:active{background:#ececea}
       .planner-task-bell svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
       .planner-reminder-task.completed .planner-task-title{text-decoration:none!important;color:#777773}

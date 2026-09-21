@@ -84,8 +84,8 @@
       .life-balance-controls{margin-top:14px;border-top:1px solid #ececea;padding-top:12px}
       .life-balance-controls summary{cursor:pointer;font-size:14px;font-weight:650}
       .life-balance-row{display:grid;grid-template-columns:minmax(90px,1fr) 100px 100px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0ed;font-size:13px}
-      .life-balance-row label{display:grid;gap:3px;color:#888;font-size:10px}
-      .life-balance-row input{width:100%;box-sizing:border-box;padding:7px;border:1px solid #ddd;border-radius:9px;font:inherit;color:#111}
+      .life-balance-row label{display:grid;gap:3px;color:#888;font-size:11px}
+      .life-balance-row input{width:100%;min-height:44px;box-sizing:border-box;padding:9px 10px;border:1px solid #ddd;border-radius:9px;font:inherit;color:#111}
       @media(max-width:480px){.life-balance-row{grid-template-columns:1fr 74px 74px}}
     `;
     document.head.append(style);

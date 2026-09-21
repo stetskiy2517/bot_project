@@ -19,8 +19,8 @@
     }
     .app.mobile-shell.mobile-view-home .composer-voice-button { display: none; }
     .file-attach-button {
-      width: 36px;
-      height: 36px;
+      width: 44px;
+      height: 44px;
       border-radius: 50%;
       display: grid;
       place-items: center;
