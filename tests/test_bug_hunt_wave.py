@@ -105,7 +105,8 @@ class BugHuntWaveTest(TestCase):
 
     def test_10_reminder_editor_load_failure_is_visible(self):
         source = Path("web/reminder-editor.js").read_text(encoding="utf-8")
-        self.assertNotIn('openEditor(Number(edit.dataset.reminderEdit)).catch(() => {})', source)\n        self.assertIn('reminderEditorFeedback', source)
+        self.assertNotIn('openEditor(Number(edit.dataset.reminderEdit)).catch(() => {})', source)
+        self.assertIn('reminderEditorFeedback', source)
         self.assertIn('"Не удалось открыть напоминание."', source)
 
 
