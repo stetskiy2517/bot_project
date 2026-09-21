@@ -16,14 +16,15 @@ class BugHuntWaveTest(TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = web_test_app()
-        cls.user_id = get_or_create_google_user(
-            "bug-hunt-wave",
-            "bug-hunt-wave@example.test",
-            "Bug Hunt",
-        )
-        cls.client = cls.app.test_client()
 
     def setUp(self):
+        token = uuid.uuid4().hex
+        self.user_id = get_or_create_google_user(
+            f"bug-hunt-wave-{token}",
+            f"bug-hunt-wave-{token}@example.test",
+            "Bug Hunt",
+        )
+        self.client = self.app.test_client()
         with self.client.session_transaction() as stored:
             stored.clear()
             stored["user_id"] = self.user_id
