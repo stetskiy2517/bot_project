@@ -34,7 +34,7 @@
     .reminder-edit-content{display:grid;gap:14px;max-width:680px;margin:0 auto}
     .reminder-edit-section{display:grid;gap:11px;padding:14px;border:1px solid #e8e8e5;border-radius:18px;background:#fff}
     .reminder-edit-section-title{font-size:12px;font-weight:700;color:#777772;text-transform:uppercase;letter-spacing:.035em}
-    .reminder-edit-field{display:grid;gap:7px;color:#696965;font-size:12px}.reminder-edit-field input,.reminder-edit-field select{width:100%;min-width:0;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#151515;font:inherit;font-size:15px;box-sizing:border-box;outline:0}
+    .reminder-edit-field{display:grid;gap:7px;color:#696965;font-size:12px}.reminder-edit-field input,.reminder-edit-field select{width:100%;min-width:0;min-height:46px;padding:11px 12px;border:1px solid #dededb;border-radius:13px;background:#fff;color:#151515;font:inherit;font-size:16px;box-sizing:border-box;outline:0}
     .reminder-edit-field input:focus,.reminder-edit-field select:focus{border-color:#aaa9a5;box-shadow:0 0 0 3px rgba(0,0,0,.04)}
     .reminder-edit-two{display:grid;grid-template-columns:1fr 1fr;gap:9px}.reminder-edit-help{color:#92928e;font-size:11px;line-height:1.4}
     .reminder-edit-actions{position:sticky;bottom:0;display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:2px -16px -20px;padding:12px 16px calc(env(safe-area-inset-bottom) + 14px);background:linear-gradient(to bottom,rgba(255,255,255,.84),#fff 24%);backdrop-filter:blur(18px)}
