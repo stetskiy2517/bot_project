@@ -85,6 +85,43 @@ class CalendarActionsTests(unittest.TestCase):
             conflicts = _find_conflicts(1, start, end, exclude_event_id="event-1")
         self.assertEqual([event["id"] for event in conflicts], ["event-2"])
 
+    def test_conflict_buffer_does_not_pull_previous_day_flight_into_next_day(self):
+        saratov = ZoneInfo("Europe/Saratov")
+        start = datetime(2026, 9, 21, 0, 0, tzinfo=saratov)
+        end = datetime(2026, 9, 21, 1, 0, tzinfo=saratov)
+        previous_day_flight = {
+            "id": "flight-20",
+            "summary": "Перелёт",
+            "start": {"dateTime": "2026-09-20T22:30:00+03:00"},
+            "end": {"dateTime": "2026-09-20T23:00:00+03:00"},
+        }
+        with (
+            patch("modules.calendar_actions.get_calendar_preferences", return_value={"buffer_minutes": 15}),
+            patch("modules.calendar_actions._list_events", return_value=[previous_day_flight]) as list_events,
+        ):
+            conflicts = _find_conflicts(1, start, end)
+
+        self.assertEqual(conflicts, [])
+        queried_start = list_events.call_args.args[1]
+        self.assertEqual(queried_start, start)
+
+    def test_conflict_buffer_still_blocks_same_day_gap(self):
+        start = datetime(2026, 9, 21, 10, 0, tzinfo=self.zone)
+        end = datetime(2026, 9, 21, 11, 0, tzinfo=self.zone)
+        prior_meeting = {
+            "id": "same-day",
+            "summary": "Предыдущая встреча",
+            "start": {"dateTime": "2026-09-21T09:00:00+03:00"},
+            "end": {"dateTime": "2026-09-21T09:50:00+03:00"},
+        }
+        with (
+            patch("modules.calendar_actions.get_calendar_preferences", return_value={"buffer_minutes": 15}),
+            patch("modules.calendar_actions._list_events", return_value=[prior_meeting]),
+        ):
+            conflicts = _find_conflicts(1, start, end)
+
+        self.assertEqual([event["id"] for event in conflicts], ["same-day"])
+
     def test_router_recognises_new_update_phrases(self):
         self.assertEqual(detect_intent("сделай встречу на 2 часа").name, INTENT_UPDATE)
         self.assertEqual(detect_intent("переименуй встречу в созвон").name, INTENT_UPDATE)
