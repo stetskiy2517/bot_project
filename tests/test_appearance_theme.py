@@ -61,6 +61,11 @@ class AppearanceThemeTests(unittest.TestCase):
         self.assertIn('data-appearance-choice="auto"', source)
         self.assertIn('data-appearance-choice="light"', source)
         self.assertIn('data-appearance-choice="dark"', source)
+        self.assertNotIn("Как на устройстве", source)
+        self.assertNotIn("Всегда светлая", source)
+        self.assertNotIn("Всегда тёмная", source)
+        self.assertNotIn("В режиме «Авто»", source)
+        self.assertNotIn("settings-theme-link-note", settings)
         self.assertIn('media.addEventListener?.("change"', source)
 
 
