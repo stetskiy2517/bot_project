@@ -132,8 +132,16 @@ def _event_end(event: dict, timezone: str) -> datetime | None:
 def _find_conflicts(user_id: int, start: datetime, end: datetime, *, exclude_event_id: str | None = None) -> list[dict]:
     prefs = get_calendar_preferences(user_id)
     buffer = timedelta(minutes=prefs["buffer_minutes"])
-    query_start = start - buffer
-    query_end = end + buffer
+
+    # A meeting buffer is useful between events on the same local day, but it
+    # must not turn an event from the previous/next calendar day into a false
+    # conflict. This is especially visible after travel between timezones.
+    day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_instant = end - timedelta(microseconds=1)
+    day_after_end = last_instant.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    query_start = max(start - buffer, day_start)
+    query_end = min(end + buffer, day_after_end)
+
     events = _list_events(user_id, query_start, query_end)
     conflicts = []
     timezone = str(start.tzinfo) if start.tzinfo else "Europe/Moscow"
