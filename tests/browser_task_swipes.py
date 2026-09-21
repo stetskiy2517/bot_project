@@ -104,8 +104,7 @@ def main() -> None:
                     }
                 }"""
             )
-            page.locator("#libraryOpenBtn").click()
-            page.locator("#libraryTasksTab").click()
+            page.evaluate("window.PlannerLibrary.open(\'tasks\')")
 
             planner_row = page.locator(".planner-task-swipe-row", has_text="Swipe задача").first
             reminder_card = page.locator(
