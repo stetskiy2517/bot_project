@@ -148,9 +148,19 @@
 
   async function openNextRoute() {
     if (!navigationEnabled) return;
-    const data = await api("/api/navigation/next-route");
-    window.open(data.url, "_blank", "noopener,noreferrer");
-    document.getElementById("navigationExtraState").textContent = `Маршрут: ${data.title} → ${data.destination}`;
+    const popup = window.open("about:blank", "_blank");
+    if (popup) {
+      try { popup.opener = null; } catch (_) {}
+    }
+    try {
+      const data = await api("/api/navigation/next-route");
+      if (popup) popup.location.replace(data.url);
+      else window.location.assign(data.url);
+      document.getElementById("navigationExtraState").textContent = `Маршрут: ${data.title} → ${data.destination}`;
+    } catch (error) {
+      try { popup?.close(); } catch (_) {}
+      throw error;
+    }
   }
 
   function ensureOriginCard() {
@@ -164,6 +174,7 @@
     card.style.cssText = [
       "position:fixed", "left:50%", "bottom:max(18px, env(safe-area-inset-bottom))",
       "transform:translateX(-50%)", "z-index:1200", "width:min(92vw,460px)",
+      "max-height:calc(100dvh - 36px)", "overflow-y:auto", "box-sizing:border-box",
       "padding:16px", "border-radius:18px", "background:var(--surface,#fff)",
       "box-shadow:0 12px 40px rgba(0,0,0,.18)", "border:1px solid rgba(0,0,0,.12)"
     ].join(";");
@@ -210,6 +221,7 @@
     card.style.cssText = [
       "position:fixed", "left:50%", "bottom:max(18px, env(safe-area-inset-bottom))",
       "transform:translateX(-50%)", "z-index:1210", "width:min(92vw,520px)",
+      "max-height:calc(100dvh - 36px)", "overflow-y:auto", "box-sizing:border-box",
       "padding:16px", "border-radius:18px", "background:var(--surface,#fff)",
       "box-shadow:0 14px 46px rgba(0,0,0,.22)", "border:1px solid rgba(0,0,0,.14)"
     ].join(";");

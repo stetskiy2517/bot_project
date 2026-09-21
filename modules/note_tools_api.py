@@ -283,3 +283,11 @@ def semantic_note_search():
             "notes": [_public_note(item) for item in direct[:5]],
             "ai_used": False,
         }
+
+
+@note_tools_api.errorhandler(ValueError)
+def invalid_note_request(error):
+    message = str(error)
+    if message == "Заметка не найдена":
+        return jsonify(error="note_not_found", message=message), 404
+    return jsonify(error="invalid_note_request", message=message), 400

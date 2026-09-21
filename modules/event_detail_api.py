@@ -263,11 +263,31 @@ def _conflict_payload(conflict: dict, timezone_name: str) -> dict:
         return {"id": conflict.get("id"), "title": str(conflict.get("summary") or "Событие")}
 
 
-def _alternatives(user_id: int, timezone_name: str, start: datetime, end: datetime, *, all_day: bool) -> list[dict]:
+def _alternatives(
+    user_id: int,
+    timezone_name: str,
+    start: datetime,
+    end: datetime,
+    *,
+    all_day: bool,
+    event: dict | None = None,
+) -> list[dict]:
     if all_day:
         return []
+    own_ids = {
+        str(value)
+        for value in ((event or {}).get("id"), (event or {}).get("recurringEventId"))
+        if value
+    }
     try:
-        slots = suggest_alternatives(user_id, timezone_name, start, end - start, limit=3)
+        slots = suggest_alternatives(
+            user_id,
+            timezone_name,
+            start,
+            end - start,
+            limit=3,
+            exclude_event_ids=own_ids,
+        )
     except Exception:
         return []
     return [
@@ -413,7 +433,12 @@ def update_event(event_id: str):
                     "message": "В новом времени уже есть другое событие.",
                     "conflict": _conflict_payload(conflicts[0], timezone_name),
                     "alternatives": _alternatives(
-                        user_id, timezone_name, desired_start, desired_end, all_day=desired_all_day
+                        user_id,
+                        timezone_name,
+                        desired_start,
+                        desired_end,
+                        all_day=desired_all_day,
+                        event=event,
                     ),
                 }, 409
 

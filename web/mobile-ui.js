@@ -338,11 +338,29 @@
 
   async function openRoute() {
     let route = routePayload;
+    let popup = null;
     if (!route) {
-      try { route = await request("/api/navigation/next-route"); }
-      catch (error) { return showToast(friendly(error)); }
+      popup = window.open("about:blank", "_blank");
+      if (popup) {
+        try { popup.opener = null; } catch (_) {}
+      }
+      try {
+        route = await request("/api/navigation/next-route");
+      } catch (error) {
+        try { popup?.close(); } catch (_) {}
+        return showToast(friendly(error));
+      }
     }
-    if (route?.url) window.open(route.url, "_blank", "noopener,noreferrer");
+    if (!route?.url) {
+      try { popup?.close(); } catch (_) {}
+      return showToast("Маршрут не найден");
+    }
+    if (popup) {
+      popup.location.replace(route.url);
+      return;
+    }
+    const opened = window.open(route.url, "_blank", "noopener,noreferrer");
+    if (!opened) window.location.assign(route.url);
   }
 
   function closeSettingsForNavigation() {
@@ -353,24 +371,14 @@
   }
 
   function openLibrarySection(name, {fromSettings = false} = {}) {
-    const library = document.getElementById("libraryOpenBtn");
-    if (!library) {
+    const libraryApi = window.PlannerLibrary;
+    if (!libraryApi?.open) {
       if (name === "tasks") setActiveNav(currentView);
       return showToast("Раздел ещё загружается");
     }
     if (fromSettings) closeSettingsForNavigation();
 
-    const open = () => {
-      if (name === "saved") {
-        const notes = document.getElementById("libraryNotesTab");
-        if (!notes) return showToast("Раздел ещё загружается");
-        notes.click();
-        library.click();
-        return;
-      }
-      library.click();
-      requestAnimationFrame(() => document.getElementById("libraryTasksTab")?.click());
-    };
+    const open = () => libraryApi.open(name === "saved" ? "notes" : "tasks");
     if (fromSettings) requestAnimationFrame(open);
     else open();
   }

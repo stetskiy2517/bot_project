@@ -203,3 +203,8 @@ def task_schedule_apply():
         "applied_count": len(applied),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@task_api.errorhandler(ValueError)
+def invalid_task_request(error):
+    return jsonify(error="invalid_task_request", message=str(error)), 400

@@ -20,17 +20,18 @@
   let details = new Map();
   let refreshTimer = null;
   let loading = false;
+  let errorToastTimer = null;
 
   const style = document.createElement("style");
   style.id = "reminderEditorStyles";
   style.textContent = `
-    .reminder-action.edit{background:#e8e8e5;color:#31312f}.reminder-category-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border-radius:999px;background:#efefec;color:#666662;font-size:10px;line-height:1.2;white-space:nowrap}
+    .reminder-action.edit{background:#e8e8e5;color:#31312f}.reminder-category-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border-radius:999px;background:#efefec;color:#666662;font-size:11px;line-height:1.2;white-space:nowrap}
     .reminder-edit-backdrop{position:absolute;z-index:180;inset:0;background:#fff;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(24px);transition:opacity .18s ease,transform .2s cubic-bezier(.22,.8,.24,1),visibility 0s linear .2s;overflow:hidden}
     .reminder-edit-backdrop.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(0);transition-delay:0s}
     .reminder-edit-sheet{width:100%;height:100%;max-height:none;overflow:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);border-radius:0;background:#fff;box-shadow:none;box-sizing:border-box}
     .reminder-edit-head{position:sticky;z-index:3;top:0;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:0 -16px 18px;padding:calc(env(safe-area-inset-top) + 8px) 12px 10px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px);border-bottom:1px solid #eeeeeb}
-    .reminder-edit-back{display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
-    .reminder-edit-head-spacer{width:40px;height:40px}.task-notification-edit-title{margin:0;text-align:center;font-size:19px;font-weight:700}
+    .reminder-edit-back{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;border-radius:50%;background:#efefec;color:#30302e;font-size:20px;cursor:pointer}
+    .reminder-edit-head-spacer{width:44px;height:44px}.task-notification-edit-title{margin:0;text-align:center;font-size:19px;font-weight:700}
     .reminder-edit-content{display:grid;gap:14px;max-width:680px;margin:0 auto}
     .reminder-edit-section{display:grid;gap:11px;padding:14px;border:1px solid #e8e8e5;border-radius:18px;background:#fff}
     .reminder-edit-section-title{font-size:12px;font-weight:700;color:#777772;text-transform:uppercase;letter-spacing:.035em}
@@ -57,6 +58,16 @@
       if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
       return data;
     });
+  }
+
+  function reportOpenError(error) {
+    const message = window.PlannerPolish?.friendlyError?.(error) || error?.message || "Не удалось открыть задачу.";
+    const toast = document.querySelector(".library-toast");
+    if (!toast) return;
+    clearTimeout(errorToastTimer);
+    toast.textContent = message;
+    toast.classList.add("show");
+    errorToastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
   }
 
   function localParts(value) {
@@ -226,7 +237,7 @@
     if (!edit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    openEditor(Number(edit.dataset.reminderEdit)).catch(() => {});
+    openEditor(Number(edit.dataset.reminderEdit)).catch(reportOpenError);
   }, true);
 
   backdrop.addEventListener("click", event => {
