@@ -14,6 +14,7 @@ from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
 from modules.attention import attention_snapshot
 from modules.calendar_location_api import calendar_location_api
+from modules.calendar_availability import _event_end
 from modules.calendar_user import _event_start, _list_events
 from modules.daily_review import build_day_review, capture_review_attention
 from modules.event_detail_api import event_detail_api
@@ -64,11 +65,13 @@ def _task_payload(task: dict, *, now_utc: datetime) -> dict:
 
 def _event_payload(event: dict, timezone_name: str) -> dict:
     start, all_day = _event_start(event, timezone_name)
+    end = _event_end(event, timezone_name)
     private = ((event.get("extendedProperties") or {}).get("private") or {})
     return {
         "id": event.get("id"),
         "title": str(event.get("summary") or "Событие")[:160],
         "starts_at": start.isoformat() if start else None,
+        "ends_at": end.isoformat() if end else None,
         "all_day": bool(all_day),
         "location": str(event.get("location") or "")[:240],
         "color_id": event.get("colorId"),
