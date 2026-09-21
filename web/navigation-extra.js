@@ -148,9 +148,20 @@
 
   async function openNextRoute() {
     if (!navigationEnabled) return;
-    const data = await api("/api/navigation/next-route");
-    window.open(data.url, "_blank", "noopener,noreferrer");
-    document.getElementById("navigationExtraState").textContent = `Маршрут: ${data.title} → ${data.destination}`;
+    const routeWindow = window.open("about:blank", "_blank");
+    try {
+      const data = await api("/api/navigation/next-route");
+      if (routeWindow) {
+        routeWindow.opener = null;
+        routeWindow.location.replace(data.url);
+      } else {
+        window.location.assign(data.url);
+      }
+      document.getElementById("navigationExtraState").textContent = `Маршрут: ${data.title} → ${data.destination}`;
+    } catch (error) {
+      routeWindow?.close();
+      throw error;
+    }
   }
 
   function ensureOriginCard() {
