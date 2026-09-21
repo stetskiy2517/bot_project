@@ -26,16 +26,6 @@
     meta.content = resolved === "dark" ? "#111214" : "#f7f7f5";
   }
 
-  function updateMenuNote() {
-    const note = document.querySelector('[data-settings-open="appearance"] .settings-theme-link-note');
-    if (!note) return;
-    if (selectedTheme === "auto") {
-      note.textContent = `Авто · сейчас ${resolvedTheme() === "dark" ? "тёмная" : "светлая"}`;
-      return;
-    }
-    note.textContent = selectedTheme === "dark" ? "Тёмная" : "Светлая";
-  }
-
   function updateSelection() {
     document.querySelectorAll("[data-appearance-choice]").forEach(button => {
       const active = button.dataset.appearanceChoice === selectedTheme;
@@ -44,7 +34,6 @@
       const mark = button.querySelector(".appearance-choice-mark");
       if (mark) mark.textContent = active ? "✓" : "";
     });
-    updateMenuNote();
   }
 
   function apply(theme, {persist = true} = {}) {
@@ -72,24 +61,20 @@
       group.id = "appearanceThemeControl";
       group.className = "appearance-settings";
       group.innerHTML = `
-        <div class="appearance-settings-copy">
-          <div class="appearance-settings-title">Тема приложения</div>
-          <div class="appearance-settings-note">В режиме «Авто» оформление следует системной теме устройства.</div>
-        </div>
         <div class="appearance-choice-list" role="radiogroup" aria-label="Тема приложения">
           <button type="button" class="appearance-choice" data-appearance-choice="auto" role="radio">
             <span class="appearance-preview appearance-preview-auto" aria-hidden="true"><i></i><i></i></span>
-            <span class="appearance-choice-copy"><strong>Авто</strong><small>Как на устройстве</small></span>
+            <span class="appearance-choice-copy"><strong>Авто</strong></span>
             <span class="appearance-choice-mark" aria-hidden="true"></span>
           </button>
           <button type="button" class="appearance-choice" data-appearance-choice="light" role="radio">
             <span class="appearance-preview appearance-preview-light" aria-hidden="true"></span>
-            <span class="appearance-choice-copy"><strong>Светлая</strong><small>Всегда светлая</small></span>
+            <span class="appearance-choice-copy"><strong>Светлая</strong></span>
             <span class="appearance-choice-mark" aria-hidden="true"></span>
           </button>
           <button type="button" class="appearance-choice" data-appearance-choice="dark" role="radio">
             <span class="appearance-preview appearance-preview-dark" aria-hidden="true"></span>
-            <span class="appearance-choice-copy"><strong>Тёмная</strong><small>Всегда тёмная</small></span>
+            <span class="appearance-choice-copy"><strong>Тёмная</strong></span>
             <span class="appearance-choice-mark" aria-hidden="true"></span>
           </button>
         </div>
