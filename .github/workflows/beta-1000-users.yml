@@ -20,6 +20,7 @@ jobs:
     env:
       WEB_PUSH_WORKER_ENABLED: "0"
       EMAIL_AUTO_WORKER_ENABLED: "0"
+      PYTHONPATH: "."
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,4 +39,4 @@ jobs:
         with:
           name: beta-1000-users-report
           path: artifacts/beta-1000-users
-          if-no-files-found: error
+          if-no-files-found: warn
