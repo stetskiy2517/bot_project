@@ -7,6 +7,9 @@ import secrets
 import tempfile
 import threading
 import time
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ["WEB_PUSH_WORKER_ENABLED"] = "0"
 os.environ["EMAIL_AUTO_WORKER_ENABLED"] = "0"
