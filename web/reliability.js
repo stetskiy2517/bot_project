@@ -309,7 +309,7 @@
   function decorateAssistantGroups() {
     const root = document.getElementById("assistantSettings");
     if (!root) return;
-    const groups = Array.from(root.querySelectorAll(":scope > details.assistant-section"));
+    const groups = Array.from(root.querySelectorAll("details.assistant-section"));
     groups.forEach(details => {
       const config = assistantGroupConfig(details);
       if (!config) return;
