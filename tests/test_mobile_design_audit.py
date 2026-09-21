@@ -61,6 +61,24 @@ class MobileDesignAuditTests(unittest.TestCase):
         self.assertIn("button:focus-visible", self.mobile)
         self.assertIn('outline: 2px solid #4f4f4b;', self.mobile)
 
+    def test_chat_and_editor_inputs_do_not_trigger_ios_zoom(self):
+        index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        event = (ROOT / "web" / "event-editor.js").read_text(encoding="utf-8")
+        self.assertIn(".composer-voice-button,\n      .send-button {\n        width: 44px;\n        height: 44px;", index)
+        self.assertIn("font-size: 16px;", index)
+        self.assertIn("font:inherit;font-size:16px", self.task_editor)
+        self.assertIn("font:inherit;font-size:16px", self.reminder_editor)
+        self.assertIn("font:inherit;font-size:16px", self.notes)
+        self.assertIn("font-size:16px", event)
+
+    def test_settings_and_category_controls_are_touch_safe(self):
+        themes = (ROOT / "web" / "settings-themes.js").read_text(encoding="utf-8")
+        categories = (ROOT / "web" / "category-manager.js").read_text(encoding="utf-8")
+        self.assertIn("settings-theme-back{width:44px;height:44px", themes)
+        self.assertIn("category-manager-delete{width:44px;height:44px", categories)
+        self.assertIn("category-manager-add button{min-height:44px", categories)
+        self.assertNotIn("font-size:12px!important", categories)
+
 
 if __name__ == "__main__":
     unittest.main()
