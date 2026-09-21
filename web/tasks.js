@@ -234,6 +234,16 @@
     document.querySelector("#libraryScreen .library-nav")?.classList.remove("task-search-open");
   }
 
+  function resetTaskSearch() {
+    clearTimeout(searchTimer);
+    taskQuery = "";
+    const root = document.getElementById("plannerTaskHeaderActions");
+    const input = root?.querySelector("#plannerTaskSearchInput");
+    if (input) input.value = "";
+    root?.querySelector("#plannerTaskSearchBtn")?.classList.remove("active");
+    closeTaskSearch();
+  }
+
   function ensureTaskHeaderActions() {
     const host = document.getElementById("libraryNavActions");
     if (!host) return null;
@@ -313,7 +323,7 @@
   function setTaskHeaderVisible(visible) {
     const root = ensureTaskHeaderActions();
     if (root) root.hidden = !visible;
-    if (!visible) closeTaskSearch();
+    if (!visible) resetTaskSearch();
   }
 
   function filterRow() {
@@ -429,7 +439,7 @@
     if (app && !app.dataset.taskSearchObserved) {
       app.dataset.taskSearchObserved = "1";
       new MutationObserver(() => {
-        if (!app.classList.contains("library-active")) closeTaskSearch();
+        if (!app.classList.contains("library-active")) resetTaskSearch();
       }).observe(app, {attributes: true, attributeFilter: ["class"]});
     }
 
