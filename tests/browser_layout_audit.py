@@ -257,8 +257,9 @@ def main() -> None:
                             [
                                 "#taskEditorBackdrop .task-editor-close",
                                 "#taskEditorBackdrop .task-editor-button",
-                                "#taskEditorBackdrop input",
+                                "#taskEditorBackdrop input:not([type='checkbox']):not([type='radio'])",
                                 "#taskEditorBackdrop select",
+                                "#taskEditorBackdrop .task-editor-check",
                             ],
                             f"task-editor-{width}",
                         )
