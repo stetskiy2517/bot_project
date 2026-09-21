@@ -9,6 +9,7 @@ from core.db import conn, db_lock
 TASK_CATEGORIES = {"work", "health", "rest", "travel", "family", "personal", "other"}
 TASK_PRIORITIES = {"low", "normal", "high"}
 TASK_STATUSES = {"open", "done"}
+TASK_REPEAT_RULES = frozenset({"daily", "weekly", "monthly"})
 MAX_TASK_TITLE = 300
 MAX_TASK_DESCRIPTION = 4000
 MAX_ESTIMATE_MINUTES = 12 * 60
@@ -127,6 +128,33 @@ def _clean_due(value: object) -> str | None:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
+def _clean_repeat_rule(value: object) -> str | None:
+    normalized = " ".join(str(value or "").split()).strip().lower()
+    if not normalized:
+        return None
+    if normalized not in TASK_REPEAT_RULES:
+        raise ValueError("Неизвестное правило повтора задачи")
+    return normalized
+
+
+def _would_create_parent_cycle(user_id: int, task_id: int, parent_id: int) -> bool:
+    """Reject indirect parent loops such as A -> B -> A."""
+    seen: set[int] = set()
+    current_id: int | None = int(parent_id)
+    for _ in range(501):
+        if current_id is None:
+            return False
+        if current_id == int(task_id) or current_id in seen:
+            return True
+        seen.add(current_id)
+        parent = get_planner_task(user_id, current_id)
+        if not parent:
+            return False
+        value = parent.get("parent_task_id")
+        current_id = int(value) if value is not None else None
+    return True
+
+
 def get_planner_task(user_id: int, task_id: int) -> dict | None:
     init_task_planner_store()
     with db_lock:
@@ -189,7 +217,7 @@ def create_planner_task(
     clean_priority = _clean_priority(priority)
     clean_category = _clean_category(category)
     clean_estimate = _clean_estimate(estimate_minutes)
-    clean_repeat = " ".join(str(repeat_rule or "").split()).strip()[:100] or None
+    clean_repeat = _clean_repeat_rule(repeat_rule)
     now = _now()
     if parent_task_id is not None and not get_planner_task(user_id, int(parent_task_id)):
         raise ValueError("Родительская задача не найдена")
@@ -261,13 +289,17 @@ def update_planner_task(user_id: int, task_id: int, changes: dict) -> dict:
             parent_id = None
         else:
             parent_id = int(parent)
-            if parent_id == int(task_id) or not get_planner_task(user_id, parent_id):
+            if (
+                parent_id == int(task_id)
+                or not get_planner_task(user_id, parent_id)
+                or _would_create_parent_cycle(user_id, task_id, parent_id)
+            ):
                 raise ValueError("Некорректная родительская задача")
         updates.append("parent_task_id=?")
         values.append(parent_id)
     if "repeat_rule" in changes:
         updates.append("repeat_rule=?")
-        values.append(" ".join(str(changes["repeat_rule"] or "").split()).strip()[:100] or None)
+        values.append(_clean_repeat_rule(changes["repeat_rule"]))
     if not updates:
         return current
     updates.append("updated_at=?")
