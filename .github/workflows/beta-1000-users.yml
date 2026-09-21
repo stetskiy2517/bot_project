@@ -1,0 +1,41 @@
+name: beta-1000-users
+
+on:
+  push:
+    branches:
+      - audit/beta-1000-users-2026-09-21
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-1000-users
+  cancel-in-progress: true
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WEB_PUSH_WORKER_ENABLED: "0"
+      EMAIL_AUTO_WORKER_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate simulation syntax
+        run: python -m py_compile scripts/beta_1000_users.py
+      - name: Run 1000-user beta simulation
+        run: python scripts/beta_1000_users.py
+      - name: Upload simulation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-1000-users-report
+          path: artifacts/beta-1000-users
+          if-no-files-found: error
