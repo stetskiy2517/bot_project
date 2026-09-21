@@ -206,7 +206,7 @@ def main() -> None:
             page.locator("#accountBtn").click()
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
-        expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()
+            expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()
             expect(page.locator("#settingsThemes .settings-theme-link[data-settings-utility]")).to_have_count(1)
             expect(page.locator('[data-settings-utility="saved"]')).to_have_count(0)
             expect(page.locator('[data-settings-utility="route"]')).to_contain_text("Маршрут")
