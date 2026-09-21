@@ -228,6 +228,7 @@
 
     const groups = Array.from(sheet.querySelectorAll("details.settings-group, details.assistant-section"));
     for (const group of groups) {
+      group.classList.add("settings-group");
       const key = themeFor(group);
       const body = key ? themeBody(key) : null;
       if (body && group.parentElement !== body) body.appendChild(group);
@@ -305,8 +306,14 @@
     #settingsPanel .settings-theme-link-title{font-size:15px;font-weight:600;color:#111;min-width:0;flex:1}
     #settingsPanel .settings-theme-link-chevron{width:18px;height:18px;fill:none;stroke:#8d8d88;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
     #settingsPanel .settings-theme-screen[hidden]{display:none}
-    #settingsPanel .settings-theme-body{display:grid;gap:8px;margin-top:8px}
-    #settingsPanel .settings-theme-body>.settings-group{margin-top:0!important}
+    #settingsPanel .settings-theme-screen{min-width:0;max-width:100%}
+    #settingsPanel .settings-theme-body{display:grid;gap:8px;margin-top:8px;min-width:0;max-width:100%}
+    #settingsPanel .settings-theme-body>.settings-group{margin-top:0!important;width:100%;min-width:0;max-width:100%}
+    #settingsPanel .settings-theme-body>.settings-group>summary{min-width:0;max-width:100%}
+    #settingsPanel .settings-theme-body>.settings-group .field{min-width:0;max-width:100%;overflow-wrap:anywhere}
+    #settingsPanel .settings-theme-body>.settings-group input,
+    #settingsPanel .settings-theme-body>.settings-group select,
+    #settingsPanel .settings-theme-body>.settings-group textarea{min-width:0;max-width:100%}
     #settingsPanel .settings-theme-body>.section-title{margin-top:8px}
     #settingsPanel .settings-theme-actions{display:grid;gap:8px;margin-top:2px}
     #settingsPanel .settings-theme-actions>.action{width:100%}
