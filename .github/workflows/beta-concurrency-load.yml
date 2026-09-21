@@ -1,0 +1,104 @@
+name: beta-concurrency-load
+
+on:
+  push:
+    branches:
+      - audit/load-test-2026-09-21
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-concurrency-load
+  cancel-in-progress: true
+
+jobs:
+  isolated-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: "."
+      DB_PATH: /tmp/personal-secretary-load.db
+      WEB_PUSH_WORKER_ENABLED: "0"
+      EMAIL_AUTO_WORKER_ENABLED: "0"
+      WEB_SESSION_SECRET: load-test-only-secret-32-characters-minimum
+      BASE_URL: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate load test
+        run: python -m py_compile scripts/concurrency_load_test.py
+      - name: Run concurrent application load
+        run: python scripts/concurrency_load_test.py
+      - name: Upload load report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-concurrency-load-report
+          path: artifacts/load-test
+          if-no-files-found: warn
+
+  production-public-smoke:
+    needs: isolated-load
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://213.171.26.210.sslip.io/api/health' }}
+    steps:
+      - name: Safe concurrent public GET smoke
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import concurrent.futures
+          import json
+          import os
+          import statistics
+          import time
+          import urllib.request
+
+          health = os.environ["HEALTH_URL"]
+          base = health.removesuffix("/api/health")
+          urls = [health, base + "/", base + "/manifest.webmanifest"]
+          total = 450
+          concurrency = 25
+
+          def one(i):
+              url = urls[i % len(urls)]
+              start = time.perf_counter()
+              req = urllib.request.Request(url, headers={"User-Agent": "personal-secretary-load-smoke/1"})
+              with urllib.request.urlopen(req, timeout=10) as response:
+                  body = response.read()
+                  status = response.status
+              if status != 200 or not body:
+                  raise RuntimeError(f"{url} -> {status}")
+              return (time.perf_counter() - start) * 1000
+
+          started = time.perf_counter()
+          latencies = []
+          with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+              for value in pool.map(one, range(total)):
+                  latencies.append(value)
+          elapsed = time.perf_counter() - started
+          ordered = sorted(latencies)
+          def pct(q):
+              return ordered[min(len(ordered)-1, max(0, int(len(ordered)*q)-1))]
+          result = {
+              "requests": total,
+              "concurrency": concurrency,
+              "errors": 0,
+              "elapsed_s": round(elapsed, 2),
+              "requests_per_second": round(total / elapsed, 2),
+              "avg_ms": round(statistics.mean(latencies), 2),
+              "p95_ms": round(pct(0.95), 2),
+              "p99_ms": round(pct(0.99), 2),
+              "max_ms": round(max(latencies), 2),
+          }
+          print(json.dumps(result, indent=2))
+          PY
