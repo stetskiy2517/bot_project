@@ -30,10 +30,10 @@ body {
 .app.mobile-shell #lifeWheelBtn {
   display: grid !important;
   top: calc(env(safe-area-inset-top) + 10px);
-  right: 60px;
-  width: 38px;
-  height: 38px;
-  border-radius: 13px;
+  right: 66px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   border-color: transparent;
   background: rgba(244, 244, 242, 0.92);
   box-shadow: none;
@@ -48,9 +48,9 @@ body {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 10px);
   right: 14px;
-  width: 38px;
-  height: 38px;
-  border-radius: 13px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   background: rgba(244, 244, 242, 0.92);
   border-color: transparent;
   box-shadow: none;
@@ -59,6 +59,12 @@ body {
 .app.mobile-shell .account-button svg {
   width: 20px;
   height: 20px;
+}
+
+.app.mobile-shell button:focus-visible,
+.app.mobile-shell [role="button"]:focus-visible {
+  outline: 2px solid #4f4f4b;
+  outline-offset: 2px;
 }
 
 .app.mobile-shell .voice-shell,
@@ -224,8 +230,8 @@ body {
 }
 
 .mobile-icon-button {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   display: grid;
   place-items: center;
@@ -265,7 +271,7 @@ body {
 
 .mobile-card-meta {
   color: var(--mobile-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -285,12 +291,13 @@ body {
 }
 
 .mobile-review-toggle {
-  margin-top: 8px;
-  padding: 0;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   color: #74746f;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -344,7 +351,7 @@ body {
   display: block;
   overflow: hidden;
   color: #202020;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -355,8 +362,8 @@ body {
   margin-top: 3px;
   overflow: hidden;
   color: var(--mobile-muted);
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: 12px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -412,7 +419,7 @@ body {
 
 .mobile-summary-label {
   color: #7d7d78;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 #mobileTodayContent > .mobile-card {
@@ -430,9 +437,9 @@ body {
 }
 
 .mobile-card-icon-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
 }
 
 .mobile-card-icon-button svg {
@@ -443,7 +450,7 @@ body {
 .mobile-today-empty {
   padding: 9px 2px 2px;
   color: #85857f;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .mobile-day-card.is-empty {
@@ -503,12 +510,12 @@ body {
 }
 
 .mobile-action-button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 12px;
   border-radius: 11px;
   background: var(--mobile-dark);
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -583,14 +590,14 @@ body {
 }
 
 .mobile-more-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 620;
 }
 
 .mobile-more-meta {
   margin-top: 2px;
   color: #999994;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .mobile-bottom-nav {
@@ -650,7 +657,7 @@ body {
 .mobile-nav-label {
   max-width: 100%;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -716,8 +723,8 @@ body {
 .mobile-sheet-field input,
 .mobile-sheet-field select {
   width: 100%;
-  min-height: 42px;
-  padding: 0 11px;
+  min-height: 48px;
+  padding: 0 12px;
   border: 1px solid #dededb;
   border-radius: 12px;
   outline: 0;
