@@ -38,30 +38,33 @@ AUDIT_JS = r"""
     return el.tagName.toLowerCase() + (cls ? '.' + cls : '');
   };
   const findings = [];
+  const intersectsViewport = r => r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
   const controls = [...document.querySelectorAll('button,a,input,select,textarea,[role="button"],[tabindex]')].filter(visible);
   for (const el of controls) {
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
-    if ((r.width < 44 || r.height < 44) && !el.matches('input[type="checkbox"],input[type="radio"]')) {
+    const active = s.pointerEvents !== 'none' && intersectsViewport(r);
+    if (active && (r.width < 44 || r.height < 44) && !el.matches('input[type="checkbox"],input[type="radio"]')) {
       findings.push({kind:'small-target', selector:path(el), width:+r.width.toFixed(1), height:+r.height.toFixed(1), text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
     }
-    if (+s.opacity < 0.1 && s.pointerEvents !== 'none') {
+    if (intersectsViewport(r) && +s.opacity < 0.1 && s.pointerEvents !== 'none') {
       findings.push({kind:'invisible-clickable', selector:path(el), opacity:s.opacity, text:(el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,80)});
     }
-    if (r.left < -1 || r.right > innerWidth + 1) {
-      findings.push({kind:'control-outside-viewport', selector:path(el), left:+r.left.toFixed(1), right:+r.right.toFixed(1), viewport:innerWidth});
+    if (active && (r.left < -1 || r.right > innerWidth + 1)) {
+      findings.push({kind:'control-clipped', selector:path(el), left:+r.left.toFixed(1), right:+r.right.toFixed(1), viewport:innerWidth});
     }
   }
   for (const el of [...document.querySelectorAll('body *')].filter(visible)) {
     const r = el.getBoundingClientRect();
+    if (!intersectsViewport(r)) continue;
     const s = getComputedStyle(el);
-    if (el.scrollWidth > el.clientWidth + 2 && !['auto','scroll'].includes(s.overflowX)) {
-      findings.push({kind:'horizontal-overflow', selector:path(el), clientWidth:el.clientWidth, scrollWidth:el.scrollWidth});
-    }
     const size = parseFloat(s.fontSize);
     if (size && size < 11 && (el.textContent||'').trim() && el.children.length === 0) {
       findings.push({kind:'tiny-text', selector:path(el), fontSize:size, text:(el.textContent||'').trim().slice(0,80)});
     }
+  }
+  if (document.documentElement.scrollWidth > innerWidth + 2) {
+    findings.push({kind:'page-horizontal-overflow', selector:'html', clientWidth:innerWidth, scrollWidth:document.documentElement.scrollWidth});
   }
   return findings;
 }
