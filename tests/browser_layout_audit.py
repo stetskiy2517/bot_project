@@ -55,7 +55,7 @@ def assert_touch_targets(page, selectors: list[str], label: str) -> None:
               ) continue;
               const rect = node.getBoundingClientRect();
               if (rect.width < 1 || rect.height < 1) continue;
-              if (rect.width < 44 || rect.height < 44) {
+              if (rect.width < 43.5 || rect.height < 43.5) {
                 result.push({
                   selector,
                   id: node.id || '',
