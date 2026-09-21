@@ -7,6 +7,7 @@ from unittest.mock import patch
 from modules.event_detail_api import (
     _description_with_category,
     _desired_interval,
+    _alternatives,
     _filtered_conflicts,
     _recurrence_key,
     _series_interval_patch,
@@ -55,6 +56,28 @@ class EventDetailApiTests(unittest.TestCase):
         )
         self.assertEqual(start_part["dateTime"], "2026-09-02T12:00:00+03:00")
         self.assertEqual(end_part["dateTime"], "2026-09-02T13:30:00+03:00")
+
+    def test_alternatives_exclude_current_event(self):
+        start = datetime.fromisoformat("2026-09-16T12:00:00+03:00")
+        end = datetime.fromisoformat("2026-09-16T13:00:00+03:00")
+        event = {"id": "meeting-1", "recurringEventId": "series-1"}
+        with patch(
+            "modules.event_detail_api.suggest_alternatives",
+            return_value=[(start, end)],
+        ) as suggest:
+            result = _alternatives(
+                1,
+                "Europe/Moscow",
+                start,
+                end,
+                all_day=False,
+                event=event,
+            )
+        self.assertEqual(result[0]["start"], start.isoformat())
+        self.assertEqual(
+            suggest.call_args.kwargs["exclude_event_ids"],
+            {"meeting-1", "series-1"},
+        )
 
     def test_linked_managed_travel_is_not_reported_as_own_conflict(self):
         source = {"id": "meeting-1"}
