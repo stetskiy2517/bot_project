@@ -151,22 +151,33 @@
     return document.querySelector(`#settingsTheme-${key} .settings-theme-body`);
   }
 
-  function placeLegacyCalendar() {
+  function ensureCalendarGroup() {
+    let group = document.getElementById("calendarSettingsGroup");
+    if (group) return group;
     const workStart = document.getElementById("workStart");
-    const planning = themeBody("planning");
-    if (!workStart || !planning) return;
-    if (workStart.closest("details.settings-group")) return;
-
-    const grid = workStart.closest(".grid");
-    if (!grid) return;
-    const title = grid.previousElementSibling?.classList.contains("section-title")
+    const grid = workStart?.closest(".grid");
+    if (!grid) return null;
+    group = document.createElement("details");
+    group.id = "calendarSettingsGroup";
+    group.className = "settings-group";
+    const summary = document.createElement("summary");
+    summary.innerHTML = '<span class="settings-group-title">Календарь</span><span id="calendarSettingsMeta" class="settings-group-meta">График</span><svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+    group.appendChild(summary);
+    const heading = grid.previousElementSibling?.classList.contains("section-title")
       ? grid.previousElementSibling
       : null;
-    if (title && title.parentElement !== planning) planning.prepend(title);
-    if (grid.parentElement !== planning) {
-      if (title && title.parentElement === planning) title.insertAdjacentElement("afterend", grid);
-      else planning.prepend(grid);
-    }
+    const anchor = heading || grid;
+    anchor.parentNode.insertBefore(group, anchor);
+    group.appendChild(grid);
+    if (heading) heading.remove();
+    return group;
+  }
+
+  function placeLegacyCalendar() {
+    const planning = themeBody("planning");
+    const group = ensureCalendarGroup();
+    if (!group || !planning) return;
+    if (group.parentElement !== planning) planning.prepend(group);
   }
 
   function placeActions() {
