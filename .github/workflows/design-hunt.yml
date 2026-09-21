@@ -1,0 +1,36 @@
+name: design-hunt
+
+on:
+  push:
+    branches:
+      - audit/ten-bugs-ten-ui-2026-09-21
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  design-hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: "."
+      WEB_PUSH_WORKER_ENABLED: "0"
+      EMAIL_AUTO_WORKER_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install chromium
+      - name: Run design hunt
+        run: python tests/browser_design_hunt.py
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-hunt
+          path: artifacts/design-hunt
+          if-no-files-found: warn
