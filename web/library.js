@@ -1036,6 +1036,11 @@
 
   window.PlannerLibrary = {
     open(tab = "notes") {
+      if (tab === "tasks") {
+        openLibrary();
+        requestAnimationFrame(() => document.getElementById("libraryTasksTab")?.click());
+        return;
+      }
       setTab(tab);
       openLibrary();
     },
