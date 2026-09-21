@@ -178,7 +178,7 @@ def main() -> None:
                         assert_no_horizontal_overflow(page, f"chat-{width}")
                         assert_touch_targets(
                             page,
-                            ["#chatVoiceBtn", "#sendButton"],
+                            ["#chatVoiceBtn", ".send-button"],
                             f"chat-{width}",
                         )
                         composer_font = page.locator("#message").evaluate(
