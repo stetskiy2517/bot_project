@@ -1,0 +1,353 @@
+:root {
+  color-scheme: light;
+}
+
+html[data-color-scheme="dark"] {
+  color-scheme: dark;
+  --bg: #111214;
+  --text: #f5f5f3;
+  --muted: #a1a19c;
+  --line: #34353a;
+  background: #111214;
+  color: #f5f5f3;
+}
+
+html[data-color-scheme="dark"] body,
+html[data-color-scheme="dark"] .app,
+html[data-color-scheme="dark"] .panel,
+html[data-color-scheme="dark"] .login {
+  background: #111214 !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .app {
+  border-color: #2b2c30 !important;
+}
+
+html[data-color-scheme="dark"] .sheet,
+html[data-color-scheme="dark"] .login-card,
+html[data-color-scheme="dark"] .composer,
+html[data-color-scheme="dark"] .field,
+html[data-color-scheme="dark"] .settings-group,
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-link,
+html[data-color-scheme="dark"] .library-card,
+html[data-color-scheme="dark"] .library-action-sheet,
+html[data-color-scheme="dark"] .note-window-body,
+html[data-color-scheme="dark"] .note-search-result,
+html[data-color-scheme="dark"] .task-editor-sheet,
+html[data-color-scheme="dark"] .task-editor-section,
+html[data-color-scheme="dark"] .task-plan-row,
+html[data-color-scheme="dark"] .reminder-edit-backdrop,
+html[data-color-scheme="dark"] .reminder-edit-sheet,
+html[data-color-scheme="dark"] .reminder-edit-section,
+html[data-color-scheme="dark"] .event-detail-row,
+html[data-color-scheme="dark"] .mobile-action-button,
+html[data-color-scheme="dark"] .mobile-attention-card,
+html[data-color-scheme="dark"] .mobile-attention-empty {
+  background: #1a1b1f !important;
+  border-color: #34353a !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] #settingsPanel .settings-themes-menu,
+html[data-color-scheme="dark"] .task-plan-list,
+html[data-color-scheme="dark"] .event-detail-meta,
+html[data-color-scheme="dark"] #diagnosticsGroup .diagnostics-grid {
+  background: #34353a !important;
+  border-color: #34353a !important;
+}
+
+html[data-color-scheme="dark"] .task-editor-backdrop {
+  background: #111214 !important;
+}
+
+html[data-color-scheme="dark"] .note-window {
+  background: #111214 !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .task-editor-head,
+html[data-color-scheme="dark"] .reminder-edit-head {
+  background: rgba(17, 18, 20, 0.94) !important;
+  border-color: #34353a !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .task-editor-actions {
+  background: linear-gradient(to bottom, rgba(17,18,20,.82), #111214 24%) !important;
+}
+
+html[data-color-scheme="dark"] input,
+html[data-color-scheme="dark"] select,
+html[data-color-scheme="dark"] textarea,
+html[data-color-scheme="dark"] .field input,
+html[data-color-scheme="dark"] .field select,
+html[data-color-scheme="dark"] .task-editor-field input,
+html[data-color-scheme="dark"] .task-editor-field select,
+html[data-color-scheme="dark"] .task-editor-field textarea,
+html[data-color-scheme="dark"] .event-edit-field input,
+html[data-color-scheme="dark"] .event-edit-field select,
+html[data-color-scheme="dark"] .event-edit-field textarea,
+html[data-color-scheme="dark"] .reminder-edit-field input,
+html[data-color-scheme="dark"] .reminder-edit-field select,
+html[data-color-scheme="dark"] .note-editor-field input,
+html[data-color-scheme="dark"] .note-editor-field select,
+html[data-color-scheme="dark"] .note-editor-field textarea,
+html[data-color-scheme="dark"] .notes-search-input {
+  background: #222327 !important;
+  border-color: #3b3c42 !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] input::placeholder,
+html[data-color-scheme="dark"] textarea::placeholder {
+  color: #77787e !important;
+}
+
+html[data-color-scheme="dark"] .composer input,
+html[data-color-scheme="dark"] .composer textarea {
+  background: transparent !important;
+}
+
+html[data-color-scheme="dark"] .composer-voice-button,
+html[data-color-scheme="dark"] .close-button,
+html[data-color-scheme="dark"] .day,
+html[data-color-scheme="dark"] .action,
+html[data-color-scheme="dark"] .note-window-close,
+html[data-color-scheme="dark"] .note-window-button,
+html[data-color-scheme="dark"] .event-detail-close,
+html[data-color-scheme="dark"] .event-detail-button.secondary,
+html[data-color-scheme="dark"] .task-editor-button.secondary,
+html[data-color-scheme="dark"] .reminder-edit-back,
+html[data-color-scheme="dark"] #settingsPanel .settings-theme-back,
+html[data-color-scheme="dark"] .diagnostics-actions button,
+html[data-color-scheme="dark"] .mobile-action-button.secondary {
+  background: #292a2f !important;
+  color: #f0f0ee !important;
+  border-color: #3b3c42 !important;
+}
+
+html[data-color-scheme="dark"] .day.on,
+html[data-color-scheme="dark"] .action.primary,
+html[data-color-scheme="dark"] .task-editor-button.primary,
+html[data-color-scheme="dark"] .event-detail-button.primary,
+html[data-color-scheme="dark"] .note-window-button.primary {
+  background: #f1f1ef !important;
+  color: #151619 !important;
+}
+
+html[data-color-scheme="dark"] .notice,
+html[data-color-scheme="dark"] .task-editor-scheduled,
+html[data-color-scheme="dark"] .event-detail-note,
+html[data-color-scheme="dark"] .note-window-chip,
+html[data-color-scheme="dark"] .note-card-badge,
+html[data-color-scheme="dark"] .note-search-answer,
+html[data-color-scheme="dark"] .reminder-category-chip,
+html[data-color-scheme="dark"] .reminder-action.edit {
+  background: #26272b !important;
+  color: #b8b8b4 !important;
+}
+
+html[data-color-scheme="dark"] .settings-theme-link-title,
+html[data-color-scheme="dark"] .chat-label,
+html[data-color-scheme="dark"] .task-editor-field input,
+html[data-color-scheme="dark"] .task-editor-field select,
+html[data-color-scheme="dark"] .task-editor-field textarea,
+html[data-color-scheme="dark"] .event-detail-value,
+html[data-color-scheme="dark"] .note-window-body,
+html[data-color-scheme="dark"] .note-search-result,
+html[data-color-scheme="dark"] .reminder-edit-field input,
+html[data-color-scheme="dark"] .reminder-edit-field select {
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .settings-theme-link-note,
+html[data-color-scheme="dark"] .settings-group-meta,
+html[data-color-scheme="dark"] .task-editor-section-title,
+html[data-color-scheme="dark"] .task-editor-field,
+html[data-color-scheme="dark"] .task-editor-help,
+html[data-color-scheme="dark"] .task-plan-meta,
+html[data-color-scheme="dark"] .event-detail-label,
+html[data-color-scheme="dark"] .event-edit-help,
+html[data-color-scheme="dark"] .note-editor-field,
+html[data-color-scheme="dark"] .note-search-result-preview,
+html[data-color-scheme="dark"] .reminder-edit-section-title,
+html[data-color-scheme="dark"] .reminder-edit-field,
+html[data-color-scheme="dark"] .reminder-edit-help {
+  color: #999a9f !important;
+}
+
+html[data-color-scheme="dark"] .mobile-bottom-nav,
+html[data-color-scheme="dark"] .mobile-sheet,
+html[data-color-scheme="dark"] .mobile-drawer,
+html[data-color-scheme="dark"] .mobile-summary,
+html[data-color-scheme="dark"] .mobile-actions,
+html[data-color-scheme="dark"] .library-sheet {
+  background: #17181b !important;
+  border-color: #34353a !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .library-tab.active {
+  background: #292a2f !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .library-back-button,
+html[data-color-scheme="dark"] .library-header-icon,
+html[data-color-scheme="dark"] .notes-header-icon {
+  background: rgba(34, 35, 39, .94) !important;
+  border-color: #3b3c42 !important;
+  color: #f5f5f3 !important;
+}
+
+html[data-color-scheme="dark"] .diagnostics-row {
+  background: #1a1b1f !important;
+}
+
+html[data-color-scheme="dark"] .planner-system-banner-action {
+  background: #f1f1ef !important;
+  color: #151619 !important;
+}
+
+.appearance-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.appearance-settings-copy {
+  display: grid;
+  gap: 5px;
+  padding: 2px 2px 0;
+}
+
+.appearance-settings-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.appearance-settings-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.appearance-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.appearance-choice {
+  width: 100%;
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #fff;
+  color: #171717;
+  text-align: left;
+  cursor: pointer;
+}
+
+.appearance-choice.active {
+  border-color: #bdbdb8;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.04);
+}
+
+.appearance-choice-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.appearance-choice-copy strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.appearance-choice-copy small {
+  color: #8e8e89;
+  font-size: 11px;
+}
+
+.appearance-choice-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.appearance-preview {
+  position: relative;
+  width: 46px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid #dadad6;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.02);
+}
+
+.appearance-preview-light {
+  background: #f7f7f5;
+}
+
+.appearance-preview-dark {
+  background: #17181b;
+  border-color: #3a3b40;
+}
+
+.appearance-preview-auto {
+  display: flex;
+}
+
+.appearance-preview-auto i {
+  flex: 1;
+  height: 100%;
+}
+
+.appearance-preview-auto i:first-child {
+  background: #f7f7f5;
+}
+
+.appearance-preview-auto i:last-child {
+  background: #17181b;
+}
+
+.appearance-status {
+  min-height: 18px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: center;
+}
+
+html[data-color-scheme="dark"] .appearance-choice {
+  background: #1a1b1f;
+  border-color: #34353a;
+  color: #f5f5f3;
+}
+
+html[data-color-scheme="dark"] .appearance-choice.active {
+  border-color: #66676d;
+  background: #222327;
+  box-shadow: none;
+}
+
+html[data-color-scheme="dark"] .appearance-choice-copy small {
+  color: #999a9f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-color-scheme="dark"] *,
+  html[data-color-scheme="light"] * {
+    transition-duration: 0.01ms !important;
+  }
+}
