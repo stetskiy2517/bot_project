@@ -1,0 +1,95 @@
+name: oneoff-dasha-reminder-20260922
+
+on:
+  push:
+    branches:
+      - ops/dasha-reminder-20260922
+    paths:
+      - .github/workflows/oneoff-dasha-reminder.yml
+
+permissions:
+  contents: read
+
+jobs:
+  create-reminder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Create Dasha reminder
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          from core.db import get_google_account, get_user_timezone
+          from core.reminder_store import create_reminder, list_active_reminders
+
+          user_id = 2
+          expected_name = "Darya Potyazhenko"
+          text = "Я тебя люблю"
+
+          account = get_google_account(user_id) or {}
+          actual_name = str(account.get("name") or "").strip()
+          if actual_name != expected_name:
+              raise SystemExit(f"TARGET_USER_MISMATCH user_id={user_id} name={actual_name!r}")
+
+          timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+          zone = ZoneInfo(timezone_name)
+          remind_at = datetime(2026, 9, 22, 16, 55, tzinfo=zone)
+
+          exact = []
+          for item in list_active_reminders(user_id, limit=500):
+              if str(item.get("text") or "").strip() != text:
+                  continue
+              scheduled = datetime.fromisoformat(str(item.get("scheduled_at") or item.get("remind_at")).replace("Z", "+00:00"))
+              if scheduled.astimezone(zone) == remind_at:
+                  exact.append(item)
+
+          if exact:
+              item = exact[0]
+              print(
+                  f"REMINDER_ALREADY_EXISTS reminder_id={item['reminder_id']} "
+                  f"user_id={user_id} timezone={timezone_name} remind_at={remind_at.isoformat()}"
+              )
+              raise SystemExit(0)
+
+          reminder = create_reminder(user_id, text, remind_at)
+
+          verified = None
+          for item in list_active_reminders(user_id, limit=500):
+              if int(item.get("reminder_id") or 0) == int(reminder["reminder_id"]):
+                  verified = item
+                  break
+          if not verified:
+              raise SystemExit("REMINDER_CREATE_NOT_VERIFIED")
+
+          scheduled = datetime.fromisoformat(str(verified.get("scheduled_at") or verified.get("remind_at")).replace("Z", "+00:00"))
+          if scheduled.astimezone(zone) != remind_at or str(verified.get("text") or "").strip() != text:
+              raise SystemExit("REMINDER_VERIFY_MISMATCH")
+
+          print(
+              f"REMINDER_CREATED reminder_id={verified['reminder_id']} user_id={user_id} "
+              f"timezone={timezone_name} remind_at={remind_at.isoformat()} text={text!r}"
+          )
+          PY
+          REMOTE
