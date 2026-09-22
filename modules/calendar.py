@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 from core.command_store import prepare_calendar_create, complete_calendar_create
 from core.db import get_category_colors, get_google_token
+from modules import category_ai
 
 logger = logging.getLogger(__name__)
 CALENDAR_TIMEZONE = "Europe/Moscow"
@@ -577,6 +578,20 @@ def _detect_category(text: str, category_colors: dict[str, str | None] | None = 
     return "other", colors.get("other")
 
 
+def _resolve_category(
+    text: str,
+    category_colors: dict[str, str | None] | None = None,
+    *,
+    user_id: int | None = None,
+) -> tuple[str, str | None]:
+    category, color_id = _detect_category(text, category_colors)
+    if user_id is None or category not in {"other", "uncategorized"}:
+        return category, color_id
+
+    ai_choice = category_ai.classify_event_category(user_id, text)
+    return ai_choice if ai_choice is not None else (category, color_id)
+
+
 def _extract_title(text: str) -> str:
     title = NAMED_DATE_RE.sub(" ", NUMERIC_DATE_RE.sub(" ", text.strip()))
     title = RANGE_RE.sub(" ", title)
@@ -635,9 +650,16 @@ def _extract_title(text: str) -> str:
     return title[0].upper() + title[1:] if title else "Встреча"
 
 
-def _build_event(text: str, start: datetime, end: datetime | None = None, category_colors: dict[str, str | None] | None = None) -> dict:
+def _build_event(
+    text: str,
+    start: datetime,
+    end: datetime | None = None,
+    category_colors: dict[str, str | None] | None = None,
+    *,
+    user_id: int | None = None,
+) -> dict:
     end = end or start + _extract_duration(text)
-    category, color_id = _detect_category(text, category_colors)
+    category, color_id = _resolve_category(text, category_colors, user_id=user_id)
     event = {
         "summary": _extract_title(text),
         "description": f"AI Smart Planner category: {category}",
@@ -699,7 +721,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     start, end = timing
     user_id = update.effective_user.id
     try:
-        event = _build_event(text, start, end, get_category_colors(user_id))
+        event = _build_event(text, start, end, get_category_colors(user_id), user_id=user_id)
         _create_event(user_id, event)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
