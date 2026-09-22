@@ -1,0 +1,131 @@
+name: oneoff-add-dasha-event-20260922
+
+on:
+  push:
+    branches:
+      - ops/dasha-event-20260922
+    paths:
+      - .github/workflows/oneoff-dasha-event.yml
+
+permissions:
+  contents: read
+
+jobs:
+  add-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Validate SSH credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Create event through application calendar logic
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          from datetime import datetime, timedelta, time
+          from zoneinfo import ZoneInfo
+
+          from core.db import conn, db_lock, get_google_token, get_user_timezone
+          from modules.calendar_availability import create_event_in_slot
+          from modules.calendar_user import _list_events, _event_start
+
+          title = "Я тебя люблю"
+          terms = ("даша", "дарья", "dasha", "daria")
+
+          with db_lock:
+              rows = conn.execute(
+                  "SELECT u.user_id, COALESCE(ga.name,u.name,''), COALESCE(ga.email,'') "
+                  "FROM users u LEFT JOIN google_accounts ga ON ga.user_id=u.user_id"
+              ).fetchall()
+
+          candidates = []
+          for row in rows:
+              user_id = int(row[0])
+              name = str(row[1] or "").strip()
+              folded = name.casefold()
+              if any(term in folded for term in terms):
+                  candidates.append((user_id, name))
+
+          if len(candidates) != 1:
+              safe = ", ".join(f"{user_id}:{name}" for user_id, name in candidates) or "none"
+              raise SystemExit(f"DASHA_MATCH_COUNT={len(candidates)} candidates={safe}")
+
+          user_id, name = candidates[0]
+          if not get_google_token(user_id):
+              raise SystemExit(f"DASHA_CALENDAR_NOT_CONNECTED user_id={user_id} name={name}")
+
+          timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+          zone = ZoneInfo(timezone_name)
+          now = datetime.now(zone)
+          start = datetime.combine(now.date(), time(11, 0), tzinfo=zone)
+          end = start + timedelta(hours=1)
+
+          def exact_event_exists():
+              for event in _list_events(user_id, start - timedelta(minutes=1), end + timedelta(minutes=1)):
+                  if str(event.get("summary") or "").strip() != title:
+                      continue
+                  event_start, all_day = _event_start(event, timezone_name)
+                  if all_day or event_start is None:
+                      continue
+                  if event_start.astimezone(zone) == start:
+                      return event
+              return None
+
+          existing = exact_event_exists()
+          if existing:
+              print(
+                  f"EVENT_ALREADY_EXISTS user_id={user_id} name={name} "
+                  f"timezone={timezone_name} start={start.isoformat()} event_id={existing.get('id','')}"
+              )
+              raise SystemExit(0)
+
+          create_event_in_slot(
+              user_id,
+              timezone_name,
+              title,
+              start,
+              end,
+              allow_non_workday=True,
+          )
+
+          created = exact_event_exists()
+          if not created:
+              raise SystemExit("EVENT_CREATE_NOT_VERIFIED")
+
+          print(
+              f"EVENT_CREATED user_id={user_id} name={name} timezone={timezone_name} "
+              f"start={start.isoformat()} end={end.isoformat()} event_id={created.get('id','')}"
+          )
+          PY
+          REMOTE
