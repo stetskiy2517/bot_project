@@ -1,0 +1,50 @@
+name: check-theme-state-20260922
+
+on:
+  push:
+    branches:
+      - ops/check-theme-20260922
+    paths:
+      - .github/workflows/check-theme-state.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Check theme state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          from core.db import conn, db_lock, get_user_appearance_theme
+          with db_lock:
+              rows=conn.execute(
+                  "SELECT u.user_id, COALESCE(ga.name,u.name,''), u.appearance_theme "
+                  "FROM users u LEFT JOIN google_accounts ga ON ga.user_id=u.user_id "
+                  "ORDER BY u.user_id"
+              ).fetchall()
+          for user_id,name,raw in rows:
+              print(f"THEME user_id={user_id} name={name!r} raw={raw!r} resolved_setting={get_user_appearance_theme(user_id)!r}")
+          PY
+          REMOTE
