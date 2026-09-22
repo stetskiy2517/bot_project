@@ -1,0 +1,60 @@
+name: verify-live-ai-category
+
+on:
+  push:
+    branches:
+      - ops/dasha-event-20260922
+    paths:
+      - .github/workflows/verify-ai-category.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify live AI category fallback
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          from core.category_store import get_category_colors, get_user_categories
+          from core.feature_access import has_ai_access
+          from integrations.ai import is_ai_available
+          from modules.router import route_text
+          from modules.calendar import _detect_category, _resolve_category
+
+          user_id = 2
+          colors = get_category_colors(user_id)
+          print(f"AI_ACCESS={has_ai_access(user_id)}")
+          print(f"AI_AVAILABLE={is_ai_available()}")
+          print("CATEGORIES=" + repr([(x["key"], x["label"], x["color_id"]) for x in get_user_categories(user_id)]))
+
+          for text in ("помыть пол и протереть пыль", "вечер с Лёшей"):
+              deterministic = _detect_category(text, colors)
+              resolved = _resolve_category(text, colors, user_id=user_id)
+              print(f"RESULT text={text!r} deterministic={deterministic!r} resolved={resolved!r}")
+              if deterministic[0] in {"other", "uncategorized"} and resolved[0] in {"other", "uncategorized"}:
+                  raise SystemExit("AI_CATEGORY_FALLBACK_DID_NOT_RESOLVE")
+          PY
+          REMOTE
