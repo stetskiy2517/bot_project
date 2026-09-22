@@ -88,6 +88,9 @@ class MobileUiHelpersTests(unittest.TestCase):
         self.assertIn("if (item.all_day || !item.starts_at) return true", mobile)
         self.assertIn("item.ends_at || item.starts_at", mobile)
         self.assertNotIn("item.is_travel || !item.starts_at", mobile)
+        self.assertIn("googleEventColors", mobile)
+        self.assertIn('event.color_id', mobile)
+        self.assertNotIn('event.is_travel ? "travel" : "personal"', mobile)
 
 
 class MobileUiApiTests(unittest.TestCase):
