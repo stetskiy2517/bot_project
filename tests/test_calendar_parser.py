@@ -82,6 +82,7 @@ class CalendarParserTests(unittest.TestCase):
         self.assertEqual(_extract_title("создай встречу завтра в 10:30"), "Встречу")
         self.assertEqual(_extract_title("звонок 5 сентября в 12:15"), "Звонок")
         self.assertEqual(_extract_title("назначь невролога в пятницу в половине восьмого на час"), "Невролога")
+        self.assertEqual(_extract_title("А еще запланируй на ужин с Лешкой завтра в 20"), "Ужин с Лешкой")
 
 
 if __name__ == "__main__":
