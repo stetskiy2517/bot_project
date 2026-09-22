@@ -119,12 +119,26 @@
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
 
+  const googleEventColors = {
+    "1": "#7986cb",
+    "2": "#33b679",
+    "3": "#8e24aa",
+    "4": "#e67c73",
+    "5": "#f6c026",
+    "6": "#f5511d",
+    "7": "#039be5",
+    "8": "#616161",
+    "9": "#3f51b5",
+    "10": "#0b8043",
+    "11": "#d60000",
+  };
+
   function eventRow(event) {
     const time = event.all_day ? "Весь день" : formatDate(event.starts_at, {hour: "2-digit", minute: "2-digit"});
     const subtitle = [time, event.location].filter(Boolean).join(" · ");
-    const accent = event.is_travel ? "travel" : "personal";
+    const accentColor = googleEventColors[String(event.color_id || "")] || "#b8b8b4";
     return `<button class="mobile-row" type="button" data-event-id="${escapeHtml(event.id || "")}">
-      <span class="mobile-row-accent ${accent}"></span><span class="mobile-row-main"><span class="mobile-row-title">${escapeHtml(event.title)}</span><span class="mobile-row-subtitle">${escapeHtml(subtitle)}</span></span><span class="mobile-row-chevron">›</span>
+      <span class="mobile-row-accent" style="background:${accentColor}"></span><span class="mobile-row-main"><span class="mobile-row-title">${escapeHtml(event.title)}</span><span class="mobile-row-subtitle">${escapeHtml(subtitle)}</span></span><span class="mobile-row-chevron">›</span>
     </button>`;
   }
 
