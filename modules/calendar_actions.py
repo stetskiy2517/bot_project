@@ -516,7 +516,12 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     try:
         if template is None and is_all_day(text):
-            event = build_all_day_event(text, timezone, category_colors=get_category_colors(user_id))
+            event = build_all_day_event(
+                text,
+                timezone,
+                category_colors=get_category_colors(user_id),
+                user_id=user_id,
+            )
             if not event:
                 return False
             _create_event(user_id, event)
@@ -544,7 +549,10 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             if colors.get(template["category"]):
                 event["colorId"] = colors[template["category"]]
         else:
-            event = apply_event_features(_build_event(text, start, end, colors), text)
+            event = apply_event_features(
+                _build_event(text, start, end, colors, user_id=user_id),
+                text,
+            )
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         conflicts = _find_conflicts(user_id, start, end)
