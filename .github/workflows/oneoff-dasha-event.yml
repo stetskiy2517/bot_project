@@ -1,4 +1,4 @@
-name: diagnose-dasha-categories
+name: diagnose-dasha-app-events
 
 on:
   push:
@@ -30,53 +30,42 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Diagnose categories and recent events
+      - name: Inspect Smart Planner events
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh \
-            -i ~/.ssh/deploy_key \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=10 \
-            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
           set -Eeuo pipefail
           cd "$HOME/bot_project"
           .venv/bin/python - <<'PY'
           from datetime import datetime, timedelta
           from zoneinfo import ZoneInfo
-
-          from core.category_store import get_user_categories
           from core.db import get_user_timezone
+          from modules.calendar import _detect_category
+          from core.category_store import get_category_colors
           from modules.calendar_user import _list_events
 
           user_id = 2
           timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
           zone = ZoneInfo(timezone_name)
           now = datetime.now(zone)
-
-          print(f"TIMEZONE={timezone_name}")
-          for item in get_user_categories(user_id):
-              print(
-                  "CATEGORY "
-                  f"key={item['key']} label={item['label']!r} "
-                  f"color_id={item['color_id']!r} semantic={item.get('semantic_key')!r}"
-              )
-
-          events = _list_events(user_id, now - timedelta(days=14), now + timedelta(days=14))
-          print(f"EVENT_COUNT={len(events)}")
-          for event in events[:80]:
+          colors = get_category_colors(user_id)
+          events = _list_events(user_id, now - timedelta(days=30), now + timedelta(days=30))
+          smart = []
+          for event in events:
               description = str(event.get("description") or "")
-              category = ""
-              marker = "AI Smart Planner category:"
-              if marker in description:
-                  category = description.split(marker,1)[1].splitlines()[0].strip()
+              if "AI Smart Planner category:" not in description:
+                  continue
+              category = description.split("AI Smart Planner category:",1)[1].splitlines()[0].strip()
               summary = " ".join(str(event.get("summary") or "").split())
+              predicted = _detect_category(summary, colors)
               start_value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or ""
+              smart.append((start_value, summary, category, event.get("colorId"), predicted))
+          print(f"SMART_EVENT_COUNT={len(smart)}")
+          for start_value, summary, category, color_id, predicted in smart[-60:]:
               print(
-                  f"EVENT start={start_value} color_id={event.get('colorId')!r} "
-                  f"category={category!r} summary={summary!r}"
+                  f"SMART start={start_value} category={category!r} color_id={color_id!r} "
+                  f"predicted={predicted!r} summary={summary!r}"
               )
           PY
           REMOTE
