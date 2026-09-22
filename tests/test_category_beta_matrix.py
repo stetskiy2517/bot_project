@@ -49,6 +49,21 @@ class CategoryBetaMatrixTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(_detect_category(text)[0], expected)
 
+    def test_everyday_personal_phrases_do_not_fall_into_other(self):
+        cases = [
+            "ужин с Лешкой",
+            "уборка квартиры",
+            "постирать вещи",
+            "приготовить ужин",
+            "я тебя люблю",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(_detect_category(text)[0], "personal")
+
+    def test_common_work_phrase_is_detected(self):
+        self.assertEqual(_detect_category("сделать текст рассылки")[0], "work")
+
     def test_family_uses_user_color_override(self):
         colors = dict(DEFAULT_CATEGORY_COLORS)
         colors["family"] = "11"
