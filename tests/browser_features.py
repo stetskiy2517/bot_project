@@ -132,6 +132,14 @@ def main():
     def settings(page, summary):
         page.locator("#accountBtn").click()
         target = page.locator("#assistantSettings summary", has_text=summary).first
+        page.wait_for_function(
+            """summary => {
+                const targets = [...document.querySelectorAll('#assistantSettings summary')];
+                const target = targets.find(item => (item.textContent || '').includes(summary));
+                return Boolean(target?.closest('[data-settings-theme]')?.dataset.settingsTheme);
+            }""",
+            arg=summary,
+        )
         theme = target.evaluate("el => el.closest('[data-settings-theme]')?.dataset.settingsTheme || ''")
         assert theme, f"No settings theme found for {summary}"
         page.locator(f'[data-settings-open="{theme}"]').click()
@@ -181,6 +189,18 @@ def main():
         page.locator("#accountBtn").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
         expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
+        expect(page.locator("#settingsThemes .settings-theme-link-note")).to_have_count(0)
+        expect(page.locator('[data-settings-open="appearance"]')).to_have_count(1)
+        expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()
+        page.wait_for_function("""() => {
+            const group = document.getElementById("notificationsGroup");
+            return Boolean(group && group.closest('[data-settings-theme="notifications"]'));
+        }""")
+        expect(page.locator("#notificationsGroup")).to_have_count(1)
+        expect(page.locator("#notificationsGroup .settings-group-title")).to_have_text("На устройстве")
+        expect(page.locator("#settingsTheme-notifications #pushNotificationSettings")).to_have_count(1)
+        expect(page.locator("#settingsPanel .section-title", has_text="Уведомления")).to_have_count(0)
+        expect(page.locator("#appearanceThemeControl")).to_have_count(1)
         expect(page.locator("#settingsTheme-planning")).to_be_hidden()
         page.locator('[data-settings-open="planning"]').click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Планирование")

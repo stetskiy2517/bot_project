@@ -188,9 +188,18 @@
     const actions = document.querySelector("#settingsPanel .sheet-actions");
     if (!actions) return;
 
-    const title = document.createElement("div");
-    title.className = "section-title";
-    title.textContent = "Уведомления";
+    const group = document.createElement("details");
+    group.id = "notificationsGroup";
+    group.className = "settings-group";
+
+    const summary = document.createElement("summary");
+    summary.innerHTML = `
+      <span class="settings-group-title">На устройстве</span>
+      <span id="notificationsMeta" class="settings-group-meta"></span>
+      <svg class="settings-group-chevron" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m6 9 6 6 6-6"></path>
+      </svg>`;
+    group.appendChild(summary);
 
     const grid = document.createElement("div");
     grid.id = "pushNotificationSettings";
@@ -281,8 +290,8 @@
 
     field.append(status, button, testButton);
     grid.appendChild(field);
-    actions.parentNode.insertBefore(title, actions);
-    actions.parentNode.insertBefore(grid, actions);
+    group.appendChild(grid);
+    actions.parentNode.insertBefore(group, actions);
     updatePushUi();
   }
 

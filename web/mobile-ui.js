@@ -388,31 +388,6 @@
     openLibrarySection("tasks");
   }
 
-  function installSettingsShortcuts() {
-    const root = document.getElementById("settingsThemes");
-    if (!root) return;
-
-    root.querySelector('[data-settings-utility="saved"]')?.remove();
-
-    const shortcuts = [
-      ["route", "Маршрут", "К следующей встрече"],
-    ];
-    for (const [name, title, note] of shortcuts) {
-      if (root.querySelector(`[data-settings-utility="${name}"]`)) continue;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "settings-theme-link";
-      button.dataset.settingsUtility = name;
-      button.innerHTML = `
-        <span class="settings-theme-link-main">
-          <span class="settings-theme-link-title">${title}</span>
-          <span class="settings-theme-link-note">${note}</span>
-        </span>
-        <svg class="settings-theme-link-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>`;
-      root.appendChild(button);
-    }
-  }
-
   nav.addEventListener("click", event => {
     const button = event.target.closest(".mobile-nav-button");
     if (!button) return;
@@ -439,21 +414,6 @@
       return loadToday(true);
     }
   });
-
-  settingsPanel?.addEventListener("click", event => {
-    const shortcut = event.target.closest("[data-settings-utility]");
-    if (!shortcut) return;
-    const name = shortcut.dataset.settingsUtility;
-    if (name === "route") {
-      closeSettingsForNavigation();
-      return requestAnimationFrame(() => openRoute());
-    }
-  });
-
-  const settingsShortcutObserver = new MutationObserver(installSettingsShortcuts);
-  if (settingsPanel) settingsShortcutObserver.observe(settingsPanel, {childList: true, subtree: true});
-  document.addEventListener("planner-settings-changed", installSettingsShortcuts);
-  document.getElementById("accountBtn")?.addEventListener("click", () => requestAnimationFrame(installSettingsShortcuts));
 
   document.getElementById("mobileTodayAdd").addEventListener("click", quickAdd);
   sheetBackdrop.addEventListener("click", event => {

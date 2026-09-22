@@ -1,0 +1,73 @@
+from pathlib import Path
+import unittest
+import uuid
+
+from core.db import get_or_create_google_user, get_user_appearance_theme
+from tests.web_test_support import web_test_app
+
+
+class AppearanceThemeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = web_test_app()
+
+    def setUp(self):
+        token = uuid.uuid4().hex
+        self.user_id = get_or_create_google_user(
+            f"appearance-{token}",
+            f"appearance-{token}@example.test",
+            "Appearance Test",
+        )
+        self.client = self.app.test_client()
+        with self.client.session_transaction() as stored:
+            stored["user_id"] = self.user_id
+
+    def test_default_theme_is_auto(self):
+        self.assertEqual(get_user_appearance_theme(self.user_id), "auto")
+        response = self.client.get("/api/status")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["appearance_theme"], "auto")
+
+    def test_theme_can_be_saved(self):
+        for theme in ("dark", "light", "auto"):
+            response = self.client.post("/api/settings", json={"appearance_theme": theme})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["appearance_theme"], theme)
+            self.assertEqual(get_user_appearance_theme(self.user_id), theme)
+
+    def test_invalid_theme_is_rejected_without_mutating_setting(self):
+        self.client.post("/api/settings", json={"appearance_theme": "dark"})
+        response = self.client.post("/api/settings", json={"appearance_theme": "sepia"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "invalid_settings")
+        self.assertEqual(get_user_appearance_theme(self.user_id), "dark")
+
+    def test_appearance_assets_and_early_theme_bootstrap_are_present(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('personal-secretary:appearance-theme', html)
+        self.assertIn('prefers-color-scheme: dark', html)
+        self.assertIn('/appearance.css', html)
+        self.assertIn('/appearance.js', html)
+
+        settings = self.client.get("/settings-themes.js").get_data(as_text=True)
+        self.assertIn('key: "appearance"', settings)
+        self.assertIn('title: "Оформление"', settings)
+
+        script = self.client.get("/appearance.js")
+        self.assertEqual(script.status_code, 200)
+        source = script.get_data(as_text=True)
+        self.assertIn('data-appearance-choice="auto"', source)
+        self.assertIn('data-appearance-choice="light"', source)
+        self.assertIn('data-appearance-choice="dark"', source)
+        self.assertNotIn("Как на устройстве", source)
+        self.assertNotIn("Всегда светлая", source)
+        self.assertNotIn("Всегда тёмная", source)
+        self.assertNotIn("В режиме «Авто»", source)
+        self.assertNotIn("settings-theme-link-note", settings)
+        self.assertIn('media.addEventListener?.("change"', source)
+
+
+if __name__ == "__main__":
+    unittest.main()
