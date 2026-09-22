@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v21-theme-stability";
+const CACHE = "personal-secretary-v20-settings-cleanup";
 const STATIC = [
   "/",
   "/manifest.webmanifest",

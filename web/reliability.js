@@ -106,10 +106,10 @@
     }
     #settingsPanel .settings-group.assistant-section {
       padding: 0 !important;
-      border: 1px solid var(--settings-line, #ececea) !important;
+      border: 1px solid #ececea !important;
       border-radius: 16px !important;
       overflow: hidden !important;
-      background: var(--settings-surface, #fff) !important;
+      background: #fff !important;
     }
     #settingsPanel .settings-group.assistant-section > summary {
       min-height: 48px !important;
@@ -122,7 +122,7 @@
       font-weight: 400 !important;
     }
     #settingsPanel .settings-group.assistant-section[open] > summary {
-      border-bottom: 1px solid var(--settings-line, #ececea) !important;
+      border-bottom: 1px solid #ececea !important;
     }
     #settingsPanel .settings-group.assistant-section .field {
       margin: 0 !important;
@@ -149,41 +149,11 @@
       min-width: 0;
     }
     #settingsPanel .settings-group-meta {
-      max-width: 42%;
-      min-width: 0;
+      max-width: 46%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       text-align: right;
-    }
-    #settingsPanel .settings-group,
-    #settingsPanel .settings-group > summary,
-    #settingsPanel .settings-group .grid,
-    #settingsPanel .settings-group .field,
-    #settingsPanel .settings-theme-body,
-    #settingsPanel .settings-theme-body > * {
-      min-width: 0;
-      max-width: 100%;
-    }
-    #settingsPanel .settings-group-title {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    #settingsPanel .field,
-    #settingsPanel .settings-help,
-    #settingsPanel .assistant-section,
-    #settingsPanel .assistant-section label {
-      overflow-wrap: anywhere;
-      word-break: normal;
-    }
-    #settingsPanel input,
-    #settingsPanel select,
-    #settingsPanel textarea,
-    #settingsPanel .row > * {
-      min-width: 0;
-      max-width: 100%;
     }
   `;
   document.head.appendChild(style);

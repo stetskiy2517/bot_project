@@ -188,7 +188,7 @@ def main():
         loaded(page)
         page.locator("#accountBtn").click()
         expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
-        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
+        expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(7)
         expect(page.locator("#settingsThemes .settings-theme-link-note")).to_have_count(0)
         expect(page.locator('[data-settings-open="appearance"]')).to_have_count(1)
         expect(page.locator('[data-settings-open="appearance"]')).to_be_visible()

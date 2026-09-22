@@ -107,33 +107,7 @@ def main() -> int:
             ) == "rgb(48, 54, 64)"
             page.locator("#appearanceDarkFixture").evaluate("el => el.remove()")
 
-            page.wait_for_selector("#mobileBottomNav:not([hidden])")
-            active_nav = page.locator('#mobileBottomNav .mobile-nav-button.active').first
-            assert active_nav.evaluate("el => getComputedStyle(el).color") == "rgb(255, 255, 255)"
-            assert active_nav.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(42, 48, 56)"
-
             page.locator("#accountBtn").click()
-            page.wait_for_selector("#settingsThemes .settings-theme-link:not([hidden])")
-            assert page.locator("#settingsThemes .settings-theme-link[data-settings-utility]").count() == 0
-            menu_surfaces = page.locator("#settingsThemes .settings-theme-link:not([hidden])").evaluate_all(
-                "els => els.map(el => getComputedStyle(el).backgroundColor)"
-            )
-            assert menu_surfaces and set(menu_surfaces) == {"rgb(29, 33, 39)"}
-
-            page.locator('[data-settings-open="planning"]').click()
-            page.wait_for_selector('#settingsTheme-planning:not([hidden]) .settings-group')
-            planning_group = page.locator('#settingsTheme-planning .settings-group').first
-            assert planning_group.evaluate("el => getComputedStyle(el).backgroundColor") == "rgb(29, 33, 39)"
-            fits = planning_group.evaluate(
-                """el => {
-                    const box = el.getBoundingClientRect();
-                    const parent = el.parentElement.getBoundingClientRect();
-                    return box.left >= parent.left - 1 && box.right <= parent.right + 1;
-                }"""
-            )
-            assert fits
-            page.locator("#settingsThemeBack").click()
-
             page.wait_for_selector('[data-settings-open="appearance"]:not([hidden])')
             page.locator('[data-settings-open="appearance"]').click()
             page.wait_for_selector('#settingsTheme-appearance:not([hidden])')
