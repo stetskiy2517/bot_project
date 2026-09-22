@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  discover-user:
+  add-event:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -30,7 +30,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: List application user display names
+      - name: Add event through application calendar logic
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -44,24 +44,63 @@ jobs:
           set -Eeuo pipefail
           cd "$HOME/bot_project"
           .venv/bin/python - <<'PY'
-          from core.db import conn, db_lock, get_google_token
+          from datetime import datetime, timedelta, time
+          from zoneinfo import ZoneInfo
 
-          with db_lock:
-              rows = conn.execute(
-                  "SELECT u.user_id, COALESCE(ia.name,ga.name,u.name,''), "
-                  "COALESCE(ia.provider,'legacy') "
-                  "FROM users u "
-                  "LEFT JOIN identity_accounts ia ON ia.user_id=u.user_id "
-                  "LEFT JOIN google_accounts ga ON ga.user_id=u.user_id "
-                  "ORDER BY u.user_id"
-              ).fetchall()
+          from core.db import get_google_account, get_google_token, get_user_timezone
+          from modules.calendar_availability import create_event_in_slot
+          from modules.calendar_user import _list_events, _event_start
 
-          print(f"USER_COUNT={len(rows)}")
-          for user_id, name, provider in rows:
-              clean_name = " ".join(str(name or "").split())
+          user_id = 2
+          expected_name = "Darya Potyazhenko"
+          title = "Я тебя люблю"
+
+          account = get_google_account(user_id) or {}
+          actual_name = str(account.get("name") or "").strip()
+          if actual_name != expected_name:
+              raise SystemExit(f"TARGET_USER_MISMATCH user_id={user_id} name={actual_name!r}")
+          if not get_google_token(user_id):
+              raise SystemExit("TARGET_CALENDAR_NOT_CONNECTED")
+
+          timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+          zone = ZoneInfo(timezone_name)
+          start = datetime.combine(datetime.now(zone).date(), time(11, 0), tzinfo=zone)
+          end = start + timedelta(hours=1)
+
+          def exact_event_exists():
+              events = _list_events(user_id, start - timedelta(minutes=1), end + timedelta(minutes=1))
+              for event in events:
+                  if str(event.get("summary") or "").strip() != title:
+                      continue
+                  event_start, all_day = _event_start(event, timezone_name)
+                  if not all_day and event_start and event_start.astimezone(zone) == start:
+                      return event
+              return None
+
+          existing = exact_event_exists()
+          if existing:
               print(
-                  f"USER user_id={int(user_id)} provider={provider} "
-                  f"name={clean_name!r} calendar_connected={bool(get_google_token(int(user_id)))}"
+                  f"EVENT_ALREADY_EXISTS user_id={user_id} timezone={timezone_name} "
+                  f"start={start.isoformat()} end={end.isoformat()} event_id={existing.get('id','')}"
               )
+              raise SystemExit(0)
+
+          create_event_in_slot(
+              user_id,
+              timezone_name,
+              title,
+              start,
+              end,
+              allow_non_workday=True,
+          )
+
+          created = exact_event_exists()
+          if not created:
+              raise SystemExit("EVENT_CREATE_NOT_VERIFIED")
+
+          print(
+              f"EVENT_CREATED user_id={user_id} timezone={timezone_name} "
+              f"start={start.isoformat()} end={end.isoformat()} event_id={created.get('id','')}"
+          )
           PY
           REMOTE
