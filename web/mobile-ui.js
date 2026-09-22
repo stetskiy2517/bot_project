@@ -465,6 +465,5 @@
       if (document.getElementById("accountName")?.textContent !== "Пользователь") nav.hidden = false;
     }, 700);
   }
-  installSettingsShortcuts();
   setView("home");
 })();
