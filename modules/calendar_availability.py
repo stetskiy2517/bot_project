@@ -361,7 +361,13 @@ def create_event_in_slot(
     events = _list_events(user_id, start - buffer, end + buffer)
     if _overlaps(start, end, _busy_intervals(events, timezone, buffer=buffer)):
         raise ValueError("Выбранное окно уже занято. Запроси новые варианты.")
-    event = _build_event(title, start, end, get_category_colors(user_id))
+    event = _build_event(
+        title,
+        start,
+        end,
+        get_category_colors(user_id),
+        user_id=user_id,
+    )
     event["summary"] = title.strip()[:200]
     event["start"]["timeZone"] = timezone
     event["end"]["timeZone"] = timezone
