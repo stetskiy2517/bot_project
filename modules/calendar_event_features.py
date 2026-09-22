@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import dateparser
 
-from modules.calendar import MONTHS_PATTERN, _date_from_text, _detect_category, _extract_time, _extract_title
+from modules.calendar import MONTHS_PATTERN, _date_from_text, _extract_time, _extract_title, _resolve_category
 from modules.calendar_user import _user_zone
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
@@ -70,7 +70,14 @@ def is_all_day(text: str) -> bool:
     return False
 
 
-def build_all_day_event(text: str, timezone: str, now: datetime | None = None, category_colors: dict[str, str | None] | None = None) -> dict | None:
+def build_all_day_event(
+    text: str,
+    timezone: str,
+    now: datetime | None = None,
+    category_colors: dict[str, str | None] | None = None,
+    *,
+    user_id: int | None = None,
+) -> dict | None:
     zone = _user_zone(timezone)
     local_now = now.astimezone(zone) if now and now.tzinfo else (now.replace(tzinfo=zone) if now else datetime.now(zone))
     naive_now = local_now.replace(tzinfo=None)
@@ -115,7 +122,7 @@ def build_all_day_event(text: str, timezone: str, now: datetime | None = None, c
 
     if not start_date or not end_date:
         return None
-    category, color_id = _detect_category(text, category_colors)
+    category, color_id = _resolve_category(text, category_colors, user_id=user_id)
     event = {
         "summary": _clean_title(text),
         "description": f"AI Smart Planner category: {category}",
