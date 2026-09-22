@@ -1,0 +1,82 @@
+name: diagnose-dasha-categories
+
+on:
+  push:
+    branches:
+      - ops/dasha-event-20260922
+    paths:
+      - .github/workflows/oneoff-dasha-event.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Diagnose categories and recent events
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
+            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+
+          from core.category_store import get_user_categories
+          from core.db import get_user_timezone
+          from modules.calendar_user import _list_events
+
+          user_id = 2
+          timezone_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+          zone = ZoneInfo(timezone_name)
+          now = datetime.now(zone)
+
+          print(f"TIMEZONE={timezone_name}")
+          for item in get_user_categories(user_id):
+              print(
+                  "CATEGORY "
+                  f"key={item['key']} label={item['label']!r} "
+                  f"color_id={item['color_id']!r} semantic={item.get('semantic_key')!r}"
+              )
+
+          events = _list_events(user_id, now - timedelta(days=14), now + timedelta(days=14))
+          print(f"EVENT_COUNT={len(events)}")
+          for event in events[:80]:
+              description = str(event.get("description") or "")
+              category = ""
+              marker = "AI Smart Planner category:"
+              if marker in description:
+                  category = description.split(marker,1)[1].splitlines()[0].strip()
+              summary = " ".join(str(event.get("summary") or "").split())
+              start_value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or ""
+              print(
+                  f"EVENT start={start_value} color_id={event.get('colorId')!r} "
+                  f"category={category!r} summary={summary!r}"
+              )
+          PY
+          REMOTE
