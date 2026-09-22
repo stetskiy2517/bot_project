@@ -329,7 +329,13 @@ async def create_from_text(
 
     start, end = timing
     try:
-        event = _build_event(text, start, end, get_category_colors(user_id))
+        event = _build_event(
+            text,
+            start,
+            end,
+            get_category_colors(user_id),
+            user_id=user_id,
+        )
         event["start"]["timeZone"] = timezone
         event["end"]["timeZone"] = timezone
         _create_event(user_id, event)
