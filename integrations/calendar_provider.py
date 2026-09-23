@@ -9,10 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-
 from core.db import get_google_token
+from integrations.google_calendar_service import build_google_calendar_service
 
 
 class CalendarProvider(Protocol):
@@ -30,11 +28,7 @@ class GoogleCalendarProvider:
     name: str = "google"
 
     def _service(self):
-        token = get_google_token(self.user_id)
-        if not token:
-            raise PermissionError("GOOGLE_AUTH_REQUIRED")
-        credentials = Credentials.from_authorized_user_info(token)
-        return build("calendar", "v3", credentials=credentials, cache_discovery=False)
+        return build_google_calendar_service(self.user_id)
 
     def create_event(self, event: dict) -> dict:
         return self._service().events().insert(calendarId="primary", body=event).execute()
