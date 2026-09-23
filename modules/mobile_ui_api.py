@@ -89,7 +89,6 @@ def inject_mobile_ui(response):
         '<link rel="stylesheet" href="/mobile-ui.css" />',
         '<link rel="stylesheet" href="/mobile-ui-overlays.css" />',
         '<link rel="stylesheet" href="/attention-center.css" />',
-        '<link rel="stylesheet" href="/appearance.css" />',
     )
     scripts = (
         '<script src="/mobile-ui.js"></script>',
@@ -100,7 +99,6 @@ def inject_mobile_ui(response):
         '<script src="/attention-center.js"></script>',
         '<script src="/reminder-editor.js"></script>',
         '<script src="/settings-themes.js"></script>',
-        '<script src="/appearance.js"></script>',
         '<script src="/prebeta-polish.js"></script>',
         '<script src="/ux-polish.js"></script>',
     )
