@@ -1,0 +1,142 @@
+name: inspect-dasha-activity-20260923
+
+on:
+  push:
+    branches:
+      - ops/dasha-activity-20260923
+    paths:
+      - .github/workflows/inspect-dasha-activity.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Inspect Dasha activity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/bot_project"
+          .venv/bin/python - <<'PY'
+          import json
+          import time
+          from datetime import datetime, timedelta, timezone
+          from zoneinfo import ZoneInfo
+
+          from core.db import conn, db_lock, get_google_account, get_user_timezone
+          from modules.calendar_user import _list_events
+
+          user_id = 2
+          account = get_google_account(user_id) or {}
+          print(f"ACCOUNT user_id={user_id} name={account.get('name')!r}")
+          tz_name = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+          zone = ZoneInfo(tz_name)
+          now = datetime.now(zone)
+          print(f"NOW={now.isoformat()} TZ={tz_name}")
+
+          with db_lock:
+              print("--- COMMAND_REQUESTS ---")
+              rows = conn.execute(
+                  "SELECT request_id,phase,http_status,created_at,response_json "
+                  "FROM command_requests WHERE user_id=? AND created_at>? "
+                  "ORDER BY created_at DESC LIMIT 60",
+                  (user_id, time.time()-48*3600),
+              ).fetchall()
+              for request_id,phase,status,created,response in rows:
+                  created_iso = datetime.fromtimestamp(float(created), timezone.utc).astimezone(zone).isoformat()
+                  payload = ""
+                  if response:
+                      try:
+                          data=json.loads(response)
+                          payload=json.dumps(data, ensure_ascii=False)
+                      except Exception:
+                          payload=str(response)
+                  print(f"REQ at={created_iso} id={request_id} phase={phase} status={status} response={payload[:1200]!r}")
+
+              print("--- TASKS ---")
+              try:
+                  rows = conn.execute(
+                      "SELECT task_id,title,description,due_at,status,priority,category,created_at,updated_at "
+                      "FROM tasks WHERE user_id=? ORDER BY COALESCE(updated_at,created_at) DESC LIMIT 40",
+                      (user_id,),
+                  ).fetchall()
+                  for row in rows:
+                      print("TASK "+repr(row))
+              except Exception as exc:
+                  print(f"TASK_QUERY_ERROR={type(exc).__name__}:{exc}")
+
+              print("--- NOTES ---")
+              try:
+                  rows = conn.execute(
+                      "SELECT note_id,title,text,created_at,updated_at,deleted_at "
+                      "FROM notes WHERE user_id=? ORDER BY updated_at DESC LIMIT 30",
+                      (user_id,),
+                  ).fetchall()
+                  for row in rows:
+                      print("NOTE "+repr(row))
+              except Exception as exc:
+                  print(f"NOTE_QUERY_ERROR={type(exc).__name__}:{exc}")
+
+              print("--- REMINDERS ---")
+              try:
+                  rows = conn.execute(
+                      "SELECT reminder_id,text,remind_at,status,created_at,delivered_at,last_error,deleted_at "
+                      "FROM reminders WHERE user_id=? ORDER BY created_at DESC LIMIT 30",
+                      (user_id,),
+                  ).fetchall()
+                  for row in rows:
+                      print("REMINDER "+repr(row))
+              except Exception as exc:
+                  print(f"REMINDER_QUERY_ERROR={type(exc).__name__}:{exc}")
+
+              print("--- AI_MEMORY ---")
+              try:
+                  rows = conn.execute(
+                      "SELECT event_id,entity_type,entity_id,event_type,snapshot_json,created_at "
+                      "FROM ai_memory_events WHERE user_id=? ORDER BY event_id DESC LIMIT 40",
+                      (user_id,),
+                  ).fetchall()
+                  for row in rows:
+                      print("MEMORY "+repr(row))
+              except Exception as exc:
+                  print(f"MEMORY_QUERY_ERROR={type(exc).__name__}:{exc}")
+
+          print("--- CALENDAR ---")
+          try:
+              events = _list_events(user_id, now-timedelta(days=2), now+timedelta(days=10))
+              for event in events[:120]:
+                  desc = str(event.get("description") or "")
+                  if "AI Smart Planner" not in desc:
+                      continue
+                  start=(event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or ""
+                  print(
+                      f"EVENT start={start!r} title={str(event.get('summary') or '')!r} "
+                      f"color={event.get('colorId')!r} desc={desc[:260]!r}"
+                  )
+          except Exception as exc:
+              print(f"CALENDAR_QUERY_ERROR={type(exc).__name__}:{exc}")
+          PY
+
+          echo '--- SERVICE ERRORS USER2 / INPUT ---'
+          journalctl -u personal-secretary.service --since "2026-09-23 00:00:00" --no-pager 2>/dev/null             | grep -Ei 'user 2|user_id.?2|image|upload|chat|invalid_message|invalid_json|traceback|exception|error'             | tail -n 250 || true
+          REMOTE
