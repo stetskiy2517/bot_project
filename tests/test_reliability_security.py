@@ -187,7 +187,7 @@ class RequestSecurityTests(unittest.TestCase):
             calendar._create_event(self.user_id, event)
             return True
         key = request_id()
-        with patch.object(web_app, "route_text", side_effect=route), patch.object(calendar, "get_google_token", return_value={**{"token": "test"}}), patch.object(calendar.Credentials, "from_authorized_user_info"), patch.object(calendar, "build", return_value=service), patch("modules.navigation.safe_create_travel_for_event"):
+        with patch.object(web_app, "route_text", side_effect=route), patch.object(calendar, "build_google_calendar_service", return_value=service), patch("modules.navigation.safe_create_travel_for_event"):
             service.events().insert.reset_mock()
             service.events().get.reset_mock()
             first = self.client.post("/api/chat", json={"message": "meeting"}, headers=self.headers(key))
@@ -209,7 +209,7 @@ class RequestSecurityTests(unittest.TestCase):
             calendar._create_event(self.user_id, event)
             return True
         key = request_id()
-        with patch.object(web_app, "route_text", side_effect=route) as dispatch, patch.object(calendar, "get_google_token", return_value={"token": "test"}), patch.object(calendar.Credentials, "from_authorized_user_info"), patch.object(calendar, "build", return_value=service), patch("modules.calendar_user._get_calendar_service", return_value=service):
+        with patch.object(web_app, "route_text", side_effect=route) as dispatch, patch.object(calendar, "build_google_calendar_service", return_value=service), patch("modules.calendar_user._get_calendar_service", return_value=service):
             service.events().insert.reset_mock()
             first = self.client.post("/api/chat", json={"message": "meeting"}, headers=self.headers(key))
             self.assertEqual(first.status_code, 409)
