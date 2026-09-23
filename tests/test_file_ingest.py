@@ -232,6 +232,72 @@ class FileIngestTests(unittest.TestCase):
         self.assertEqual(event["start_timezone"], "Europe/Moscow")
         self.assertTrue(any("часовой пояс аккаунта" in warning for warning in event["warnings"]))
 
+    def test_task_list_item_without_time_is_still_actionable(self):
+        task = file_ingest._normalize_task(
+            {
+                "title": "Подготовить текст рассылки",
+                "description": "Согласовать финальную версию",
+                "due_local": None,
+                "priority": "high",
+                "category": "work",
+                "confidence": 0.94,
+            },
+            user_timezone="Europe/Moscow",
+            now=NOW,
+        )
+        self.assertIsNotNone(task)
+        self.assertTrue(task["ready"])
+        self.assertIsNone(task["due_at"])
+        self.assertEqual(task["priority"], "high")
+        self.assertEqual(task["category"], "work")
+
+    def test_screenshot_plan_returns_tasks_even_without_calendar_events(self):
+        answer = json.dumps({
+            "document_type": "task_list",
+            "summary": "План дел на день",
+            "events": [],
+            "tasks": [
+                {
+                    "title": "Позвонить Косте",
+                    "description": "",
+                    "due_local": None,
+                    "due_timezone": None,
+                    "priority": "normal",
+                    "category": "work",
+                    "estimate_minutes": None,
+                    "confidence": 0.96,
+                },
+                {
+                    "title": "Купить продукты",
+                    "description": "",
+                    "due_local": "2026-09-15T19:00",
+                    "due_timezone": "Europe/Moscow",
+                    "priority": "normal",
+                    "category": "personal",
+                    "estimate_minutes": 30,
+                    "confidence": 0.91,
+                },
+            ],
+            "warnings": [],
+        })
+        with patch("modules.file_ingest.upload_file_bytes", return_value="file-tasks"), \
+             patch("modules.file_ingest.complete_with_file", return_value=answer), \
+             patch("modules.file_ingest.delete_file"), \
+             patch("modules.file_ingest.resolve_location_timezone", return_value=None):
+            result = file_ingest.analyze_file_bytes(
+                b"screenshot",
+                filename="document.png",
+                mimetype="image/png",
+                user_timezone="Europe/Moscow",
+                now=NOW,
+            )
+
+        self.assertEqual(result["events"], [])
+        self.assertEqual(len(result["tasks"]), 2)
+        self.assertTrue(result["tasks"][0]["ready"])
+        self.assertEqual(result["tasks"][0]["title"], "Позвонить Косте")
+        self.assertEqual(result["tasks"][1]["due_at"], "2026-09-15T19:00:00+03:00")
+
     def test_provider_file_is_deleted_when_analysis_fails(self):
         with patch("modules.file_ingest.upload_file_bytes", return_value="file-2"), \
              patch("modules.file_ingest.complete_with_file", side_effect=RuntimeError("provider failed")), \
