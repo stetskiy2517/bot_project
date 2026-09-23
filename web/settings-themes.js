@@ -152,6 +152,13 @@
     if (group.parentElement !== planning) planning.prepend(group);
   }
 
+  function placeNotifications() {
+    const notifications = themeBody("notifications");
+    const grid = document.getElementById("pushNotificationSettings");
+    if (!notifications || !grid) return;
+    if (grid.parentElement !== notifications) notifications.prepend(grid);
+  }
+
   function placeActions() {
     const logout = document.getElementById("logout");
     const account = themeBody("account");
@@ -233,6 +240,7 @@
     }
 
     placeLegacyCalendar();
+    placeNotifications();
     placeActions();
     updateAvailability();
   }
