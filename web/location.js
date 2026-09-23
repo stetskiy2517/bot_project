@@ -11,6 +11,7 @@
   let lastLatitude = null;
   let lastLongitude = null;
   let lastAccuracy = null;
+  let sendInFlight = false;
   let permissionStatus = null;
   let permissionLoading = false;
   let promptBound = false;
@@ -27,7 +28,7 @@
   }
 
   function shouldSend(position) {
-    if (!navigationEnabled) return false;
+    if (!navigationEnabled || sendInFlight) return false;
     if (lastLatitude === null || lastLongitude === null) return true;
     const elapsed = Date.now() - lastSentAt;
     const moved = distanceMeters(
@@ -38,13 +39,17 @@
     );
     const accuracy = Number(position.coords.accuracy || 0);
     const accuracyImproved =
-      lastAccuracy !== null && accuracy > 0 && accuracy < Math.max(30, lastAccuracy * 0.6);
+      lastAccuracy !== null &&
+      lastAccuracy > 50 &&
+      accuracy > 0 &&
+      accuracy <= lastAccuracy * 0.7;
     return elapsed >= minRefreshMs || moved >= minMoveMeters || accuracyImproved;
   }
 
   async function sendPosition(position) {
     if (!navigationEnabled || !shouldSend(position)) return;
     const sentAt = Date.now();
+    sendInFlight = true;
     try {
       await window.PlannerRequests.request("/api/location", {
         method: "POST",
@@ -59,7 +64,10 @@
       lastLatitude = position.coords.latitude;
       lastLongitude = position.coords.longitude;
       lastAccuracy = Number(position.coords.accuracy || 0) || null;
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      sendInFlight = false;
+    }
   }
 
   function stopWatching() {
