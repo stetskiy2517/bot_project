@@ -76,6 +76,19 @@ async function enabledScenario(failFirstLocation) {
   });
   assert.equal(scenario.getPermissionQueries(), 1);
 
+  if (!failFirstLocation) {
+    scenario.getPositionCallback()({
+      coords: {latitude: 55.78, longitude: 37.63, accuracy: 14},
+    });
+    await flush();
+    await flush();
+    assert.equal(
+      scenario.calls.filter(call => call.path === '/api/location').length,
+      1,
+      'stable accurate positions must not upload every second',
+    );
+  }
+
   if (failFirstLocation) {
     scenario.getPositionCallback()(scenario.position);
     await flush();
