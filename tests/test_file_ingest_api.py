@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 from modules.file_ingest_api import MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, _file_type
@@ -38,6 +39,14 @@ class FileIngestAPITests(unittest.TestCase):
     def test_mime_extension_mismatch_is_rejected(self):
         with self.assertRaises(ValueError):
             _file_type(_Upload("ticket.pdf", "image/png"))
+
+
+    def test_file_ingest_ui_can_create_tasks_from_analysis(self):
+        source = Path("web/file-ingest.js").read_text(encoding="utf-8")
+        self.assertIn("result.tasks", source)
+        self.assertIn('"/api/tasks"', source)
+        self.assertIn("Добавить задачу", source)
+        self.assertIn("ищу задачи, даты и события", source)
 
 
 if __name__ == "__main__":
