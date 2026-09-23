@@ -60,6 +60,18 @@ def main() -> None:
                 "ready": True,
                 "warnings": [],
             }],
+            "tasks": [{
+                "title": "Подготовить текст рассылки",
+                "description": "Согласовать финальную версию",
+                "due_at": None,
+                "due_timezone": "Europe/Moscow",
+                "priority": "high",
+                "category": "work",
+                "estimate_minutes": None,
+                "confidence": 0.94,
+                "ready": True,
+                "warnings": [],
+            }],
         }
 
         with sync_playwright() as playwright:
@@ -86,6 +98,20 @@ def main() -> None:
                     status=200,
                     content_type="application/json",
                     body=json.dumps(proposal, ensure_ascii=False),
+                ),
+            )
+            page.route(
+                "**/api/tasks",
+                lambda route: route.fulfill(
+                    status=201,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "task": {
+                            "task_id": 77,
+                            "title": "Подготовить текст рассылки",
+                            "status": "open",
+                        },
+                    }, ensure_ascii=False),
                 ),
             )
             page.route(
@@ -158,10 +184,17 @@ def main() -> None:
                 "mimeType": "application/pdf",
                 "buffer": b"%PDF-1.4 test ticket",
             })
-            card = page.locator(".file-analysis-card")
-            expect(card).to_be_visible()
-            expect(card).to_contain_text("AY101")
-            add_button = card.locator("button")
+            task_card = page.locator(".file-analysis-card", has_text="Подготовить текст рассылки")
+            expect(task_card).to_be_visible()
+            task_button = task_card.locator("button")
+            expect(task_button).to_have_text("Добавить задачу")
+            expect(task_button).to_be_enabled()
+            task_button.click()
+            expect(task_button).to_have_text("Добавлено ✓")
+
+            event_card = page.locator(".file-analysis-card", has_text="AY101")
+            expect(event_card).to_be_visible()
+            add_button = event_card.locator("button")
             expect(add_button).to_have_text("Добавить в календарь")
             expect(add_button).to_be_enabled()
             add_button.click()
