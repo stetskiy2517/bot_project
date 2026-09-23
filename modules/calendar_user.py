@@ -7,12 +7,11 @@ import logging
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.db import get_category_colors, get_google_token, get_user_timezone
+from core.db import get_category_colors, get_user_timezone
+from integrations.google_calendar_service import build_google_calendar_service
 from modules.calendar import (
     NAMED_DATE_RE,
     NUMERIC_DATE_RE,
@@ -82,11 +81,7 @@ BEFORE_TIME_RE = re.compile(rf"\bдо\s+(?P<value>{CLOCK_FRAGMENT})\b", re.IGNOR
 
 
 def _get_calendar_service(user_id: int):
-    token_dict = get_google_token(user_id)
-    if not token_dict:
-        raise PermissionError("GOOGLE_AUTH_REQUIRED")
-    credentials = Credentials.from_authorized_user_info(token_dict)
-    return build("calendar", "v3", credentials=credentials, cache_discovery=False)
+    return build_google_calendar_service(user_id)
 
 
 def _user_zone(timezone: str) -> ZoneInfo:
