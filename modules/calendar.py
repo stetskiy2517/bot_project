@@ -5,13 +5,12 @@ import logging
 import re
 
 import dateparser
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.command_store import prepare_calendar_create, complete_calendar_create
-from core.db import get_category_colors, get_google_token
+from core.db import get_category_colors
+from integrations.google_calendar_service import build_google_calendar_service
 from modules import category_ai
 
 logger = logging.getLogger(__name__)
@@ -672,11 +671,7 @@ def _build_event(
 
 
 def _create_event(user_id: int, event: dict) -> dict:
-    token_dict = get_google_token(user_id)
-    if not token_dict:
-        raise PermissionError("GOOGLE_AUTH_REQUIRED")
-    credentials = Credentials.from_authorized_user_info(token_dict)
-    service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+    service = build_google_calendar_service(user_id)
     insert_kwargs = {"calendarId": "primary", "body": event}
     if event.get("attendees"):
         insert_kwargs["sendUpdates"] = "all"
