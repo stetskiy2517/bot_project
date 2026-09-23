@@ -241,20 +241,21 @@ def main() -> int:
 
                 settings_button.click()
                 page.wait_for_function(
-                    "document.getElementById('settingsPanel').classList.contains('open') && "
-                    "document.querySelector('[data-settings-utility=\"route\"]')",
+                    "document.getElementById('settingsPanel').classList.contains('open')",
                     timeout=5000,
                 )
                 if page.locator('[data-settings-utility="saved"]').count():
                     raise AssertionError("Notes shortcut must not be duplicated in Account")
-                if page.locator('[data-settings-utility="route"]').count() != 1:
-                    raise AssertionError("Route shortcut must remain in Account")
+                if page.locator('[data-settings-utility="route"]').count():
+                    raise AssertionError("Legacy route shortcut must not be shown in Account")
+                if page.locator('[data-settings-open="appearance"]').count():
+                    raise AssertionError("Appearance settings must not be shown")
                 page.locator("#closeSettings").click()
                 page.wait_for_function(
                     "!document.getElementById('settingsPanel').classList.contains('open')",
                     timeout=5000,
                 )
-                _checkpoint("tasks and notes tabs are distinct; Account has no notes shortcut")
+                _checkpoint("tasks and notes tabs are distinct; Account shortcuts are clean")
 
                 page.locator('#mobileBottomNav [data-view="chat"]').click()
                 page.wait_for_function(
