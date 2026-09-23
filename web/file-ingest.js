@@ -116,6 +116,87 @@
     ].filter(Boolean).join("\n");
   }
 
+  function taskMeta(task) {
+    const parts = [];
+    if (task.due_at) parts.push("Срок: " + formatMoment(task.due_at, task.due_timezone));
+    if (task.category && task.category !== "other") parts.push("Категория: " + task.category);
+    if (task.priority && task.priority !== "normal") parts.push("Приоритет: " + task.priority);
+    if (task.estimate_minutes) parts.push(`${task.estimate_minutes} мин`);
+    parts.push(`Уверенность: ${Math.round(Number(task.confidence || 0) * 100)}%`);
+    return parts.join("\n");
+  }
+
+  async function applyTask(task, button) {
+    if (!task.ready || button.disabled) return;
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = "Добавляю…";
+    try {
+      const result = await PlannerRequests.request("/api/tasks", {
+        method: "POST",
+        requestId: PlannerRequests.newId(),
+        body: JSON.stringify({
+          title: task.title,
+          description: task.description || "",
+          due_at: task.due_at || null,
+          priority: task.priority || "normal",
+          category: task.category || "other",
+          estimate_minutes: task.estimate_minutes || null,
+          flexible: true,
+        }),
+      });
+      button.textContent = "Добавлено ✓";
+      document.dispatchEvent(new CustomEvent("planner-library-changed", {detail: {type: "task", item: result.task}}));
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = oldText;
+      addMessage("Не удалось добавить задачу: " + (error.message || "ошибка"), "assistant");
+    }
+  }
+
+  function renderTask(task) {
+    const card = document.createElement("div");
+    card.className = "msg assistant file-analysis-card";
+
+    const title = document.createElement("div");
+    title.className = "file-analysis-title";
+    title.textContent = task.title || "Задача";
+    card.appendChild(title);
+
+    if (task.description) {
+      const description = document.createElement("div");
+      description.className = "file-analysis-meta";
+      description.textContent = task.description;
+      card.appendChild(description);
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "file-analysis-meta";
+    meta.textContent = taskMeta(task);
+    card.appendChild(meta);
+
+    const warnings = Array.isArray(task.warnings) ? task.warnings.filter(Boolean) : [];
+    if (warnings.length) {
+      const warning = document.createElement("div");
+      warning.className = "file-analysis-warning";
+      warning.textContent = warnings.join(" ");
+      card.appendChild(warning);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "file-analysis-actions";
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "action primary";
+    add.textContent = task.ready ? "Добавить задачу" : "Нужна ручная проверка";
+    add.disabled = !task.ready;
+    add.addEventListener("click", () => applyTask(task, add));
+    actions.appendChild(add);
+    card.appendChild(actions);
+
+    chat.appendChild(card);
+  }
+
   async function applyEvent(event, button) {
     if (!event.ready || button.disabled) return;
     button.disabled = true;
@@ -176,11 +257,16 @@
     if (result.summary) addMessage(result.summary, "assistant");
     const warnings = Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [];
     if (warnings.length) addMessage("Проверь: " + warnings.join(" "), "assistant");
+
+    const tasks = Array.isArray(result.tasks) ? result.tasks : [];
     const events = Array.isArray(result.events) ? result.events : [];
-    if (!events.length) {
-      addMessage("В файле не нашёл событий с датой и временем для календаря.", "assistant");
+
+    if (!tasks.length && !events.length) {
+      addMessage("В файле не нашёл задач или событий, которые можно добавить.", "assistant");
       return;
     }
+
+    tasks.forEach(renderTask);
     events.forEach(renderEvent);
     chat.scrollTop = chat.scrollHeight;
   }
@@ -196,7 +282,7 @@
     }
     openChat();
     addMessage(`📎 ${file.name}`, "user");
-    const loading = addMessage("Разбираю файл и ищу даты, время и события…", "assistant");
+    const loading = addMessage("Разбираю файл и ищу задачи, даты и события…", "assistant");
     attachButton.disabled = true;
     try {
       await PlannerRequests.status();
