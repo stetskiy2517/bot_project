@@ -82,18 +82,14 @@ class CalendarRegressionAuditTests(unittest.TestCase):
         self.assertEqual(slots[0][0].date().isoformat(), "2026-09-04")
         self.assertEqual(slots[0][0].hour, 9)
 
-    @patch("modules.calendar.build")
-    @patch("modules.calendar.Credentials.from_authorized_user_info")
-    @patch("modules.calendar.get_google_token")
-    def test_attendees_receive_google_update_notifications(self, get_token, from_info, build):
-        get_token.return_value = {"token": "x"}
-        from_info.return_value = MagicMock()
+    @patch("modules.calendar.build_google_calendar_service")
+    def test_attendees_receive_google_update_notifications(self, service_factory):
         execute = MagicMock(return_value={"id": "event-1"})
         insert = MagicMock()
         insert.return_value.execute = execute
         service = MagicMock()
         service.events.return_value.insert = insert
-        build.return_value = service
+        service_factory.return_value = service
 
         event = {
             "summary": "Встреча",
