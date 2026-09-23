@@ -25,12 +25,16 @@ def main() -> int:
     os.environ["BASE_URL"] = ""
 
     import web_app
-    from core.db import get_or_create_google_user, get_user_appearance_theme, save_user_timezone
+    from core.db import get_or_create_google_user, save_user_timezone
     from playwright.sync_api import sync_playwright, expect
     from werkzeug.serving import make_server
 
     app = web_app.create_web_app()
-    user_id = get_or_create_google_user("appearance-browser", "appearance-browser@example.test", "Appearance Browser")
+    user_id = get_or_create_google_user(
+        "appearance-browser",
+        "appearance-browser@example.test",
+        "Appearance Browser",
+    )
     save_user_timezone(user_id, "Europe/Moscow")
     cookie = app.session_interface.get_signing_serializer(app).dumps({
         "user_id": user_id,
@@ -63,89 +67,33 @@ def main() -> int:
             }])
             page = context.new_page()
             page.goto(base)
-            page.wait_for_function("window.PlannerAppearance && document.documentElement.dataset.appearance === 'auto'")
-            page.wait_for_function("document.documentElement.dataset.colorScheme === 'dark'")
-            assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(18, 20, 23)"
+            page.wait_for_selector("#accountBtn")
 
-            page.evaluate(
-                """() => {
-                    const fixture = document.createElement("section");
-                    fixture.id = "appearanceDarkFixture";
-                    fixture.innerHTML =
-                      '<div class="library-head">' +
-                      '<div class="library-tabs"><button class="library-tab active">Задачи</button></div>' +
-                      '</div>' +
-                      '<select class="planner-task-filter"><option>Все категории</option></select>' +
-                      '<div class="planner-task-card">' +
-                      '<div class="planner-task-title">Активная задача</div>' +
-                      '<div class="planner-task-meta">Прочее · Обычный · 23:00</div>' +
-                      '</div>' +
-                      '<div class="planner-task-card completed">' +
-                      '<div class="planner-task-title">Выполненная задача</div>' +
-                      '<div class="planner-task-meta">Прочее · Выполнено</div>' +
-                      '</div>';
-                    document.body.appendChild(fixture);
-                }"""
-            )
-            assert page.locator("#appearanceDarkFixture .planner-task-card").first.evaluate(
-                "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(29, 33, 39)"
-            assert page.locator("#appearanceDarkFixture .planner-task-title").first.evaluate(
-                "el => getComputedStyle(el).color"
-            ) == "rgb(247, 248, 250)"
-            assert page.locator("#appearanceDarkFixture .planner-task-meta").first.evaluate(
-                "el => getComputedStyle(el).color"
-            ) == "rgb(173, 181, 192)"
-            assert page.locator("#appearanceDarkFixture .planner-task-card.completed .planner-task-title").evaluate(
-                "el => getComputedStyle(el).color"
-            ) == "rgb(159, 167, 178)"
-            assert page.locator("#appearanceDarkFixture .planner-task-filter").evaluate(
-                "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(29, 33, 39)"
-            assert page.locator("#appearanceDarkFixture .library-tab.active").evaluate(
-                "el => getComputedStyle(el).backgroundColor"
-            ) == "rgb(48, 54, 64)"
-            page.locator("#appearanceDarkFixture").evaluate("el => el.remove()")
+            assert page.locator('meta[name="color-scheme"]').get_attribute("content") == "light"
+            assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "light"
+            assert page.evaluate("typeof window.PlannerAppearance") == "undefined"
+            assert "appearance.css" not in page.content()
+            assert "appearance.js" not in page.content()
 
             page.locator("#accountBtn").click()
-            page.wait_for_selector('[data-settings-open="appearance"]:not([hidden])')
-            page.locator('[data-settings-open="appearance"]').click()
-            page.wait_for_selector('#settingsTheme-appearance:not([hidden])')
-            expect(page.locator('[data-appearance-choice="auto"]')).to_have_attribute("aria-checked", "true")
+            expect(page.locator('[data-settings-open="appearance"]')).to_have_count(0)
+            expect(page.locator("#appearanceThemeControl")).to_have_count(0)
 
-            page.locator('[data-appearance-choice="light"]').click()
-            page.wait_for_function("document.documentElement.dataset.appearance === 'light'")
-            page.wait_for_function("document.documentElement.dataset.colorScheme === 'light'")
-            page.wait_for_function("localStorage.getItem('personal-secretary:appearance-theme') === 'light'")
-            deadline = time.time() + 3
-            while time.time() < deadline and get_user_appearance_theme(user_id) != "light":
-                time.sleep(0.05)
-            assert get_user_appearance_theme(user_id) == "light"
-
-            page.reload()
-            page.wait_for_function("window.PlannerAppearance && document.documentElement.dataset.appearance === 'light'")
-            assert page.evaluate("document.documentElement.dataset.colorScheme") == "light"
-
-            page.locator("#accountBtn").click()
-            page.wait_for_selector('[data-settings-open="appearance"]:not([hidden])')
-            page.locator('[data-settings-open="appearance"]').click()
-            page.locator('[data-appearance-choice="auto"]').click()
-            page.wait_for_function("document.documentElement.dataset.appearance === 'auto'")
-            page.wait_for_function("document.documentElement.dataset.colorScheme === 'dark'")
-
+            before = page.evaluate("getComputedStyle(document.body).backgroundColor")
             page.emulate_media(color_scheme="light")
-            page.wait_for_function("document.documentElement.dataset.colorScheme === 'light'")
-            deadline = time.time() + 3
-            while time.time() < deadline and get_user_appearance_theme(user_id) != "auto":
-                time.sleep(0.05)
-            assert get_user_appearance_theme(user_id) == "auto"
+            page.wait_for_timeout(100)
+            assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "light"
+            page.emulate_media(color_scheme="dark")
+            page.wait_for_timeout(100)
+            assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "light"
+            assert page.evaluate("getComputedStyle(document.body).backgroundColor") == before
 
             browser.close()
     finally:
         server.shutdown()
         temporary.cleanup()
 
-    print(f"appearance theme browser test: OK ({args.engine})")
+    print(f"stable light appearance browser test: OK ({args.engine})")
     return 0
 
 
