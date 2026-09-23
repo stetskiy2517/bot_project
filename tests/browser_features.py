@@ -192,11 +192,10 @@ def main():
         expect(page.locator("#settingsThemes .settings-theme-link-note")).to_have_count(0)
         expect(page.locator('[data-settings-open="appearance"]')).to_have_count(0)
         page.wait_for_function("""() => {
-            const group = document.getElementById("notificationsGroup");
-            return Boolean(group && group.closest('[data-settings-theme="notifications"]'));
+            const grid = document.getElementById("pushNotificationSettings");
+            return Boolean(grid && grid.closest('[data-settings-theme="notifications"]'));
         }""")
-        expect(page.locator("#notificationsGroup")).to_have_count(1)
-        expect(page.locator("#notificationsGroup .settings-group-title")).to_have_text("На устройстве")
+        expect(page.locator("#notificationsGroup")).to_have_count(0)
         expect(page.locator("#settingsTheme-notifications #pushNotificationSettings")).to_have_count(1)
         expect(page.locator("#settingsPanel .section-title", has_text="Уведомления")).to_have_count(0)
         expect(page.locator("#appearanceThemeControl")).to_have_count(0)
