@@ -10,7 +10,6 @@
   if (!panel || !sheet || !assistantRoot || !sheetHead || !sheetTitle) return;
 
   const themes = [
-    { key: "appearance", title: "Оформление" },
     { key: "planning", title: "Планирование" },
     { key: "notifications", title: "Уведомления" },
     { key: "assistant", title: "Ассистент" },
