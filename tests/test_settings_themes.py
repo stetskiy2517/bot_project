@@ -32,7 +32,8 @@ class SettingsThemeUiTests(unittest.TestCase):
         response.close()
 
         self.assertIn('["calendarSettingsGroup", "navigationGroup", "categoryColorsGroup"]', script)
-        self.assertIn('id === "notificationsGroup"', script)
+        self.assertIn('document.getElementById("pushNotificationSettings")', script)
+        self.assertNotIn('id === "notificationsGroup"', script)
         self.assertIn('id === "emailGroup"', script)
         self.assertIn('group.querySelector("#proactiveRemindersEnabled")', script)
         self.assertIn('group.querySelector("#assistantMemoryList")', script)
