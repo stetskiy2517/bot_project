@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v20-settings-cleanup";
+const CACHE = "personal-secretary-v21-stable-light";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
@@ -18,7 +18,6 @@ const STATIC = [
   "/mobile-ui.css",
   "/mobile-ui-overlays.css",
   "/attention-center.css",
-  "/appearance.css",
   "/mobile-ui.js",
   "/mobile-ui-fixes.js",
   "/swipe-navigation.js",
@@ -27,7 +26,6 @@ const STATIC = [
   "/attention-center.js",
   "/reminder-editor.js",
   "/settings-themes.js",
-  "/appearance.js",
   "/prebeta-polish.js",
   "/ux-polish.js",
 ];
