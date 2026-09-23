@@ -16,8 +16,8 @@ class SettingsUiGroupsTests(unittest.TestCase):
 
         self.assertIn('group.id = "calendarSettingsGroup"', script)
         self.assertIn('decorateSummary(group, "Календарь"', script)
-        self.assertIn('group.id = "notificationsGroup"', script)
-        self.assertIn('decorateSummary(group, "На устройстве"', script)
+        self.assertNotIn('group.id = "notificationsGroup"', script)
+        self.assertNotIn('decorateSummary(group, "На устройстве"', script)
         self.assertIn('"Обзоры и тихие часы", "Расписание"', script)
         self.assertIn('"Избранные команды", "Шаблоны"', script)
         self.assertIn('"Отмена и данные", "Данные аккаунта"', script)
