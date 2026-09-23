@@ -240,50 +240,6 @@
     calendarMeta();
   }
 
-  function pushMetaText(value) {
-    const text = String(value || "").toLowerCase();
-    if (text.includes("включены на этом устройстве")) return "Включены";
-    if (text.includes("запрещены")) return "Запрещены";
-    if (text.includes("не поддерживает")) return "Недоступно";
-    if (text.includes("подключить push")) return "Выключены";
-    if (text.includes("экран «домой»")) return "Нужна установка";
-    return "";
-  }
-
-  function wrapPush() {
-    const grid = document.getElementById("pushNotificationSettings");
-    if (!grid) return;
-
-    let group = document.getElementById("notificationsGroup");
-    if (!group) {
-      const heading = grid.previousElementSibling?.classList.contains("section-title")
-        ? grid.previousElementSibling
-        : null;
-      group = document.createElement("details");
-      group.id = "notificationsGroup";
-      group.className = "settings-group";
-      const summary = document.createElement("summary");
-      group.appendChild(summary);
-      const anchor = heading || grid;
-      anchor.parentNode.insertBefore(group, anchor);
-      group.appendChild(grid);
-      if (heading) heading.remove();
-    } else if (grid.parentElement !== group) {
-      group.appendChild(grid);
-    }
-
-    const meta = decorateSummary(group, "На устройстве", "", "notificationsMeta");
-    const status = document.getElementById("pushNotificationStatus");
-    const sync = () => {
-      if (meta) meta.textContent = pushMetaText(status?.textContent);
-    };
-    sync();
-    if (status && !status.dataset.settingsMetaObserved) {
-      status.dataset.settingsMetaObserved = "1";
-      new MutationObserver(sync).observe(status, {childList: true, characterData: true, subtree: true});
-    }
-  }
-
   function assistantGroupConfig(details) {
     if (details.querySelector("#assistantDeliveryFields")) {
       return ["Обзоры и тихие часы", "Расписание", "assistantDeliveryMeta"];
@@ -336,7 +292,6 @@
 
   function enhance() {
     wrapCalendar();
-    wrapPush();
     decorateAssistantGroups();
   }
 
