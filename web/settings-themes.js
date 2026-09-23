@@ -97,7 +97,7 @@
     if (["calendarSettingsGroup", "navigationGroup", "categoryColorsGroup"].includes(id)) {
       return "planning";
     }
-    if (id === "notificationsGroup" || group.querySelector("#assistantDeliveryFields")) {
+    if (group.querySelector("#assistantDeliveryFields")) {
       return "notifications";
     }
     if (id === "emailGroup") return "integrations";
