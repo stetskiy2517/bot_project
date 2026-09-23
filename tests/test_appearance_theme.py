@@ -42,31 +42,19 @@ class AppearanceThemeTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], "invalid_settings")
         self.assertEqual(get_user_appearance_theme(self.user_id), "dark")
 
-    def test_appearance_assets_and_early_theme_bootstrap_are_present(self):
+    def test_experimental_appearance_ui_is_not_loaded(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('personal-secretary:appearance-theme', html)
-        self.assertIn('prefers-color-scheme: dark', html)
-        self.assertIn('/appearance.css', html)
-        self.assertIn('/appearance.js', html)
+        self.assertIn('<meta name="color-scheme" content="light" />', html)
+        self.assertNotIn("personal-secretary:appearance-theme", html)
+        self.assertNotIn("prefers-color-scheme: dark", html)
+        self.assertNotIn('/appearance.css', html)
+        self.assertNotIn('/appearance.js', html)
 
         settings = self.client.get("/settings-themes.js").get_data(as_text=True)
-        self.assertIn('key: "appearance"', settings)
-        self.assertIn('title: "Оформление"', settings)
-
-        script = self.client.get("/appearance.js")
-        self.assertEqual(script.status_code, 200)
-        source = script.get_data(as_text=True)
-        self.assertIn('data-appearance-choice="auto"', source)
-        self.assertIn('data-appearance-choice="light"', source)
-        self.assertIn('data-appearance-choice="dark"', source)
-        self.assertNotIn("Как на устройстве", source)
-        self.assertNotIn("Всегда светлая", source)
-        self.assertNotIn("Всегда тёмная", source)
-        self.assertNotIn("В режиме «Авто»", source)
-        self.assertNotIn("settings-theme-link-note", settings)
-        self.assertIn('media.addEventListener?.("change"', source)
+        self.assertNotIn('key: "appearance"', settings)
+        self.assertNotIn('title: "Оформление"', settings)
 
 
 if __name__ == "__main__":
