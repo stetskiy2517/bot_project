@@ -50,6 +50,9 @@
     if (path === "/api/status" && response.ok) rememberStatus(data);
     if (!response.ok) {
       if (response.status === 401) csrf = "";
+      if (["google_auth_required", "calendar_not_connected"].includes(data.error)) {
+        document.dispatchEvent(new CustomEvent("planner-google-auth-required", {detail: data}));
+      }
       throw Object.assign(Error(data.message || data.error || "request_failed"), {status: response.status, data});
     }
     return data;
