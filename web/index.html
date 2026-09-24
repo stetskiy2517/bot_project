@@ -792,8 +792,8 @@
             <path d="M12 23.5a12 12 0 0 0 24 0M24 35.5V42M18.5 42h11" />
           </svg>
         </div>
-        <h1>Personal Secretary</h1>
-        <p class="muted">
+        <h1 id="loginTitle">Personal Secretary</h1>
+        <p id="loginText" class="muted">
           Войди через Google, чтобы подключить календарь и сохранить настройки.
         </p>
         <button id="googleLogin" class="google-btn">Войти через Google</button>
@@ -901,6 +901,9 @@
     <script>
       const app = document.getElementById("app"),
         login = document.getElementById("login"),
+        loginTitle = document.getElementById("loginTitle"),
+        loginText = document.getElementById("loginText"),
+        googleLoginBtn = document.getElementById("googleLogin"),
         chat = document.getElementById("chat"),
         messageInput = document.getElementById("message"),
         settingsPanel = document.getElementById("settingsPanel"),
@@ -1044,14 +1047,41 @@
         if (app.classList.contains("chat-active")) armChatIdleTimer();
       }
 
+      function showGoogleLogin(reconnect = false) {
+        loginTitle.textContent = reconnect ? "Подключи Google заново" : "Personal Secretary";
+        loginText.textContent = reconnect
+          ? "Доступ к Google Calendar истёк или был отозван. Авторизуй Google ещё раз, чтобы календарь снова работал."
+          : "Войди через Google, чтобы подключить календарь и сохранить настройки.";
+        googleLoginBtn.textContent = reconnect ? "Подключить Google заново" : "Войти через Google";
+        login.classList.add("open");
+        clearChatIdleTimer();
+      }
+
+      function applyGoogleConnectionState(status) {
+        if (status && status.google_connected === false) {
+          showGoogleLogin(true);
+          return false;
+        }
+        loginTitle.textContent = "Personal Secretary";
+        loginText.textContent = "Войди через Google, чтобы подключить календарь и сохранить настройки.";
+        googleLoginBtn.textContent = "Войти через Google";
+        login.classList.remove("open");
+        return true;
+      }
+
+      document.addEventListener("planner-google-auth-required", () => {
+        showGoogleLogin(true);
+      });
+
       async function api(path, options = {}) {
         try {
           return await PlannerRequests.request(path, options);
         } catch (error) {
           if (error.status === 401) {
-            login.classList.add("open");
-            clearChatIdleTimer();
+            showGoogleLogin(false);
             error.message = "unauthorized";
+          } else if (["google_auth_required", "calendar_not_connected"].includes(error.data?.error)) {
+            showGoogleLogin(true);
           }
           throw error;
         }
@@ -1343,8 +1373,8 @@
         try {
           let status = await api("/api/status");
           status = await syncDeviceTimezone(status);
-          login.classList.remove("open");
           loadSettings(status);
+          applyGoogleConnectionState(status);
           restoreDraft();
           document.dispatchEvent(new Event("planner-ready"));
           if (!status.timezone_set) {
@@ -1634,7 +1664,7 @@
         passive: true,
       });
 
-      document.getElementById("googleLogin").onclick = async () => {
+      googleLoginBtn.onclick = async () => {
         try {
           const response = await fetch("/api/google/login");
           const data = await response.json();
@@ -1679,6 +1709,7 @@
         try {
           const before = await api("/api/status");
           const after = await syncDeviceTimezone(before);
+          applyGoogleConnectionState(after);
           if (after.timezone !== before.timezone) {
             loadSettings(after);
             document.dispatchEvent(new CustomEvent("planner-timezone-changed", {
