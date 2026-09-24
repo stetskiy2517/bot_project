@@ -46,6 +46,7 @@ from core.reminder_store import complete_reminder, delete_saved_reminder, resche
 from core.web_security import csrf_token, install_web_security, mark_executing
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
+from integrations.google_calendar_service import GoogleAuthRequired
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
 from modules.navigation import estimate_route, navigation_configured, navigation_provider
@@ -256,6 +257,13 @@ def create_web_app() -> Flask:
     def prevent_content_sniffing(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         return response
+
+    @app.errorhandler(GoogleAuthRequired)
+    def google_auth_required(_error):
+        return jsonify(
+            error="google_auth_required",
+            message="Доступ к Google Calendar истёк или был отозван. Подключи Google заново.",
+        ), 409
 
     @app.errorhandler(413)
     def request_too_large(_error):
@@ -653,6 +661,11 @@ def create_web_app() -> Flask:
             result = asyncio.run(
                 process_web_message(text, user_id, account.get("name") or account["email"])
             )
+        except GoogleAuthRequired:
+            return jsonify(
+                error="google_auth_required",
+                message="Доступ к Google Calendar истёк или был отозван. Подключи Google заново.",
+            ), 409
         except Exception:
             logger.exception("Web command request failed for user %s", user_id)
             return jsonify({"error": "command_failed", "replies": ["Не удалось обработать сообщение."]}), 500
@@ -684,6 +697,11 @@ def create_web_app() -> Flask:
             result = asyncio.run(
                 process_web_message(text, user_id, account.get("name") or account["email"])
             )
+        except GoogleAuthRequired:
+            return jsonify(
+                error="google_auth_required",
+                message="Доступ к Google Calendar истёк или был отозван. Подключи Google заново.",
+            ), 409
         except Exception:
             logger.exception("Web voice processing failed for user %s", user_id)
             return jsonify({"error": "voice_failed", "message": "Не удалось обработать голосовое сообщение."}), 503
