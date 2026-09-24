@@ -298,6 +298,47 @@ class FileIngestTests(unittest.TestCase):
         self.assertEqual(result["tasks"][0]["title"], "Позвонить Косте")
         self.assertEqual(result["tasks"][1]["due_at"], "2026-09-15T19:00:00+03:00")
 
+    def test_empty_image_analysis_retries_and_preserves_visible_task_time(self):
+        first = json.dumps({
+            "document_type": "other",
+            "summary": "План дел на день.",
+            "events": [],
+            "tasks": [],
+            "warnings": [],
+        })
+        second = json.dumps({
+            "document_type": "task_list",
+            "summary": "План дел на день.",
+            "events": [],
+            "tasks": [{
+                "title": "Позвонить Косте",
+                "description": "",
+                "due_local": "2026-09-15T16:30",
+                "due_timezone": "Europe/Moscow",
+                "priority": "normal",
+                "category": "work",
+                "estimate_minutes": None,
+                "confidence": 0.97,
+            }],
+            "warnings": [],
+        })
+        with patch("modules.file_ingest.upload_file_bytes", return_value="file-retry"), \
+             patch("modules.file_ingest.complete_with_file", side_effect=[first, second]) as complete, \
+             patch("modules.file_ingest.delete_file"):
+            result = file_ingest.analyze_file_bytes(
+                b"screenshot",
+                filename="plan.png",
+                mimetype="image/png",
+                user_timezone="Europe/Moscow",
+                now=NOW,
+            )
+
+        self.assertEqual(complete.call_count, 2)
+        retry_prompt = complete.call_args_list[1].args[1]
+        self.assertIn("время слева от строки", retry_prompt)
+        self.assertEqual(result["tasks"][0]["title"], "Позвонить Косте")
+        self.assertEqual(result["tasks"][0]["due_at"], "2026-09-15T16:30:00+03:00")
+
     def test_provider_file_is_deleted_when_analysis_fails(self):
         with patch("modules.file_ingest.upload_file_bytes", return_value="file-2"), \
              patch("modules.file_ingest.complete_with_file", side_effect=RuntimeError("provider failed")), \
