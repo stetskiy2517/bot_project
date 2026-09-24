@@ -9,6 +9,10 @@ from googleapiclient.discovery import build
 from core.db import clear_google_token, get_google_token
 
 
+class GoogleAuthRequired(PermissionError):
+    """Google Calendar credentials are missing or must be re-authorized."""
+
+
 def _reauth_required(error: BaseException) -> bool:
     text = str(error or "").casefold()
     return (
@@ -21,7 +25,7 @@ def _reauth_required(error: BaseException) -> bool:
 def build_google_calendar_service(user_id: int):
     token = get_google_token(int(user_id))
     if not token:
-        raise PermissionError("GOOGLE_AUTH_REQUIRED")
+        raise GoogleAuthRequired("GOOGLE_AUTH_REQUIRED")
 
     credentials = Credentials.from_authorized_user_info(token)
     original_refresh = credentials.refresh
