@@ -330,6 +330,8 @@ def _analysis_prompt(*, user_timezone: str, now: datetime) -> str:
 - title — короткое действие без лишних вводных слов;
 - description — дополнительные детали, если они есть;
 - due_local — "YYYY-MM-DDTHH:MM" только если срок явно указан или однозначно следует из заголовка/плана;
+- если время видно рядом с задачей, в той же строке или в колонке напротив неё, это время ОБЯЗАТЕЛЬНО относится к задаче и должно попасть в due_local;
+- если это "план на сегодня" и указано только время без даты, используй текущую дату;
 - due_timezone — IANA timezone или null;
 - priority — low|normal|high;
 - category — work|health|rest|travel|family|personal|other;
@@ -371,6 +373,48 @@ def _analysis_prompt(*, user_timezone: str, now: datetime) -> str:
 }}
 Если объектов одного типа нет, верни для него пустой массив.
 """.strip()
+def _image_retry_prompt(*, user_timezone: str, now: datetime) -> str:
+    today = now.astimezone(_zone(user_timezone) or timezone.utc).date().isoformat()
+    return f"""
+Повтори анализ изображения максимально внимательно. Первый проход не нашёл структурированных объектов.
+
+Текущая дата: {today}. Часовой пояс аккаунта: {user_timezone}.
+
+Перепиши КАЖДУЮ видимую строку плана/списка дел. Особенно не теряй время:
+- время слева от строки;
+- время справа от строки;
+- время над/под задачей, если визуально относится к ней;
+- время в отдельной колонке напротив задачи;
+- диапазоны вроде 10:00–11:00.
+
+Если это список дел/план дня, каждый пункт верни в tasks.
+Если рядом с задачей видно время, ОБЯЗАТЕЛЬНО верни due_local. Если дата явно не указана,
+но это план на сегодня, используй {today}. Не превращай задачу в событие только из-за наличия времени.
+
+Если это фиксированная встреча/рейс/запись с началом и окончанием, верни её в events.
+
+Верни только JSON:
+{{
+  "document_type": "task_list|schedule|other",
+  "summary": "кратко",
+  "events": [],
+  "tasks": [
+    {{
+      "title": "текст задачи",
+      "description": "",
+      "due_local": "YYYY-MM-DDTHH:MM" или null,
+      "due_timezone": "{user_timezone}",
+      "priority": "low|normal|high",
+      "category": "work|health|rest|travel|family|personal|other",
+      "estimate_minutes": null,
+      "confidence": число от 0 до 1
+    }}
+  ],
+  "warnings": []
+}}
+""".strip()
+
+
 def analyze_file_bytes(
     content: bytes,
     *,
@@ -389,6 +433,18 @@ def analyze_file_bytes(
             _analysis_prompt(user_timezone=user_timezone, now=now),
         )
         parsed = _extract_json_object(raw)
+        if (
+            str(mimetype or "").lower().startswith("image/")
+            and not (parsed.get("events") or [])
+            and not (parsed.get("tasks") or [])
+        ):
+            retry_raw = complete_with_file(
+                provider_file_id,
+                _image_retry_prompt(user_timezone=user_timezone, now=now),
+            )
+            retry_parsed = _extract_json_object(retry_raw)
+            if (retry_parsed.get("events") or retry_parsed.get("tasks")):
+                parsed = retry_parsed
     finally:
         if provider_file_id:
             try:
