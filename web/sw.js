@@ -1,4 +1,4 @@
-const CACHE = "personal-secretary-v21-stable-light";
+const CACHE = "personal-secretary-v22-google-reauth";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
