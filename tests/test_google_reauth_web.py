@@ -46,12 +46,14 @@ class GoogleReauthWebTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], "google_auth_required")
         self.assertIn("Подключи Google заново", response.get_json()["message"])
 
-    def test_frontend_has_automatic_reauth_mode(self):
+    def test_frontend_has_persistent_explicit_reauth_mode(self):
         html = self.client.get("/").get_data(as_text=True)
-        self.assertIn("applyGoogleConnectionState(status)", html)
-        self.assertIn("status.google_connected === false", html)
+        self.assertIn("GOOGLE_REAUTH_KEY", html)
+        self.assertIn("googleReauthRequired()", html)
         self.assertIn("planner-google-auth-required", html)
         self.assertIn("Подключить Google заново", html)
+        self.assertIn("if (status && status.google_connected === true)", html)
+        self.assertIn("login.classList.remove(\"open\")", html)
 
 
 if __name__ == "__main__":
