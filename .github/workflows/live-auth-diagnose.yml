@@ -104,6 +104,38 @@ jobs:
                   print(f"PROBE user_id={user_id} ok=False error={type(exc).__name__}:{exc}")
           PY
 
+          echo "--- INSERT_DELETE_PROBE ---"
+          .venv/bin/python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          from integrations.google_calendar_service import build_google_calendar_service
+
+          user_id=1
+          service=build_google_calendar_service(user_id)
+          start=datetime.now(timezone.utc)+timedelta(minutes=30)
+          end=start+timedelta(minutes=5)
+          body={
+              "summary":"Personal Secretary auth probe",
+              "description":"Temporary connectivity probe. Auto-deleted.",
+              "start":{"dateTime":start.isoformat(),"timeZone":"UTC"},
+              "end":{"dateTime":end.isoformat(),"timeZone":"UTC"},
+          }
+          created=None
+          try:
+              created=service.events().insert(calendarId="primary",body=body,sendUpdates="none").execute()
+              event_id=created.get("id")
+              print(f"INSERT_PROBE ok=True event_id={event_id!r}")
+              service.events().delete(calendarId="primary",eventId=event_id,sendUpdates="none").execute()
+              print("DELETE_PROBE ok=True")
+          except Exception as exc:
+              print(f"INSERT_PROBE ok=False error={type(exc).__name__}:{exc}")
+              if created and created.get("id"):
+                  try:
+                      service.events().delete(calendarId="primary",eventId=created["id"],sendUpdates="none").execute()
+                  except Exception:
+                      pass
+              raise
+          PY
+
           echo "--- RECENT SERVICE LOGS ---"
-          journalctl -u personal-secretary.service --since "2026-09-25 12:00:00" --no-pager 2>/dev/null             | grep -Ei 'google|calendar|auth|invalid_grant|permission|событ|добав|command request failed|GOOGLE_AUTH_REQUIRED'             | tail -n 350 || true
+          journalctl -u personal-secretary.service --since "2026-09-25 17:30:00" --no-pager 2>/dev/null | grep -Ei 'google|calendar|auth|invalid_grant|permission|событ|добав|command request failed|GOOGLE_AUTH_REQUIRED|POST /api/chat' | tail -n 500 || true
           REMOTE
