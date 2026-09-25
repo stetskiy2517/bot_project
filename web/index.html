@@ -915,6 +915,7 @@
       const voiceButtons = [voiceBtn, chatVoiceBtn];
       const MIN_VOICE_DURATION_MS = 400;
       const CHAT_IDLE_MS = 30000;
+      const GOOGLE_REAUTH_KEY = "personal-secretary:google-reauth-required";
 
       let workDays = [0, 1, 2, 3, 4],
         recorder = null,
@@ -1047,7 +1048,23 @@
         if (app.classList.contains("chat-active")) armChatIdleTimer();
       }
 
+      function googleReauthRequired() {
+        try {
+          return localStorage.getItem(GOOGLE_REAUTH_KEY) === "1";
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function setGoogleReauthRequired(required) {
+        try {
+          if (required) localStorage.setItem(GOOGLE_REAUTH_KEY, "1");
+          else localStorage.removeItem(GOOGLE_REAUTH_KEY);
+        } catch (_) {}
+      }
+
       function showGoogleLogin(reconnect = false) {
+        if (reconnect) setGoogleReauthRequired(true);
         loginTitle.textContent = reconnect ? "Подключи Google заново" : "Personal Secretary";
         loginText.textContent = reconnect
           ? "Доступ к Google Calendar истёк или был отозван. Авторизуй Google ещё раз, чтобы календарь снова работал."
@@ -1058,15 +1075,22 @@
       }
 
       function applyGoogleConnectionState(status) {
-        if (status && status.google_connected === false) {
+        if (status && status.google_connected === true) {
+          setGoogleReauthRequired(false);
+          loginTitle.textContent = "Personal Secretary";
+          loginText.textContent = "Войди через Google, чтобы подключить календарь и сохранить настройки.";
+          googleLoginBtn.textContent = "Войти через Google";
+          login.classList.remove("open");
+          return true;
+        }
+        if (googleReauthRequired()) {
           showGoogleLogin(true);
           return false;
         }
-        loginTitle.textContent = "Personal Secretary";
-        loginText.textContent = "Войди через Google, чтобы подключить календарь и сохранить настройки.";
-        googleLoginBtn.textContent = "Войти через Google";
+        // Calendar is optional for the rest of the app. Do not block tasks/notes
+        // for users who simply have not connected Google.
         login.classList.remove("open");
-        return true;
+        return false;
       }
 
       document.addEventListener("planner-google-auth-required", () => {
