@@ -46,11 +46,11 @@ jobs:
 
           with db_lock:
               users = conn.execute(
-                  "SELECT u.user_id, COALESCE(ga.name,u.name,''), COALESCE(ga.email,''), "
-                  "ga.updated_at FROM users u LEFT JOIN google_accounts ga ON ga.user_id=u.user_id "
+                  "SELECT u.user_id, COALESCE(ga.name,u.name,''), COALESCE(ga.email,'') "
+                  "FROM users u LEFT JOIN google_accounts ga ON ga.user_id=u.user_id "
                   "ORDER BY u.user_id"
               ).fetchall()
-          for user_id,name,email,updated_at in users:
+          for user_id,name,email in users:
               token = get_google_token(int(user_id))
               scopes = []
               expiry = None
@@ -61,7 +61,7 @@ jobs:
                   has_refresh = bool(token.get("refresh_token"))
               print(
                   f"USER user_id={user_id} name={name!r} token={bool(token)} "
-                  f"has_refresh={has_refresh} expiry={expiry!r} scopes={scopes!r} account_updated={updated_at!r}"
+                  f"has_refresh={has_refresh} expiry={expiry!r} scopes={scopes!r}"
               )
 
           print("--- RECENT_COMMANDS ---")
