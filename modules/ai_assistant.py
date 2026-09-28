@@ -11,7 +11,7 @@ from core.ai_prompts import chat_system_prompt
 from core.assistant_preferences import get_assistant_preferences
 from core.db import get_user_timezone
 from core.feature_access import has_ai_access
-from core.memory_store import memory_prompt_context
+from core.memory_store import memory_prompt_context, work_memory_prompt_context
 from modules.language_support import detect_input_language
 from core.reminder_recurrence import repeat_label
 from core.reminder_store import list_active_reminders
@@ -108,7 +108,7 @@ def _active_reminders_context(user_id: int) -> str:
     return json.dumps(items, ensure_ascii=False, separators=(",", ":")) if items else ""
 
 
-def _system_prompt_for_user(user_id: int | None) -> str:
+def _system_prompt_for_user(user_id: int | None, query: str = "") -> str:
     memory = ""
     if user_id is not None:
         try:
@@ -117,6 +117,20 @@ def _system_prompt_for_user(user_id: int | None) -> str:
             logger.exception("Failed to load AI memory context for user %s", user_id)
     prompt = chat_system_prompt(_runtime_capabilities(user_id), memory)
     if user_id is not None:
+        try:
+            work_memory = work_memory_prompt_context(user_id, query, limit=30)
+        except Exception:
+            logger.exception("Failed to load work memory context for user %s", user_id)
+            work_memory = ""
+        if work_memory:
+            prompt += (
+                "\n\nРабочая память пользователя — фактический контекст о компаниях, людях, истории "
+                "взаимодействий и открытых договорённостях. Используй только эти данные и не додумывай "
+                "отсутствующие должности, связи, результаты или сроки. Если пользователь спрашивает, "
+                "что было обещано или обсуждалось, опирайся на этот блок.\n"
+                f"Рабочая память: {work_memory}"
+            )
+
         reminders = _active_reminders_context(user_id)
         if reminders:
             prompt += (
@@ -164,7 +178,7 @@ def answer_unhandled(
     if not candidate or not has_ai_access(user_id) or not is_ai_available():
         return None
     try:
-        messages = [{"role": "system", "content": _system_prompt_for_user(user_id)}]
+        messages = [{"role": "system", "content": _system_prompt_for_user(user_id, candidate)}]
         messages.extend(_history_messages(history))
         messages.append({"role": "user", "content": candidate[:10000]})
         return complete(messages, temperature=0.2)

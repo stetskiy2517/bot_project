@@ -576,7 +576,8 @@ def _save_work_context(event: dict, source: dict) -> int:
     raw = _call_work_context_model(event, source)
     user_id = int(event["user_id"])
     source_type = str(event["entity_type"])
-    source_id = (event.get("snapshot") or {}).get("google_event_id") or event["entity_id"]
+    snapshot = event.get("snapshot") or {}
+    source_id = snapshot.get("google_event_id") or snapshot.get("provider_message_id") or event["entity_id"]
     companies_by_name: dict[str, dict] = {}
     saved = 0
 
