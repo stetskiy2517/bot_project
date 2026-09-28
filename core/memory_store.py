@@ -700,5 +700,139 @@ def list_commitments(user_id: int, *, status: str = "open", limit: int = 100) ->
 
 
 
+def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
+    """Search structured work memory without exposing another user's rows."""
+    needle = " ".join(str(query or "").split()).strip().casefold()
+    if not needle:
+        return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
+    tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
+    if not tokens:
+        return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
+
+    def matches(*values: Any) -> bool:
+        haystack = " ".join(str(value or "") for value in values).casefold().replace("ё", "е")
+        return all(token.replace("ё", "е") in haystack for token in tokens)
+
+    companies = [
+        item for item in list_companies(user_id, limit=500)
+        if matches(item.get("name"), item.get("industry"), item.get("website"), item.get("notes"))
+    ][:limit]
+    company_ids = {int(item["company_id"]) for item in companies}
+    contacts = [
+        item for item in list_contacts(user_id, limit=500)
+        if matches(item.get("full_name"), item.get("position"), item.get("phone"), item.get("email"), item.get("telegram"), item.get("notes"))
+        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
+    ][:limit]
+    contact_ids = {int(item["contact_id"]) for item in contacts}
+    interactions = [
+        item for item in list_interactions(user_id, limit=500)
+        if matches(item.get("summary"), item.get("outcome"), item.get("next_step"))
+        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
+        or (item.get("contact_id") is not None and int(item["contact_id"]) in contact_ids)
+    ][:limit]
+    commitments = [
+        item for item in list_commitments(user_id, status="open", limit=500)
+        if matches(item.get("title"))
+        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
+        or (item.get("contact_id") is not None and int(item["contact_id"]) in contact_ids)
+    ][:limit]
+    return {"companies": companies, "contacts": contacts, "interactions": interactions, "commitments": commitments}
+
+
+def work_memory_prompt_context(user_id: int, query: str = "", *, limit: int = 20) -> str:
+    """Compact structured relationship memory for assistant grounding."""
+    if str(query or "").strip():
+        data = search_work_memory(user_id, query, limit=limit)
+    else:
+        data = {
+            "companies": list_companies(user_id, limit=limit),
+            "contacts": list_contacts(user_id, limit=limit),
+            "interactions": list_interactions(user_id, limit=limit),
+            "commitments": list_commitments(user_id, status="open", limit=limit),
+        }
+    company_names = {int(item["company_id"]): item["name"] for item in data["companies"]}
+    contact_names = {int(item["contact_id"]): item["full_name"] for item in data["contacts"]}
+    payload = {
+        "companies": [
+            {"name": item["name"], "industry": item.get("industry"), "website": item.get("website"), "notes": item.get("notes")}
+            for item in data["companies"]
+        ],
+        "contacts": [
+            {
+                "name": item["full_name"], "position": item.get("position"),
+                "company": company_names.get(int(item["company_id"])) if item.get("company_id") is not None else None,
+                "phone": item.get("phone"), "email": item.get("email"), "telegram": item.get("telegram"), "notes": item.get("notes"),
+            }
+            for item in data["contacts"]
+        ],
+        "interactions": [
+            {
+                "type": item["interaction_type"], "when": item["happened_at"], "summary": item["summary"],
+                "outcome": item.get("outcome"), "next_step": item.get("next_step"),
+                "company": company_names.get(int(item["company_id"])) if item.get("company_id") is not None else None,
+                "contact": contact_names.get(int(item["contact_id"])) if item.get("contact_id") is not None else None,
+            }
+            for item in data["interactions"][:limit]
+        ],
+        "open_commitments": [
+            {
+                "title": item["title"], "due_at": item.get("due_at"),
+                "company": company_names.get(int(item["company_id"])) if item.get("company_id") is not None else None,
+                "contact": contact_names.get(int(item["contact_id"])) if item.get("contact_id") is not None else None,
+            }
+            for item in data["commitments"][:limit]
+        ],
+    }
+    if not any(payload.values()):
+        return ""
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)[:10000]
+
+
+def update_company(user_id: int, company_id: int, **fields: Any) -> dict | None:
+    allowed = {"name": 300, "industry": 200, "website": 500, "notes": 4000}
+    updates, values = [], []
+    for key, limit in allowed.items():
+        if key in fields:
+            value = _clean(fields[key], limit, required=(key == "name"))
+            updates.append(f"{key}=?")
+            values.append(value)
+    if not updates:
+        raise ValueError("No company fields to update")
+    values.extend([_now(), int(user_id), int(company_id)])
+    with db_lock:
+        cur = conn.execute(
+            f"UPDATE sales_companies SET {','.join(updates)},updated_at=? WHERE user_id=? AND company_id=? AND deleted_at IS NULL",
+            values,
+        )
+        conn.commit()
+    return get_company(user_id, company_id) if cur.rowcount else None
+
+
+def update_contact(user_id: int, contact_id: int, **fields: Any) -> dict | None:
+    allowed = {"full_name": 300, "position": 300, "phone": 100, "email": 320, "telegram": 200, "notes": 4000}
+    updates, values = [], []
+    for key, limit in allowed.items():
+        if key in fields:
+            value = _clean(fields[key], limit, required=(key == "full_name"))
+            updates.append(f"{key}=?")
+            values.append(value)
+    if "company_id" in fields:
+        company_id = fields["company_id"]
+        if company_id is not None and get_company(user_id, company_id) is None:
+            raise ValueError("Unknown company")
+        updates.append("company_id=?")
+        values.append(company_id)
+    if not updates:
+        raise ValueError("No contact fields to update")
+    values.extend([_now(), int(user_id), int(contact_id)])
+    with db_lock:
+        cur = conn.execute(
+            f"UPDATE sales_contacts SET {','.join(updates)},updated_at=? WHERE user_id=? AND contact_id=? AND deleted_at IS NULL",
+            values,
+        )
+        conn.commit()
+    return get_contact(user_id, contact_id) if cur.rowcount else None
+
+
 init_memory_store()
 _init_relationship_memory_tables()
