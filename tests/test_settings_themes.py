@@ -31,7 +31,7 @@ class SettingsThemeUiTests(unittest.TestCase):
         script = response.get_data(as_text=True)
         response.close()
 
-        self.assertIn('["calendarSettingsGroup", "navigationGroup", "categoryColorsGroup"]', script)
+        self.assertIn('["calendarSettingsGroup", "navigationGroup", "navigationAdvancedGroup", "categoryColorsGroup"]', script)
         self.assertIn('document.getElementById("pushNotificationSettings")', script)
         self.assertNotIn('id === "notificationsGroup"', script)
         self.assertIn('id === "emailGroup"', script)
