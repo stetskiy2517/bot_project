@@ -611,6 +611,34 @@ def record_interaction(user_id: int, interaction_type: str, summary: str, *, hap
     return dict(zip(keys, row))
 
 
+
+def list_interactions(
+    user_id: int,
+    *,
+    company_id: int | None = None,
+    contact_id: int | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    clauses = ["user_id=?"]
+    values: list[Any] = [int(user_id)]
+    if company_id is not None:
+        clauses.append("company_id=?")
+        values.append(int(company_id))
+    if contact_id is not None:
+        clauses.append("contact_id=?")
+        values.append(int(contact_id))
+    values.append(max(1, min(int(limit), 500)))
+    with db_lock:
+        rows = conn.execute(
+            "SELECT interaction_id,user_id,company_id,contact_id,interaction_type,happened_at,summary,outcome,next_step,source_type,source_id,created_at "
+            f"FROM sales_interactions WHERE {' AND '.join(clauses)} "
+            "ORDER BY happened_at DESC,interaction_id DESC LIMIT ?",
+            values,
+        ).fetchall()
+    keys = ("interaction_id","user_id","company_id","contact_id","interaction_type","happened_at","summary","outcome","next_step","source_type","source_id","created_at")
+    return [dict(zip(keys, row)) for row in rows]
+
+
 def create_commitment(user_id: int, title: str, *, due_at: str | None = None, company_id: int | None = None, contact_id: int | None = None, source_type: str | None = None, source_id: str | int | None = None) -> dict:
     title = _clean(title, 500, required=True)
     if company_id is not None and get_company(user_id, company_id) is None:
