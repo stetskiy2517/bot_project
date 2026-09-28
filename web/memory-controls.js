@@ -1,6 +1,8 @@
 (() => {
   "use strict";
+
   let installed = false;
+  let activeTab = "personal";
   const kindLabels = {
     fact: "Факт", preference: "Предпочтение", habit: "Привычка",
     relationship: "Связь", goal: "Цель", observation: "Наблюдение",
@@ -21,133 +23,260 @@
       note: "заметка", reminder: "напоминание", calendar_event: "календарь",
       voice_transcript: "голос/чат", user_correction: "исправлено пользователем",
     };
-    return labels[memory.source_type] || memory.source_type || "неизвестный источник";
+    return labels[memory.source_type] || memory.source_type || "источник не указан";
   }
 
-  function actionButton(label, handler, className = "") {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `memory-control-action ${className}`.trim();
-    button.textContent = label;
-    button.onclick = async () => {
-      button.disabled = true;
-      try { await handler(); } finally { button.disabled = false; }
-    };
-    return button;
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+
+  function closeSettings() {
+    const panel = document.getElementById("settingsPanel");
+    if (!panel?.classList.contains("open")) return;
+    document.getElementById("closeSettings")?.click();
+    panel.classList.remove("open");
+  }
+
+  function screen() {
+    return document.getElementById("memoryScreen");
+  }
+
+  function openScreen() {
+    closeSettings();
+    const root = screen();
+    if (!root) return;
+    root.classList.add("open");
+    root.setAttribute("aria-hidden", "false");
+    load();
+  }
+
+  function closeScreen() {
+    const root = screen();
+    if (!root) return;
+    root.classList.remove("open");
+    root.setAttribute("aria-hidden", "true");
+  }
+
+  function setTab(name) {
+    activeTab = name === "work" ? "work" : "personal";
+    document.querySelectorAll(".memory-tab").forEach(button => {
+      button.classList.toggle("active", button.dataset.memoryTab === activeTab);
+    });
+    document.querySelectorAll(".memory-pane").forEach(pane => {
+      pane.hidden = pane.dataset.memoryPane !== activeTab;
+    });
+  }
+
+  async function loadPersonal() {
+    const box = document.getElementById("memoryPersonalList");
+    const state = document.getElementById("memoryState");
+    box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
+    const data = await api("/api/memory/controls");
+    const memories = data.memories || [];
+    box.replaceChildren();
+    if (!memories.length) {
+      box.innerHTML = '<p class="memory-empty">Пока нет устойчивых фактов. Память будет наполняться по мере работы с секретарём.</p>';
+    }
+    for (const memory of memories) {
+      const card = document.createElement("article");
+      card.className = "memory-card";
+      card.innerHTML = `
+        <div class="memory-card-kicker">${escapeHtml(kindLabels[memory.kind] || memory.kind)} · ${Math.round((memory.confidence || 0) * 100)}%</div>
+        <div class="memory-card-value">${escapeHtml(textValue(memory.value))}</div>
+        <div class="memory-card-source">Источник: ${escapeHtml(sourceLabel(memory))}${memory.evidence ? " · " + escapeHtml(memory.evidence) : ""}</div>
+        <div class="memory-card-actions">
+          <button type="button" data-memory-edit="${memory.memory_id}">Исправить</button>
+          <button type="button" class="danger" data-memory-forget="${memory.memory_id}">Забыть</button>
+        </div>`;
+      box.appendChild(card);
+    }
+    const summary = data.feedback_summary || {};
+    state.textContent = `Фактов в активной памяти: ${memories.length}. Оценено предложений: ${(summary.useful || 0) + (summary.dismiss || 0) + (summary.never || 0)}.`;
+  }
+
+  function companyName(companies, id) {
+    return companies.find(item => Number(item.company_id) === Number(id))?.name || "";
+  }
+
+  function contactName(contacts, id) {
+    return contacts.find(item => Number(item.contact_id) === Number(id))?.full_name || "";
+  }
+
+  async function loadWork() {
+    const box = document.getElementById("memoryWorkContent");
+    box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
+    const data = await api("/api/memory/work-context");
+    const companies = data.companies || [];
+    const contacts = data.contacts || [];
+    const interactions = data.interactions || [];
+    const commitments = data.commitments || [];
+
+    const companyRows = companies.length ? companies.map(item => `
+      <div class="memory-list-row">
+        <div><strong>${escapeHtml(item.name)}</strong>${item.industry ? `<span>${escapeHtml(item.industry)}</span>` : ""}</div>
+      </div>`).join("") : '<p class="memory-empty">Компаний пока нет.</p>';
+
+    const contactRows = contacts.length ? contacts.map(item => `
+      <div class="memory-list-row">
+        <div><strong>${escapeHtml(item.full_name)}</strong>
+          <span>${escapeHtml([item.position, companyName(companies, item.company_id)].filter(Boolean).join(" · "))}</span>
+        </div>
+      </div>`).join("") : '<p class="memory-empty">Контактов пока нет.</p>';
+
+    const commitmentRows = commitments.length ? commitments.map(item => `
+      <div class="memory-list-row">
+        <div><strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml([companyName(companies, item.company_id), contactName(contacts, item.contact_id), item.due_at ? new Date(item.due_at).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · "))}</span>
+        </div>
+      </div>`).join("") : '<p class="memory-empty">Открытых договорённостей пока нет.</p>';
+
+    const interactionRows = interactions.length ? interactions.slice(0, 30).map(item => `
+      <div class="memory-list-row">
+        <div><strong>${escapeHtml(item.summary)}</strong>
+          <span>${escapeHtml([item.interaction_type, companyName(companies, item.company_id), contactName(contacts, item.contact_id)].filter(Boolean).join(" · "))}</span>
+        </div>
+      </div>`).join("") : '<p class="memory-empty">История взаимодействий пока пустая.</p>';
+
+    box.innerHTML = `
+      <section class="memory-section">
+        <div class="memory-section-head"><h3>Компании</h3><button type="button" data-memory-add="company">Добавить</button></div>
+        <div class="memory-list">${companyRows}</div>
+      </section>
+      <section class="memory-section">
+        <div class="memory-section-head"><h3>Контакты</h3><button type="button" data-memory-add="contact">Добавить</button></div>
+        <div class="memory-list">${contactRows}</div>
+      </section>
+      <section class="memory-section">
+        <div class="memory-section-head"><h3>Договорённости</h3><button type="button" data-memory-add="commitment">Добавить</button></div>
+        <div class="memory-list">${commitmentRows}</div>
+      </section>
+      <section class="memory-section">
+        <div class="memory-section-head"><h3>История</h3><button type="button" data-memory-add="interaction">Добавить</button></div>
+        <div class="memory-list">${interactionRows}</div>
+      </section>`;
   }
 
   async function load() {
-    const box = document.getElementById("assistantMemoryList");
-    const actionsBox = document.getElementById("assistantProactiveFeedback");
-    const state = document.getElementById("assistantMemoryState");
-    if (!box || !actionsBox) return;
-    box.innerHTML = '<p class="settings-help">Загружаю…</p>';
-    actionsBox.replaceChildren();
+    const status = document.getElementById("memoryScreenStatus");
+    status.textContent = "";
     try {
-      const data = await api("/api/memory/controls");
-      box.replaceChildren();
-      const memories = data.memories || [];
-      if (!memories.length) {
-        box.innerHTML = '<p class="settings-help">Секретарь пока ничего устойчивого о тебе не запомнил.</p>';
-      }
-      for (const memory of memories) {
-        const card = document.createElement("div");
-        card.className = "memory-control-card";
-        const head = document.createElement("div");
-        head.className = "memory-control-head";
-        head.textContent = `${kindLabels[memory.kind] || memory.kind} · ${Math.round((memory.confidence || 0) * 100)}%`;
-        const value = document.createElement("div");
-        value.className = "memory-control-value";
-        value.textContent = textValue(memory.value);
-        const source = document.createElement("div");
-        source.className = "memory-control-source";
-        source.textContent = `Источник: ${sourceLabel(memory)}${memory.evidence ? ` · ${memory.evidence}` : ""}`;
-        const controls = document.createElement("div");
-        controls.className = "memory-control-actions";
-        controls.append(
-          actionButton("Исправить", async () => {
-            const next = prompt("Что секретарь должен помнить вместо этого?", textValue(memory.value));
-            if (next == null || !next.trim()) return;
-            await api(`/api/memory/${memory.memory_id}`, {
-              method: "PATCH", body: JSON.stringify({value: next.trim()}),
-            });
-            await load();
-          }),
-          actionButton("Забыть", async () => {
-            if (!confirm("Удалить этот вывод из активной памяти секретаря?")) return;
-            await api(`/api/memory/${memory.memory_id}`, {method: "DELETE"});
-            await load();
-          }, "danger"),
-        );
-        card.append(head, value, source, controls);
-        box.append(card);
-      }
-
-      const actions = (data.actions || []).filter((item) => !item.feedback).slice(0, 8);
-      if (!actions.length) {
-        actionsBox.innerHTML = '<p class="settings-help">Новых предложений для оценки нет.</p>';
-      }
-      for (const action of actions) {
-        const row = document.createElement("div");
-        row.className = "memory-feedback-card";
-        const description = document.createElement("div");
-        description.className = "memory-control-value";
-        description.textContent = action.reason || "Решение проактивного помощника";
-        const controls = document.createElement("div");
-        controls.className = "memory-control-actions";
-        const send = async (feedback) => {
-          await api(`/api/proactive/${action.action_id}/feedback`, {
-            method: "POST", body: JSON.stringify({feedback}),
-          });
-          await load();
-        };
-        controls.append(
-          actionButton("Полезно", () => send("useful")),
-          actionButton("Не надо", () => send("dismiss")),
-          actionButton("Больше не предлагать", () => send("never"), "danger"),
-        );
-        row.append(description, controls);
-        actionsBox.append(row);
-      }
-      const summary = data.feedback_summary || {};
-      state.textContent = `Оценено предложений: ${(summary.useful || 0) + (summary.dismiss || 0) + (summary.never || 0)}.`;
+      if (activeTab === "personal") await loadPersonal();
+      else await loadWork();
     } catch (error) {
-      box.innerHTML = `<p class="settings-help">${String(error.message || error)}</p>`;
+      status.textContent = String(error.message || error);
     }
+  }
+
+  async function editMemory(id) {
+    const data = await api("/api/memory/controls");
+    const memory = (data.memories || []).find(item => Number(item.memory_id) === Number(id));
+    if (!memory) return;
+    const next = prompt("Что секретарь должен помнить вместо этого?", textValue(memory.value));
+    if (next == null || !next.trim()) return;
+    await api(`/api/memory/${id}`, {method: "PATCH", body: JSON.stringify({value: next.trim()})});
+    await loadPersonal();
+  }
+
+  async function forgetMemory(id) {
+    if (!confirm("Убрать этот факт из активной памяти?")) return;
+    await api(`/api/memory/${id}`, {method: "DELETE"});
+    await loadPersonal();
+  }
+
+  async function addWorkItem(type) {
+    if (type === "company") {
+      const name = prompt("Название компании");
+      if (!name?.trim()) return;
+      await api("/api/memory/companies", {method: "POST", body: JSON.stringify({name: name.trim()})});
+    } else if (type === "contact") {
+      const fullName = prompt("Имя контакта");
+      if (!fullName?.trim()) return;
+      await api("/api/memory/contacts", {method: "POST", body: JSON.stringify({full_name: fullName.trim()})});
+    } else if (type === "commitment") {
+      const title = prompt("Что нужно не забыть по клиенту?");
+      if (!title?.trim()) return;
+      await api("/api/memory/commitments", {method: "POST", body: JSON.stringify({title: title.trim()})});
+    } else if (type === "interaction") {
+      const summary = prompt("Кратко: что произошло?");
+      if (!summary?.trim()) return;
+      await api("/api/memory/interactions", {
+        method: "POST",
+        body: JSON.stringify({interaction_type: "note", summary: summary.trim()}),
+      });
+    }
+    await loadWork();
   }
 
   function install() {
     if (installed) return;
-    const root = document.getElementById("assistantSettings");
-    const settingsPanel = document.getElementById("settingsPanel");
-    if (!root || !settingsPanel) return;
+    const settingsRoot = document.querySelector("#settingsPanel .sheet");
+    if (!settingsRoot) return;
     installed = true;
-    const section = document.createElement("details");
-    section.className = "assistant-section settings-group";
-    section.innerHTML = `
-      <summary class="settings-group-summary-ready">
-        <span class="settings-group-title">Память секретаря</span>
-        <span class="settings-group-meta">контроль</span>
-      </summary>
-      <p class="settings-help">Здесь видно, что секретарь считает устойчивым фактом, откуда это взялось и насколько он уверен. Вывод можно исправить или убрать.</p>
-      <div id="assistantMemoryList"></div>
-      <h4 class="memory-control-subtitle">Оценка предложений</h4>
-      <div id="assistantProactiveFeedback"></div>
-      <p id="assistantMemoryState" class="settings-help"></p>`;
-    root.prepend(section);
-    section.addEventListener("toggle", () => { if (section.open) load(); });
+
+    const entry = document.createElement("button");
+    entry.id = "openMemoryScreen";
+    entry.className = "memory-settings-entry";
+    entry.type = "button";
+    entry.innerHTML = '<span><strong>Память</strong><small>Что секретарь знает о тебе, людях и компаниях</small></span><span aria-hidden="true">›</span>';
+    const actions = settingsRoot.querySelector(".sheet-actions");
+    settingsRoot.insertBefore(entry, actions);
+    entry.addEventListener("click", openScreen);
+
+    const root = document.createElement("div");
+    root.id = "memoryScreen";
+    root.className = "memory-screen";
+    root.setAttribute("aria-hidden", "true");
+    root.innerHTML = `
+      <div class="memory-screen-shell">
+        <header class="memory-screen-head">
+          <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
+          <div><h2>Память</h2><p>Единая память секретаря</p></div>
+        </header>
+        <div class="memory-tabs" role="tablist">
+          <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
+          <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
+        </div>
+        <div class="memory-scroll">
+          <section class="memory-pane" data-memory-pane="personal">
+            <div id="memoryPersonalList"></div>
+            <p id="memoryState" class="memory-state"></p>
+          </section>
+          <section class="memory-pane" data-memory-pane="work" hidden>
+            <div id="memoryWorkContent"></div>
+          </section>
+          <p id="memoryScreenStatus" class="memory-state" role="status"></p>
+        </div>
+      </div>`;
+    document.body.appendChild(root);
+    document.getElementById("closeMemoryScreen").addEventListener("click", closeScreen);
+
+    root.addEventListener("click", event => {
+      const tab = event.target.closest("[data-memory-tab]");
+      if (tab) {
+        setTab(tab.dataset.memoryTab);
+        return load();
+      }
+      const edit = event.target.closest("[data-memory-edit]");
+      if (edit) return editMemory(edit.dataset.memoryEdit).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const forget = event.target.closest("[data-memory-forget]");
+      if (forget) return forgetMemory(forget.dataset.memoryForget).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const add = event.target.closest("[data-memory-add]");
+      if (add) return addWorkItem(add.dataset.memoryAdd).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+    });
+
     const style = document.createElement("style");
     style.textContent = `
-      .memory-control-card,.memory-feedback-card{padding:12px;margin:9px 0;border:1px solid #e4e4e1;border-radius:14px;background:#fff}
-      .memory-control-head{font-size:11px;font-weight:650;color:#898985;text-transform:uppercase;letter-spacing:.02em}
-      .memory-control-value{margin-top:6px;font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
-      .memory-control-source{margin-top:6px;color:#8d8d88;font-size:11px;line-height:1.35}
-      .memory-control-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-      .memory-control-action{min-height:34px;padding:0 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}
-      .memory-control-action.danger{background:#f2dddd;color:#8a2d2d}
-      .memory-control-subtitle{margin:18px 0 7px;font-size:13px}
+      .memory-settings-entry{width:100%;margin-top:22px;padding:14px;border:1px solid #ececea;border-radius:16px;background:#fff;display:flex;align-items:center;justify-content:space-between;text-align:left;color:#111;cursor:pointer}
+      .memory-settings-entry strong{display:block;font-size:14px}.memory-settings-entry small{display:block;margin-top:3px;color:#8a8a8a;font-size:12px;line-height:1.3}.memory-settings-entry>span:last-child{font-size:28px;color:#9a9a96}
+      .memory-screen{position:fixed;inset:0;z-index:95;background:#f7f7f5;display:none}.memory-screen.open{display:block}.memory-screen-shell{width:min(720px,100%);height:100%;margin:auto;display:flex;flex-direction:column;background:#f7f7f5}
+      .memory-screen-head{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;border-bottom:1px solid #e6e6e3;background:#fff}.memory-screen-head h2{margin:0;font-size:22px}.memory-screen-head p{margin:2px 0 0;color:#8a8a8a;font-size:12px}.memory-back{width:40px;height:40px;border-radius:50%;background:#f1f1ef;font-size:30px;line-height:1;color:#333;cursor:pointer}
+      .memory-tabs{display:flex;gap:4px;padding:10px 16px;background:#fff;border-bottom:1px solid #e6e6e3}.memory-tab{flex:1;min-height:40px;border-radius:11px;background:#f1f1ef;color:#666;font-weight:600;cursor:pointer}.memory-tab.active{background:#111;color:#fff}
+      .memory-scroll{flex:1;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 24px)}.memory-card,.memory-section{background:#fff;border:1px solid #e6e6e3;border-radius:16px;padding:14px;margin-bottom:10px}.memory-card-kicker{font-size:11px;color:#898985;text-transform:uppercase}.memory-card-value{margin-top:6px;font-size:14px;line-height:1.45;white-space:pre-wrap}.memory-card-source,.memory-state,.memory-empty{color:#8a8a8a;font-size:12px;line-height:1.4}.memory-card-source{margin-top:6px}.memory-card-actions{display:flex;gap:7px;margin-top:10px}.memory-card-actions button,.memory-section-head button{padding:8px 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}.memory-card-actions .danger{color:#8a2d2d}
+      .memory-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.memory-section-head h3{margin:0;font-size:15px}.memory-list{margin-top:8px}.memory-list-row{padding:10px 0;border-top:1px solid #efefed}.memory-list-row:first-child{border-top:0}.memory-list-row strong{display:block;font-size:14px}.memory-list-row span{display:block;margin-top:3px;color:#8a8a8a;font-size:12px}
     `;
-    document.head.append(style);
+    document.head.appendChild(style);
   }
 
   document.addEventListener("planner-ready", install);
