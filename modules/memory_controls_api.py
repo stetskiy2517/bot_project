@@ -6,7 +6,19 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
-from core.memory_store import list_memories, suppress_memory, upsert_memory
+from core.memory_store import (
+    create_commitment,
+    create_company,
+    create_contact,
+    list_commitments,
+    list_companies,
+    list_contacts,
+    list_interactions,
+    list_memories,
+    record_interaction,
+    suppress_memory,
+    upsert_memory,
+)
 from core.proactive_feedback_store import feedback_for_actions, feedback_summary, save_proactive_feedback
 from core.proactive_store import list_proactive_actions
 
@@ -106,3 +118,88 @@ def proactive_feedback(action_id: int):
         suppress_memory(user_id, int(action["memory_id"]))
         result["memory_suppressed"] = True
     return {"feedback": result}
+
+
+@memory_controls_api.get("/api/memory/work-context")
+def memory_work_context():
+    user_id = _user()
+    return {
+        "companies": list_companies(user_id, limit=200),
+        "contacts": list_contacts(user_id, limit=300),
+        "interactions": list_interactions(user_id, limit=200),
+        "commitments": list_commitments(user_id, status="open", limit=200),
+    }
+
+
+@memory_controls_api.post("/api/memory/companies")
+def add_memory_company():
+    payload = request.get_json(silent=True) or {}
+    try:
+        item = create_company(
+            _user(),
+            payload.get("name"),
+            industry=payload.get("industry"),
+            website=payload.get("website"),
+            notes=payload.get("notes"),
+        )
+    except ValueError as exc:
+        return jsonify(error="invalid_company", message=str(exc)), 400
+    return {"company": item}, 201
+
+
+@memory_controls_api.post("/api/memory/contacts")
+def add_memory_contact():
+    payload = request.get_json(silent=True) or {}
+    try:
+        item = create_contact(
+            _user(),
+            payload.get("full_name"),
+            company_id=payload.get("company_id"),
+            position=payload.get("position"),
+            phone=payload.get("phone"),
+            email=payload.get("email"),
+            telegram=payload.get("telegram"),
+            notes=payload.get("notes"),
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_contact", message=str(exc)), 400
+    return {"contact": item}, 201
+
+
+@memory_controls_api.post("/api/memory/interactions")
+def add_memory_interaction():
+    payload = request.get_json(silent=True) or {}
+    try:
+        item = record_interaction(
+            _user(),
+            payload.get("interaction_type"),
+            payload.get("summary"),
+            happened_at=payload.get("happened_at"),
+            company_id=payload.get("company_id"),
+            contact_id=payload.get("contact_id"),
+            outcome=payload.get("outcome"),
+            next_step=payload.get("next_step"),
+            source_type="user",
+            source_id="memory_screen",
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_interaction", message=str(exc)), 400
+    return {"interaction": item}, 201
+
+
+@memory_controls_api.post("/api/memory/commitments")
+def add_memory_commitment():
+    payload = request.get_json(silent=True) or {}
+    try:
+        item = create_commitment(
+            _user(),
+            payload.get("title"),
+            due_at=payload.get("due_at"),
+            company_id=payload.get("company_id"),
+            contact_id=payload.get("contact_id"),
+            source_type="user",
+            source_id="memory_screen",
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_commitment", message=str(exc)), 400
+    return {"commitment": item}, 201
