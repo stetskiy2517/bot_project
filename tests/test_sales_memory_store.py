@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from core import db
-from core.sales_memory_store import (
+from core.memory_store import (
     create_commitment,
     create_company,
     create_contact,
