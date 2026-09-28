@@ -28,6 +28,7 @@ USER_TABLES = (
     "life_balance_ratings", "user_categories", "push_subscriptions", "navigation_preferences", "privacy_challenges",
     "email_auto_messages", "email_auto_accounts", "email_auto_runs", "email_auto_preferences",
     "email_accounts", "email_oauth_states", "identity_accounts",
+    "sales_commitments", "sales_interactions", "sales_contacts", "sales_companies",
     "oauth_states", "users", "google_accounts",
 )
 
@@ -104,6 +105,10 @@ def export_account(user_id: int) -> dict:
                 "email_auto_messages": "account_id,fingerprint,provider_message_id,state,reason,processed_at",
                 "email_auto_runs": "run_id,created_at,new_messages,candidates,ai_text_calls,attachments_analyzed,auto_created,already_present,failed,plan_json",
                 "user_memories": "memory_id,kind,memory_key,value_json,confidence,source_type,source_id,evidence,status,created_at,updated_at",
+                "sales_companies": "company_id,name,industry,website,notes,status,created_at,updated_at,deleted_at",
+                "sales_contacts": "contact_id,company_id,full_name,position,phone,email,telegram,notes,status,created_at,updated_at,deleted_at",
+                "sales_interactions": "interaction_id,company_id,contact_id,interaction_type,happened_at,summary,outcome,next_step,source_type,source_id,created_at",
+                "sales_commitments": "commitment_id,company_id,contact_id,title,due_at,status,source_type,source_id,created_at,completed_at,updated_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
                 "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,calendar_event_id,reason,confidence,created_at,updated_at",
