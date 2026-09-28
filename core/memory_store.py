@@ -21,7 +21,7 @@ SELECT_COLUMNS = (
 )
 
 
-def _now() -> datetime:
+def _now_dt() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -153,7 +153,7 @@ def upsert_memory(
     if not source_type or not source_id:
         raise ValueError("Memory source is required")
 
-    now = _now().isoformat()
+    now = _now_dt().isoformat()
     with db_lock:
         existing = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM user_memories "
@@ -236,7 +236,7 @@ def suppress_memory(user_id: int, memory_id: int) -> bool:
     with db_lock:
         cur = conn.execute(
             "UPDATE user_memories SET status='suppressed',updated_at=? WHERE user_id=? AND memory_id=?",
-            (_now().isoformat(), int(user_id), int(memory_id)),
+            (_now_dt().isoformat(), int(user_id), int(memory_id)),
         )
         conn.commit()
     return cur.rowcount > 0
@@ -262,7 +262,7 @@ def memory_prompt_context(user_id: int, *, limit: int = 24) -> str:
 
 def claim_memory_events(*, limit: int = 3, lease_seconds: int = 180) -> list[dict]:
     safe_limit = max(1, min(int(limit), 20))
-    now = _now()
+    now = _now_dt()
     now_iso = now.isoformat()
     lease_until = (now + timedelta(seconds=max(30, int(lease_seconds)))).isoformat()
     with db_lock:
@@ -310,14 +310,14 @@ def complete_memory_event(event_id: int) -> None:
     with db_lock:
         conn.execute(
             "UPDATE ai_memory_event_processing SET processed_at=?,lease_until=NULL,last_error=NULL WHERE event_id=?",
-            (_now().isoformat(), int(event_id)),
+            (_now_dt().isoformat(), int(event_id)),
         )
         conn.commit()
 
 
 def fail_memory_event(event_id: int, error: str, *, attempts: int) -> None:
     error = _clean_text(error, 1000) or "unknown error"
-    now = _now()
+    now = _now_dt()
     with db_lock:
         if int(attempts) >= MAX_PROCESSING_ATTEMPTS:
             conn.execute(
@@ -338,7 +338,7 @@ def calendar_event_change(user_id: int, google_event_id: str, fingerprint: str) 
     fingerprint = _clean_text(fingerprint, 128)
     if not event_id or not fingerprint:
         raise ValueError("Calendar event id and fingerprint are required")
-    now = _now().isoformat()
+    now = _now_dt().isoformat()
     with db_lock:
         row = conn.execute(
             "SELECT fingerprint FROM ai_calendar_sync WHERE user_id=? AND google_event_id=?",
@@ -496,11 +496,12 @@ def create_company(user_id: int, name: str, *, industry: str | None = None, webs
     name = _clean(name, 300, required=True)
     now = _now()
     with db_lock:
-        duplicate = conn.execute(
-            "SELECT company_id FROM sales_companies WHERE user_id=? AND deleted_at IS NULL AND lower(name)=lower(?) LIMIT 1",
-            (int(user_id), name),
-        ).fetchone()
-        if duplicate:
+        existing_rows = conn.execute(
+            "SELECT company_id,name FROM sales_companies WHERE user_id=? AND deleted_at IS NULL",
+            (int(user_id),),
+        ).fetchall()
+        normalized_name = name.casefold().replace("ё", "е")
+        if any(str(row[1] or "").casefold().replace("ё", "е") == normalized_name for row in existing_rows):
             raise ValueError("Company already exists")
         cur = conn.execute(
             "INSERT INTO sales_companies(user_id,name,industry,website,notes,status,created_at,updated_at) VALUES (?,?,?,?,?,'active',?,?)",
@@ -726,7 +727,13 @@ def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
     needle = " ".join(str(query or "").split()).strip().casefold()
     if not needle:
         return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
-    tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
+    raw_tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
+    stopwords = {
+        "кто","такой","такая","такие","что","мы","вы","они","обсуждали","обсудили","обещали","обещал",
+        "обещала","расскажи","покажи","найди","про","по","с","со","у","о","об","для","the","who","what",
+        "about","with","show","find","tell","me","did","we",
+    }
+    tokens = [part for part in raw_tokens if part not in stopwords] or raw_tokens
     if not tokens:
         return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
 
@@ -745,6 +752,17 @@ def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
         or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
     ][:limit]
     contact_ids = {int(item["contact_id"]) for item in contacts}
+    related_company_ids = {
+        int(item["company_id"]) for item in contacts if item.get("company_id") is not None
+    }
+    if related_company_ids:
+        known_company_ids = {int(item["company_id"]) for item in companies}
+        companies.extend(
+            item for item in list_companies(user_id, limit=500)
+            if int(item["company_id"]) in related_company_ids and int(item["company_id"]) not in known_company_ids
+        )
+        companies = companies[:limit]
+        company_ids = {int(item["company_id"]) for item in companies}
     interactions = [
         item for item in list_interactions(user_id, limit=500)
         if matches(item.get("summary"), item.get("outcome"), item.get("next_step"))

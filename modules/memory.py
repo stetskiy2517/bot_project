@@ -573,7 +573,11 @@ def _save_work_context(event: dict, source: dict) -> int:
     # Behavioural facts and structured relationship data share one memory subsystem.
     if event.get("entity_type") == "reminder":
         return 0
-    raw = _call_work_context_model(event, source)
+    try:
+        raw = _call_work_context_model(event, source)
+    except AIError:
+        logger.info("Structured work-memory extraction skipped because AI is unavailable")
+        return 0
     user_id = int(event["user_id"])
     source_type = str(event["entity_type"])
     snapshot = event.get("snapshot") or {}
