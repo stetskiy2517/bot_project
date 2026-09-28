@@ -726,7 +726,13 @@ def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
     needle = " ".join(str(query or "").split()).strip().casefold()
     if not needle:
         return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
-    tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
+    raw_tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
+    stopwords = {
+        "кто","такой","такая","такие","что","мы","вы","они","обсуждали","обсудили","обещали","обещал",
+        "обещала","расскажи","покажи","найди","про","по","с","со","у","о","об","для","the","who","what",
+        "about","with","show","find","tell","me","did","we",
+    }
+    tokens = [part for part in raw_tokens if part not in stopwords] or raw_tokens
     if not tokens:
         return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
 
