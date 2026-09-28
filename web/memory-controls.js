@@ -276,14 +276,8 @@
     }
 
     const themesMenu = document.getElementById("settingsThemes");
-    if (themesMenu) {
-      if (entry.parentElement !== themesMenu) themesMenu.appendChild(entry);
-      return entry;
-    }
-
-    const actions = settingsRoot.querySelector(":scope > .sheet-actions");
-    if (actions && entry.parentElement !== settingsRoot) settingsRoot.insertBefore(entry, actions);
-    else if (!entry.parentElement) settingsRoot.appendChild(entry);
+    if (!themesMenu) return null;
+    if (entry.parentElement !== themesMenu) themesMenu.appendChild(entry);
     return entry;
   }
 
@@ -347,7 +341,6 @@
     const style = document.createElement("style");
     style.textContent = `
       .memory-settings-entry{width:100%;min-height:52px;padding:11px 14px;background:#fff;display:flex;align-items:center;gap:12px;text-align:left;color:#111;cursor:pointer}
-      #settingsPanel>.memory-settings-entry,#settingsPanel .sheet>.memory-settings-entry{margin-top:18px;border:1px solid #ececea;border-radius:16px}
       .memory-screen{position:fixed;inset:0;z-index:95;background:#f7f7f5;display:none}.memory-screen.open{display:block}.memory-screen-shell{width:min(720px,100%);height:100%;margin:auto;display:flex;flex-direction:column;background:#f7f7f5}
       .memory-screen-head{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;border-bottom:1px solid #e6e6e3;background:#fff}.memory-screen-head h2{margin:0;font-size:22px}.memory-screen-head p{margin:2px 0 0;color:#8a8a8a;font-size:12px}.memory-back{width:40px;height:40px;border-radius:50%;background:#f1f1ef;font-size:30px;line-height:1;color:#333;cursor:pointer}
       .memory-tabs{display:flex;gap:4px;padding:10px 16px;background:#fff;border-bottom:1px solid #e6e6e3}.memory-tab{flex:1;min-height:40px;border-radius:11px;background:#f1f1ef;color:#666;font-weight:600;cursor:pointer}.memory-tab.active{background:#111;color:#fff}
