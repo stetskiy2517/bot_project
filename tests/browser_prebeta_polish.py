@@ -207,6 +207,8 @@ def main() -> None:
             expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
             expect(page.locator("#settingsThemes .settings-theme-link")).to_have_count(6)
             expect(page.locator("#openMemoryScreen")).to_be_visible()
+            expect(page.locator("#settingsPanel .sheet > #openMemoryScreen")).to_have_count(0)
+            expect(page.locator("#assistantSettings > #navigationAdvancedGroup")).to_have_count(0)
             expect(page.locator('[data-settings-open="appearance"]')).to_have_count(0)
             expect(page.locator("#settingsThemes .settings-theme-link[data-settings-utility]")).to_have_count(0)
             expect(page.locator('[data-settings-utility="saved"]')).to_have_count(0)
