@@ -94,7 +94,7 @@
 
   function themeFor(group) {
     const id = group.id || "";
-    if (["calendarSettingsGroup", "navigationGroup", "categoryColorsGroup"].includes(id)) {
+    if (["calendarSettingsGroup", "navigationGroup", "navigationAdvancedGroup", "categoryColorsGroup"].includes(id)) {
       return "planning";
     }
     if (group.querySelector("#assistantDeliveryFields")) {
