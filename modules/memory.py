@@ -376,6 +376,19 @@ def _source_payload(event: dict) -> dict | None:
     if entity_type == "voice_transcript":
         text = _clean_string(snapshot.get("text") or snapshot.get("transcript"), 5000)
         return {"source": "voice_transcript", "text": text} if text else None
+    if entity_type == "email":
+        body = _clean_string(snapshot.get("body") or snapshot.get("preview"), 5000)
+        subject = _clean_string(snapshot.get("subject"), 500)
+        sender = _clean_string(snapshot.get("from"), 500)
+        if not body and not subject:
+            return None
+        return {
+            "source": "email",
+            "from": sender,
+            "subject": subject,
+            "text": body,
+            "received_at": snapshot.get("date"),
+        }
     return None
 
 
