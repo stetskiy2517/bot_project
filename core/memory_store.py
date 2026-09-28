@@ -594,11 +594,22 @@ def record_interaction(user_id: int, interaction_type: str, summary: str, *, hap
         raise ValueError("Unknown contact")
     timestamp = _clean(happened_at, 80) or _now()
     now = _now()
+    source_type_clean = _clean(source_type, 64)
+    source_id_clean = _clean(source_id, 300)
     with db_lock:
+        if source_type_clean and source_id_clean:
+            existing = conn.execute(
+                "SELECT interaction_id,user_id,company_id,contact_id,interaction_type,happened_at,summary,outcome,next_step,source_type,source_id,created_at "
+                "FROM sales_interactions WHERE user_id=? AND source_type=? AND source_id=? AND summary=? LIMIT 1",
+                (int(user_id), source_type_clean, source_id_clean, summary),
+            ).fetchone()
+            if existing:
+                keys = ("interaction_id","user_id","company_id","contact_id","interaction_type","happened_at","summary","outcome","next_step","source_type","source_id","created_at")
+                return dict(zip(keys, existing))
         cur = conn.execute(
             "INSERT INTO sales_interactions(user_id,company_id,contact_id,interaction_type,happened_at,summary,outcome,next_step,source_type,source_id,created_at) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (int(user_id), company_id, contact_id, interaction_type, timestamp, summary, _clean(outcome, 4000), _clean(next_step, 2000), _clean(source_type, 64), _clean(source_id, 300), now),
+            (int(user_id), company_id, contact_id, interaction_type, timestamp, summary, _clean(outcome, 4000), _clean(next_step, 2000), source_type_clean, source_id_clean, now),
         )
         conn.commit()
         interaction_id = int(cur.lastrowid)
@@ -646,11 +657,21 @@ def create_commitment(user_id: int, title: str, *, due_at: str | None = None, co
     if contact_id is not None and get_contact(user_id, contact_id) is None:
         raise ValueError("Unknown contact")
     now = _now()
+    source_type_clean = _clean(source_type, 64)
+    source_id_clean = _clean(source_id, 300)
+    due_clean = _clean(due_at, 80)
     with db_lock:
+        if source_type_clean and source_id_clean:
+            existing = conn.execute(
+                "SELECT commitment_id FROM sales_commitments WHERE user_id=? AND source_type=? AND source_id=? AND title=? AND status='open' LIMIT 1",
+                (int(user_id), source_type_clean, source_id_clean, title),
+            ).fetchone()
+            if existing:
+                return get_commitment(user_id, int(existing[0]))
         cur = conn.execute(
             "INSERT INTO sales_commitments(user_id,company_id,contact_id,title,due_at,status,source_type,source_id,created_at,updated_at) "
             "VALUES (?,?,?,?,?,'open',?,?,?,?)",
-            (int(user_id), company_id, contact_id, title, _clean(due_at, 80), _clean(source_type, 64), _clean(source_id, 300), now, now),
+            (int(user_id), company_id, contact_id, title, due_clean, source_type_clean, source_id_clean, now, now),
         )
         conn.commit()
         commitment_id = int(cur.lastrowid)
