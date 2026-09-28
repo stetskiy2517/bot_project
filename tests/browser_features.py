@@ -207,6 +207,8 @@ def main():
         expect(page.locator("#settingsTheme-planning")).to_be_visible()
         expect(page.locator("#settingsThemes")).to_be_hidden()
         expect(page.locator("#saveSettings")).to_have_count(0)
+        expect(page.locator("#settingsTheme-planning #navigationAdvancedGroup")).to_have_count(1)
+        expect(page.locator("#assistantSettings > #navigationAdvancedGroup")).to_have_count(0)
         page.locator("#calendarSettingsGroup summary").click()
         expect(page.locator("#workStart")).to_be_visible()
         page.locator("#workStart").fill("08:30")
