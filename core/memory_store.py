@@ -21,7 +21,7 @@ SELECT_COLUMNS = (
 )
 
 
-def _now() -> datetime:
+def _now_dt() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -153,7 +153,7 @@ def upsert_memory(
     if not source_type or not source_id:
         raise ValueError("Memory source is required")
 
-    now = _now().isoformat()
+    now = _now_dt().isoformat()
     with db_lock:
         existing = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM user_memories "
@@ -236,7 +236,7 @@ def suppress_memory(user_id: int, memory_id: int) -> bool:
     with db_lock:
         cur = conn.execute(
             "UPDATE user_memories SET status='suppressed',updated_at=? WHERE user_id=? AND memory_id=?",
-            (_now().isoformat(), int(user_id), int(memory_id)),
+            (_now_dt().isoformat(), int(user_id), int(memory_id)),
         )
         conn.commit()
     return cur.rowcount > 0
@@ -262,7 +262,7 @@ def memory_prompt_context(user_id: int, *, limit: int = 24) -> str:
 
 def claim_memory_events(*, limit: int = 3, lease_seconds: int = 180) -> list[dict]:
     safe_limit = max(1, min(int(limit), 20))
-    now = _now()
+    now = _now_dt()
     now_iso = now.isoformat()
     lease_until = (now + timedelta(seconds=max(30, int(lease_seconds)))).isoformat()
     with db_lock:
@@ -310,14 +310,14 @@ def complete_memory_event(event_id: int) -> None:
     with db_lock:
         conn.execute(
             "UPDATE ai_memory_event_processing SET processed_at=?,lease_until=NULL,last_error=NULL WHERE event_id=?",
-            (_now().isoformat(), int(event_id)),
+            (_now_dt().isoformat(), int(event_id)),
         )
         conn.commit()
 
 
 def fail_memory_event(event_id: int, error: str, *, attempts: int) -> None:
     error = _clean_text(error, 1000) or "unknown error"
-    now = _now()
+    now = _now_dt()
     with db_lock:
         if int(attempts) >= MAX_PROCESSING_ATTEMPTS:
             conn.execute(
@@ -338,7 +338,7 @@ def calendar_event_change(user_id: int, google_event_id: str, fingerprint: str) 
     fingerprint = _clean_text(fingerprint, 128)
     if not event_id or not fingerprint:
         raise ValueError("Calendar event id and fingerprint are required")
-    now = _now().isoformat()
+    now = _now_dt().isoformat()
     with db_lock:
         row = conn.execute(
             "SELECT fingerprint FROM ai_calendar_sync WHERE user_id=? AND google_event_id=?",
