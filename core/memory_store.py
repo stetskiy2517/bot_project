@@ -497,7 +497,7 @@ def create_company(user_id: int, name: str, *, industry: str | None = None, webs
     now = _now()
     with db_lock:
         duplicate = conn.execute(
-            "SELECT company_id FROM sales_companies WHERE user_id=? AND deleted_at IS NULL AND lower(name)=lower(?) LIMIT 1",
+            "SELECT company_id FROM sales_companies WHERE user_id=? AND deleted_at IS NULL AND lower(trim(name))=lower(trim(?)) LIMIT 1",
             (int(user_id), name),
         ).fetchone()
         if duplicate:
@@ -751,6 +751,17 @@ def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
         or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
     ][:limit]
     contact_ids = {int(item["contact_id"]) for item in contacts}
+    related_company_ids = {
+        int(item["company_id"]) for item in contacts if item.get("company_id") is not None
+    }
+    if related_company_ids:
+        known_company_ids = {int(item["company_id"]) for item in companies}
+        companies.extend(
+            item for item in list_companies(user_id, limit=500)
+            if int(item["company_id"]) in related_company_ids and int(item["company_id"]) not in known_company_ids
+        )
+        companies = companies[:limit]
+        company_ids = {int(item["company_id"]) for item in companies}
     interactions = [
         item for item in list_interactions(user_id, limit=500)
         if matches(item.get("summary"), item.get("outcome"), item.get("next_step"))
