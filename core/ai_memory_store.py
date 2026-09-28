@@ -16,7 +16,7 @@ from core.db import conn, db_lock, get_user_timezone
 from core.feature_access import has_ai_access
 
 
-ENTITY_TYPES = {"note", "reminder", "voice_transcript", "calendar_event"}
+ENTITY_TYPES = {"note", "reminder", "voice_transcript", "calendar_event", "email"}
 EVENT_TYPES = {
     "created",
     "updated",
