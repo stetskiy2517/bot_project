@@ -261,20 +261,38 @@
     await loadWork();
   }
 
+  function placeSettingsEntry() {
+    const settingsRoot = document.querySelector("#settingsPanel .sheet");
+    if (!settingsRoot) return null;
+
+    let entry = document.getElementById("openMemoryScreen");
+    if (!entry) {
+      entry = document.createElement("button");
+      entry.id = "openMemoryScreen";
+      entry.className = "memory-settings-entry settings-theme-link";
+      entry.type = "button";
+      entry.innerHTML = '<span class="settings-theme-link-title">Память</span><svg class="settings-theme-link-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"></path></svg>';
+      entry.addEventListener("click", openScreen);
+    }
+
+    const themesMenu = document.getElementById("settingsThemes");
+    if (themesMenu) {
+      if (entry.parentElement !== themesMenu) themesMenu.appendChild(entry);
+      return entry;
+    }
+
+    const actions = settingsRoot.querySelector(":scope > .sheet-actions");
+    if (actions && entry.parentElement !== settingsRoot) settingsRoot.insertBefore(entry, actions);
+    else if (!entry.parentElement) settingsRoot.appendChild(entry);
+    return entry;
+  }
+
   function install() {
-    if (installed) return;
     const settingsRoot = document.querySelector("#settingsPanel .sheet");
     if (!settingsRoot) return;
+    placeSettingsEntry();
+    if (installed) return;
     installed = true;
-
-    const entry = document.createElement("button");
-    entry.id = "openMemoryScreen";
-    entry.className = "memory-settings-entry";
-    entry.type = "button";
-    entry.innerHTML = '<span><strong>Память</strong><small>Что секретарь знает о тебе, людях и компаниях</small></span><span aria-hidden="true">›</span>';
-    const actions = settingsRoot.querySelector(".sheet-actions");
-    settingsRoot.insertBefore(entry, actions);
-    entry.addEventListener("click", openScreen);
 
     const root = document.createElement("div");
     root.id = "memoryScreen";
@@ -328,8 +346,8 @@
 
     const style = document.createElement("style");
     style.textContent = `
-      .memory-settings-entry{width:100%;margin-top:22px;padding:14px;border:1px solid #ececea;border-radius:16px;background:#fff;display:flex;align-items:center;justify-content:space-between;text-align:left;color:#111;cursor:pointer}
-      .memory-settings-entry strong{display:block;font-size:14px}.memory-settings-entry small{display:block;margin-top:3px;color:#8a8a8a;font-size:12px;line-height:1.3}.memory-settings-entry>span:last-child{font-size:28px;color:#9a9a96}
+      .memory-settings-entry{width:100%;min-height:52px;padding:11px 14px;background:#fff;display:flex;align-items:center;gap:12px;text-align:left;color:#111;cursor:pointer}
+      #settingsPanel>.memory-settings-entry,#settingsPanel .sheet>.memory-settings-entry{margin-top:18px;border:1px solid #ececea;border-radius:16px}
       .memory-screen{position:fixed;inset:0;z-index:95;background:#f7f7f5;display:none}.memory-screen.open{display:block}.memory-screen-shell{width:min(720px,100%);height:100%;margin:auto;display:flex;flex-direction:column;background:#f7f7f5}
       .memory-screen-head{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;border-bottom:1px solid #e6e6e3;background:#fff}.memory-screen-head h2{margin:0;font-size:22px}.memory-screen-head p{margin:2px 0 0;color:#8a8a8a;font-size:12px}.memory-back{width:40px;height:40px;border-radius:50%;background:#f1f1ef;font-size:30px;line-height:1;color:#333;cursor:pointer}
       .memory-tabs{display:flex;gap:4px;padding:10px 16px;background:#fff;border-bottom:1px solid #e6e6e3}.memory-tab{flex:1;min-height:40px;border-radius:11px;background:#f1f1ef;color:#666;font-weight:600;cursor:pointer}.memory-tab.active{background:#111;color:#fff}
@@ -339,6 +357,13 @@
     document.head.appendChild(style);
   }
 
-  document.addEventListener("planner-ready", install);
+  document.addEventListener("planner-ready", () => {
+    install();
+    requestAnimationFrame(placeSettingsEntry);
+  });
+  document.getElementById("settingsPanel")?.addEventListener("planner-settings-view", () => requestAnimationFrame(placeSettingsEntry));
+  const settingsObserver = new MutationObserver(() => placeSettingsEntry());
+  const settingsPanel = document.getElementById("settingsPanel");
+  if (settingsPanel) settingsObserver.observe(settingsPanel, {childList: true, subtree: true});
   if (document.readyState !== "loading") setTimeout(install, 0);
 })();
