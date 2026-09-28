@@ -295,33 +295,36 @@
     if (installed) return;
     installed = true;
 
-    const root = document.createElement("div");
-    root.id = "memoryScreen";
-    root.className = "memory-screen";
-    root.setAttribute("aria-hidden", "true");
-    root.innerHTML = `
-      <div class="memory-screen-shell">
-        <header class="memory-screen-head">
-          <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
-          <div><h2>Память</h2><p>Единая память секретаря</p></div>
-        </header>
-        <div class="memory-tabs" role="tablist">
-          <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
-          <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
-        </div>
-        <div class="memory-scroll">
-          <section class="memory-pane" data-memory-pane="personal">
-            <div id="memoryPersonalList"></div>
-            <p id="memoryState" class="memory-state"></p>
-          </section>
-          <section class="memory-pane" data-memory-pane="work" hidden>
-            <div id="memoryWorkContent"></div>
-          </section>
-          <p id="memoryScreenStatus" class="memory-state" role="status"></p>
-        </div>
-      </div>`;
-    document.body.appendChild(root);
-    document.getElementById("closeMemoryScreen").addEventListener("click", closeScreen);
+    let root = document.getElementById("memoryScreen");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "memoryScreen";
+      root.className = "memory-screen";
+      root.setAttribute("aria-hidden", "true");
+      root.innerHTML = `
+        <div class="memory-screen-shell">
+          <header class="memory-screen-head">
+            <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
+            <div><h2>Память</h2><p>Единая память секретаря</p></div>
+          </header>
+          <div class="memory-tabs" role="tablist">
+            <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
+            <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
+          </div>
+          <div class="memory-scroll">
+            <section class="memory-pane" data-memory-pane="personal">
+              <div id="memoryPersonalList"></div>
+              <p id="memoryState" class="memory-state"></p>
+            </section>
+            <section class="memory-pane" data-memory-pane="work" hidden>
+              <div id="memoryWorkContent"></div>
+            </section>
+            <p id="memoryScreenStatus" class="memory-state" role="status"></p>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+    }
+    document.getElementById("closeMemoryScreen")?.addEventListener("click", closeScreen);
 
     root.addEventListener("click", event => {
       const tab = event.target.closest("[data-memory-tab]");
