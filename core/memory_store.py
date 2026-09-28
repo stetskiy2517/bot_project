@@ -496,11 +496,12 @@ def create_company(user_id: int, name: str, *, industry: str | None = None, webs
     name = _clean(name, 300, required=True)
     now = _now()
     with db_lock:
-        duplicate = conn.execute(
-            "SELECT company_id FROM sales_companies WHERE user_id=? AND deleted_at IS NULL AND lower(trim(name))=lower(trim(?)) LIMIT 1",
-            (int(user_id), name),
-        ).fetchone()
-        if duplicate:
+        existing_rows = conn.execute(
+            "SELECT company_id,name FROM sales_companies WHERE user_id=? AND deleted_at IS NULL",
+            (int(user_id),),
+        ).fetchall()
+        normalized_name = name.casefold().replace("ё", "е")
+        if any(str(row[1] or "").casefold().replace("ё", "е") == normalized_name for row in existing_rows):
             raise ValueError("Company already exists")
         cur = conn.execute(
             "INSERT INTO sales_companies(user_id,name,industry,website,notes,status,created_at,updated_at) VALUES (?,?,?,?,?,'active',?,?)",
