@@ -64,7 +64,7 @@
     ]) setFieldDisabled(id, !selected);
 
     const advanced = document.getElementById("navigationAdvancedGroup");
-    if (advanced) advanced.hidden = !selected;
+    if (advanced) advanced.hidden = false;
     const meta = document.getElementById("navigationMeta");
     if (meta) meta.textContent = selected ? "включена" : "выключена";
     const help = document.getElementById("navigationMasterHelp");
