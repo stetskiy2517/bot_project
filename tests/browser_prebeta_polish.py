@@ -209,6 +209,22 @@ def main() -> None:
             expect(page.locator("#openMemoryScreen")).to_be_visible()
             expect(page.locator("#settingsPanel .sheet > #openMemoryScreen")).to_have_count(0)
             expect(page.locator("#assistantSettings > #navigationAdvancedGroup")).to_have_count(0)
+
+            # Memory opens as a real screen and Back returns to Account instead of Home.
+            page.locator("#openMemoryScreen").click()
+            expect(page.locator("#memoryScreen")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#settingsPanel")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            page.locator("#closeMemoryScreen").click()
+            expect(page.locator("#memoryScreen")).not_to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#settingsPanel")).to_have_class(__import__("re").compile(r"\bopen\b"))
+            expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
+
+            # Road-to-event settings stay visible inside Planning even when navigation is off.
+            page.locator('[data-settings-open="planning"]').click()
+            expect(page.locator("#settingsTheme-planning #navigationAdvancedGroup")).to_be_visible()
+            expect(page.locator("#navigationAdvancedGroup")).to_contain_text("Дорога до события")
+            page.locator("#settingsThemeBack").click()
+
             expect(page.locator('[data-settings-open="appearance"]')).to_have_count(0)
             expect(page.locator("#settingsThemes .settings-theme-link[data-settings-utility]")).to_have_count(0)
             expect(page.locator('[data-settings-utility="saved"]')).to_have_count(0)

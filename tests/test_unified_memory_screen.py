@@ -61,6 +61,8 @@ class UnifiedMemoryScreenTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('<script src="/memory-controls.js"></script>', html)
+        self.assertIn('id="memoryScreen"', html)
+        self.assertIn('id="closeMemoryScreen"', html)
 
         script = self.client.get("/memory-controls.js").get_data(as_text=True)
         self.assertIn('id = "openMemoryScreen"', script)

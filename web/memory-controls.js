@@ -32,11 +32,17 @@
       .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
 
-  function closeSettings() {
+  function hideSettingsForMemory() {
     const panel = document.getElementById("settingsPanel");
     if (!panel?.classList.contains("open")) return;
-    document.getElementById("closeSettings")?.click();
     panel.classList.remove("open");
+  }
+
+  function restoreSettingsAfterMemory() {
+    const panel = document.getElementById("settingsPanel");
+    if (!panel) return;
+    window.PlannerSettingsThemes?.back?.();
+    panel.classList.add("open");
   }
 
   function screen() {
@@ -44,9 +50,9 @@
   }
 
   function openScreen() {
-    closeSettings();
     const root = screen();
     if (!root) return;
+    hideSettingsForMemory();
     root.classList.add("open");
     root.setAttribute("aria-hidden", "false");
     load();
@@ -57,6 +63,7 @@
     if (!root) return;
     root.classList.remove("open");
     root.setAttribute("aria-hidden", "true");
+    restoreSettingsAfterMemory();
   }
 
   function setTab(name) {
@@ -288,33 +295,36 @@
     if (installed) return;
     installed = true;
 
-    const root = document.createElement("div");
-    root.id = "memoryScreen";
-    root.className = "memory-screen";
-    root.setAttribute("aria-hidden", "true");
-    root.innerHTML = `
-      <div class="memory-screen-shell">
-        <header class="memory-screen-head">
-          <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
-          <div><h2>Память</h2><p>Единая память секретаря</p></div>
-        </header>
-        <div class="memory-tabs" role="tablist">
-          <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
-          <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
-        </div>
-        <div class="memory-scroll">
-          <section class="memory-pane" data-memory-pane="personal">
-            <div id="memoryPersonalList"></div>
-            <p id="memoryState" class="memory-state"></p>
-          </section>
-          <section class="memory-pane" data-memory-pane="work" hidden>
-            <div id="memoryWorkContent"></div>
-          </section>
-          <p id="memoryScreenStatus" class="memory-state" role="status"></p>
-        </div>
-      </div>`;
-    document.body.appendChild(root);
-    document.getElementById("closeMemoryScreen").addEventListener("click", closeScreen);
+    let root = document.getElementById("memoryScreen");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "memoryScreen";
+      root.className = "memory-screen";
+      root.setAttribute("aria-hidden", "true");
+      root.innerHTML = `
+        <div class="memory-screen-shell">
+          <header class="memory-screen-head">
+            <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
+            <div><h2>Память</h2><p>Единая память секретаря</p></div>
+          </header>
+          <div class="memory-tabs" role="tablist">
+            <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
+            <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
+          </div>
+          <div class="memory-scroll">
+            <section class="memory-pane" data-memory-pane="personal">
+              <div id="memoryPersonalList"></div>
+              <p id="memoryState" class="memory-state"></p>
+            </section>
+            <section class="memory-pane" data-memory-pane="work" hidden>
+              <div id="memoryWorkContent"></div>
+            </section>
+            <p id="memoryScreenStatus" class="memory-state" role="status"></p>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+    }
+    document.getElementById("closeMemoryScreen")?.addEventListener("click", closeScreen);
 
     root.addEventListener("click", event => {
       const tab = event.target.closest("[data-memory-tab]");
@@ -341,7 +351,7 @@
     const style = document.createElement("style");
     style.textContent = `
       .memory-settings-entry{width:100%;min-height:52px;padding:11px 14px;background:#fff;display:flex;align-items:center;gap:12px;text-align:left;color:#111;cursor:pointer}
-      .memory-screen{position:fixed;inset:0;z-index:95;background:#f7f7f5;display:none}.memory-screen.open{display:block}.memory-screen-shell{width:min(720px,100%);height:100%;margin:auto;display:flex;flex-direction:column;background:#f7f7f5}
+      .memory-screen{position:fixed;inset:0;z-index:140;background:#f7f7f5;display:none}.memory-screen.open{display:block}.memory-screen-shell{width:min(720px,100%);height:100%;margin:auto;display:flex;flex-direction:column;background:#f7f7f5}
       .memory-screen-head{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;border-bottom:1px solid #e6e6e3;background:#fff}.memory-screen-head h2{margin:0;font-size:22px}.memory-screen-head p{margin:2px 0 0;color:#8a8a8a;font-size:12px}.memory-back{width:40px;height:40px;border-radius:50%;background:#f1f1ef;font-size:30px;line-height:1;color:#333;cursor:pointer}
       .memory-tabs{display:flex;gap:4px;padding:10px 16px;background:#fff;border-bottom:1px solid #e6e6e3}.memory-tab{flex:1;min-height:40px;border-radius:11px;background:#f1f1ef;color:#666;font-weight:600;cursor:pointer}.memory-tab.active{background:#111;color:#fff}
       .memory-scroll{flex:1;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 24px)}.memory-card,.memory-section{background:#fff;border:1px solid #e6e6e3;border-radius:16px;padding:14px;margin-bottom:10px}.memory-card-kicker{font-size:11px;color:#898985;text-transform:uppercase}.memory-card-value{margin-top:6px;font-size:14px;line-height:1.45;white-space:pre-wrap}.memory-card-source,.memory-state,.memory-empty{color:#8a8a8a;font-size:12px;line-height:1.4}.memory-card-source{margin-top:6px}.memory-card-actions{display:flex;gap:7px;margin-top:10px}.memory-card-actions button,.memory-section-head button{padding:8px 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}.memory-card-actions .danger{color:#8a2d2d}

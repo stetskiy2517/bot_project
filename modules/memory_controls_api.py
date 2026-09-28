@@ -47,8 +47,34 @@ def memory_ui_hook(response):
     if request.path == "/" and response.status_code == 200 and response.mimetype == "text/html":
         html = response.get_data(as_text=True)
         script = '<script src="/memory-controls.js"></script>'
-        if script not in html and "</body>" in html:
-            response.set_data(html.replace("</body>", f"    {script}\n  </body>", 1))
+        markup = """<div id="memoryScreen" class="memory-screen" aria-hidden="true">
+      <div class="memory-screen-shell">
+        <header class="memory-screen-head">
+          <button id="closeMemoryScreen" class="memory-back" type="button" aria-label="Назад">‹</button>
+          <div><h2>Память</h2><p>Единая память секретаря</p></div>
+        </header>
+        <div class="memory-tabs" role="tablist">
+          <button class="memory-tab active" type="button" data-memory-tab="personal">О тебе</button>
+          <button class="memory-tab" type="button" data-memory-tab="work">Работа</button>
+        </div>
+        <div class="memory-scroll">
+          <section class="memory-pane" data-memory-pane="personal">
+            <div id="memoryPersonalList"></div>
+            <p id="memoryState" class="memory-state"></p>
+          </section>
+          <section class="memory-pane" data-memory-pane="work" hidden>
+            <div id="memoryWorkContent"></div>
+          </section>
+          <p id="memoryScreenStatus" class="memory-state" role="status"></p>
+        </div>
+      </div>
+    </div>"""
+        if "</body>" in html:
+            if 'id="memoryScreen"' not in html:
+                html = html.replace("</body>", f"    {markup}\n  </body>", 1)
+            if script not in html:
+                html = html.replace("</body>", f"    {script}\n  </body>", 1)
+            response.set_data(html)
     return response
 
 
