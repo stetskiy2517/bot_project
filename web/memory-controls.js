@@ -21,7 +21,7 @@
   function sourceLabel(memory) {
     const labels = {
       note: "заметка", reminder: "напоминание", calendar_event: "календарь",
-      voice_transcript: "голос/чат", user_correction: "исправлено пользователем",
+      voice_transcript: "голос/чат", email: "почта", user_correction: "исправлено пользователем",
     };
     return labels[memory.source_type] || memory.source_type || "источник не указан";
   }
@@ -116,6 +116,7 @@
     const companyRows = companies.length ? companies.map(item => `
       <div class="memory-list-row">
         <div><strong>${escapeHtml(item.name)}</strong>${item.industry ? `<span>${escapeHtml(item.industry)}</span>` : ""}</div>
+        <button type="button" data-memory-edit-company="${item.company_id}">Изменить</button>
       </div>`).join("") : '<p class="memory-empty">Компаний пока нет.</p>';
 
     const contactRows = contacts.length ? contacts.map(item => `
@@ -123,6 +124,7 @@
         <div><strong>${escapeHtml(item.full_name)}</strong>
           <span>${escapeHtml([item.position, companyName(companies, item.company_id)].filter(Boolean).join(" · "))}</span>
         </div>
+        <button type="button" data-memory-edit-contact="${item.contact_id}">Изменить</button>
       </div>`).join("") : '<p class="memory-empty">Контактов пока нет.</p>';
 
     const commitmentRows = commitments.length ? commitments.map(item => `
@@ -130,6 +132,7 @@
         <div><strong>${escapeHtml(item.title)}</strong>
           <span>${escapeHtml([companyName(companies, item.company_id), contactName(contacts, item.contact_id), item.due_at ? new Date(item.due_at).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · "))}</span>
         </div>
+        <button type="button" data-memory-done="${item.commitment_id}">Готово</button>
       </div>`).join("") : '<p class="memory-empty">Открытых договорённостей пока нет.</p>';
 
     const interactionRows = interactions.length ? interactions.slice(0, 30).map(item => `
@@ -140,6 +143,11 @@
       </div>`).join("") : '<p class="memory-empty">История взаимодействий пока пустая.</p>';
 
     box.innerHTML = `
+      <section class="memory-section">
+        <div class="memory-section-head"><h3>Поиск</h3></div>
+        <div class="memory-search"><input id="memoryWorkSearch" type="search" placeholder="Компания, человек, договорённость…" autocomplete="off"><button type="button" data-memory-search>Найти</button></div>
+        <div id="memorySearchResults"></div>
+      </section>
       <section class="memory-section">
         <div class="memory-section-head"><h3>Компании</h3><button type="button" data-memory-add="company">Добавить</button></div>
         <div class="memory-list">${companyRows}</div>
@@ -209,6 +217,50 @@
     await loadWork();
   }
 
+
+  async function searchWork() {
+    const input = document.getElementById("memoryWorkSearch");
+    const results = document.getElementById("memorySearchResults");
+    const query = input?.value?.trim();
+    if (!query || query.length < 2) return;
+    const data = await api("/api/memory/search?q=" + encodeURIComponent(query));
+    const lines = [];
+    for (const item of data.companies || []) lines.push("Компания: " + item.name);
+    for (const item of data.contacts || []) lines.push("Контакт: " + item.full_name + (item.position ? " · " + item.position : ""));
+    for (const item of data.commitments || []) lines.push("Договорённость: " + item.title);
+    for (const item of data.interactions || []) lines.push("История: " + item.summary);
+    results.innerHTML = lines.length ? '<div class="memory-search-result">' + lines.map(line => "<p>" + escapeHtml(line) + "</p>").join("") + "</div>" : '<p class="memory-empty">Ничего не найдено.</p>';
+  }
+
+  async function editCompany(id) {
+    const data = await api("/api/memory/work-context");
+    const item = (data.companies || []).find(row => Number(row.company_id) === Number(id));
+    if (!item) return;
+    const name = prompt("Название компании", item.name || "");
+    if (!name?.trim()) return;
+    const industry = prompt("Отрасль", item.industry || "");
+    if (industry == null) return;
+    await api("/api/memory/companies/" + id, {method:"PATCH", body:JSON.stringify({name:name.trim(), industry:industry.trim()})});
+    await loadWork();
+  }
+
+  async function editContact(id) {
+    const data = await api("/api/memory/work-context");
+    const item = (data.contacts || []).find(row => Number(row.contact_id) === Number(id));
+    if (!item) return;
+    const name = prompt("Имя контакта", item.full_name || "");
+    if (!name?.trim()) return;
+    const position = prompt("Должность", item.position || "");
+    if (position == null) return;
+    await api("/api/memory/contacts/" + id, {method:"PATCH", body:JSON.stringify({full_name:name.trim(), position:position.trim()})});
+    await loadWork();
+  }
+
+  async function completeCommitment(id) {
+    await api("/api/memory/commitments/" + id, {method:"PATCH", body:JSON.stringify({status:"done"})});
+    await loadWork();
+  }
+
   function install() {
     if (installed) return;
     const settingsRoot = document.querySelector("#settingsPanel .sheet");
@@ -264,6 +316,14 @@
       if (forget) return forgetMemory(forget.dataset.memoryForget).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
       const add = event.target.closest("[data-memory-add]");
       if (add) return addWorkItem(add.dataset.memoryAdd).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const search = event.target.closest("[data-memory-search]");
+      if (search) return searchWork().catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const company = event.target.closest("[data-memory-edit-company]");
+      if (company) return editCompany(company.dataset.memoryEditCompany).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const contact = event.target.closest("[data-memory-edit-contact]");
+      if (contact) return editContact(contact.dataset.memoryEditContact).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const done = event.target.closest("[data-memory-done]");
+      if (done) return completeCommitment(done.dataset.memoryDone).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
     });
 
     const style = document.createElement("style");
@@ -274,7 +334,7 @@
       .memory-screen-head{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;border-bottom:1px solid #e6e6e3;background:#fff}.memory-screen-head h2{margin:0;font-size:22px}.memory-screen-head p{margin:2px 0 0;color:#8a8a8a;font-size:12px}.memory-back{width:40px;height:40px;border-radius:50%;background:#f1f1ef;font-size:30px;line-height:1;color:#333;cursor:pointer}
       .memory-tabs{display:flex;gap:4px;padding:10px 16px;background:#fff;border-bottom:1px solid #e6e6e3}.memory-tab{flex:1;min-height:40px;border-radius:11px;background:#f1f1ef;color:#666;font-weight:600;cursor:pointer}.memory-tab.active{background:#111;color:#fff}
       .memory-scroll{flex:1;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 24px)}.memory-card,.memory-section{background:#fff;border:1px solid #e6e6e3;border-radius:16px;padding:14px;margin-bottom:10px}.memory-card-kicker{font-size:11px;color:#898985;text-transform:uppercase}.memory-card-value{margin-top:6px;font-size:14px;line-height:1.45;white-space:pre-wrap}.memory-card-source,.memory-state,.memory-empty{color:#8a8a8a;font-size:12px;line-height:1.4}.memory-card-source{margin-top:6px}.memory-card-actions{display:flex;gap:7px;margin-top:10px}.memory-card-actions button,.memory-section-head button{padding:8px 10px;border-radius:10px;background:#efefed;color:#333;font-size:12px;font-weight:600;cursor:pointer}.memory-card-actions .danger{color:#8a2d2d}
-      .memory-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.memory-section-head h3{margin:0;font-size:15px}.memory-list{margin-top:8px}.memory-list-row{padding:10px 0;border-top:1px solid #efefed}.memory-list-row:first-child{border-top:0}.memory-list-row strong{display:block;font-size:14px}.memory-list-row span{display:block;margin-top:3px;color:#8a8a8a;font-size:12px}
+      .memory-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.memory-section-head h3{margin:0;font-size:15px}.memory-list{margin-top:8px}.memory-search{display:flex;gap:8px;margin-top:10px}.memory-search input{flex:1;min-width:0;padding:10px 12px;border:1px solid #dededb;border-radius:10px;background:#fff}.memory-search button,.memory-list-row>button{padding:7px 9px;border-radius:9px;background:#efefed;color:#333;font-size:12px;cursor:pointer}.memory-search-result{margin-top:8px}.memory-search-result p{margin:7px 0;font-size:13px}.memory-list-row{padding:10px 0;border-top:1px solid #efefed;display:flex;align-items:center;justify-content:space-between;gap:10px}.memory-list-row:first-child{border-top:0}.memory-list-row strong{display:block;font-size:14px}.memory-list-row span{display:block;margin-top:3px;color:#8a8a8a;font-size:12px}
     `;
     document.head.appendChild(style);
   }
