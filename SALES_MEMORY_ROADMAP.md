@@ -1,75 +1,39 @@
-# AI Sales Memory — MVP roadmap
+# Unified Memory roadmap
 
-Branch: `feature/sales-memory`
+В приложении одна память пользователя. Она хранит и личный контекст, и рабочий контекст.
 
-## Goal
+## Что уже есть
 
-Add a separate work-memory layer for companies, people, interactions and commitments without mixing it with the existing behavioural `user_memories` store.
+- факты, предпочтения, привычки, цели, отношения и наблюдения;
+- журнал событий из заметок, напоминаний, голоса и календаря;
+- AI-обработка памяти.
 
-## Existing foundation
+## Что добавляем
 
-- SQLite is the current application store (`core/db.py`).
-- `core/memory_store.py` stores inferred user facts, preferences, habits and observations.
-- `core/ai_memory_store.py` journals note/reminder/voice/calendar events for AI processing.
-- Sales Memory must reference these systems, not replace or duplicate them.
+В тот же модуль `core/memory_store.py`:
 
-## MVP entities
+- компании;
+- контакты;
+- история встреч, звонков, писем и сообщений;
+- договорённости и обещания;
+- связи с календарём, задачами, заметками и почтой.
 
-1. Company
-   - name, aliases, industry, website, notes, status.
-2. Contact
-   - full name, company, position, phone, email, Telegram, notes, status.
-3. Interaction
-   - meeting/call/email/message/note, happened_at, summary, outcome, next_step.
-   - optional source_type/source_id to point at calendar, email, note, task, etc.
-4. Commitment
-   - promise/action, due_at, status, company/contact, optional linked source.
+## Почему внутри несколько таблиц
 
-Every row is scoped by `user_id`.
+Память одна как подсистема, но данные разного типа хранятся в отдельных таблицах.
+Это позволяет быстро искать контакты и историю, не превращая все данные в один неструктурированный JSON.
 
-## Data rules
+## Правила
 
-- No secrets/tokens in Sales Memory.
-- Soft-delete business records where history matters.
-- Do not let AI silently overwrite a manually edited contact/company field.
-- AI extraction should propose changes first; deterministic validation writes them.
-- Cross-module links use stable source identifiers instead of copying source data.
+- все данные изолированы по `user_id`;
+- ручные данные имеют приоритет над AI-выводами;
+- AI предлагает новые связи и факты, а запись проходит проверку;
+- история взаимодействий не переписывается задним числом;
+- источники связываются через `source_type/source_id`, без копирования целых сущностей.
 
-## Delivery stages
+## Следующие этапы
 
-### Stage 1 — data layer
-- SQLite tables and indexes.
-- CRUD for companies/contacts.
-- append interactions.
-- create/complete commitments.
-- unit tests and user isolation.
-
-### Stage 2 — API
-- authenticated endpoints for list/search/create/update.
-- no UI redesign.
-
-### Stage 3 — UI
-- Clients screen.
-- Company card.
-- Contact card.
-- interaction timeline.
-- open commitments.
-
-### Stage 4 — AI ingestion
-- extract company/contact/commitment candidates from email, notes, voice and meetings.
-- deduplicate candidates.
-- require confirmation for uncertain identity merges.
-
-### Stage 5 — planner integration
-- commitments can create/link tasks and reminders.
-- upcoming meetings show company/contact context.
-- completed tasks can append an interaction/outcome.
-
-## MVP acceptance
-
-- User A cannot read or mutate User B records.
-- Duplicate company/contact creation is handled predictably.
-- Interaction history is append-only.
-- Commitments retain completion history.
-- Existing Planner/AI Memory behaviour remains unchanged.
-- Full unit test suite passes before merge.
+1. API памяти: поиск, карточки компаний и людей, история, обязательства.
+2. Экран «Память»: единая точка входа, внутри личное и рабочее представление.
+3. AI ingestion: извлечение людей, компаний и договорённостей из писем, встреч, заметок и голоса.
+4. Planner integration: обещания и следующие шаги связываются с задачами и напоминаниями.
