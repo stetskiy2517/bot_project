@@ -18,6 +18,10 @@ from core.memory_store import (
     record_interaction,
     suppress_memory,
     upsert_memory,
+    search_work_memory,
+    update_company,
+    update_contact,
+    set_commitment_status,
 )
 from core.proactive_feedback_store import feedback_for_actions, feedback_summary, save_proactive_feedback
 from core.proactive_store import list_proactive_actions
@@ -203,3 +207,55 @@ def add_memory_commitment():
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_commitment", message=str(exc)), 400
     return {"commitment": item}, 201
+
+
+@memory_controls_api.get("/api/memory/search")
+def search_memory():
+    query = " ".join(str(request.args.get("q") or "").split()).strip()
+    if len(query) < 2:
+        return jsonify(error="invalid_memory_search", message="Запрос должен быть не короче двух символов."), 400
+    return search_work_memory(_user(), query, limit=50)
+
+
+@memory_controls_api.patch("/api/memory/companies/<int:company_id>")
+def edit_memory_company(company_id: int):
+    payload = request.get_json(silent=True) or {}
+    allowed = {"name", "industry", "website", "notes"}
+    if not payload or set(payload) - allowed:
+        return jsonify(error="invalid_company_update"), 400
+    try:
+        item = update_company(_user(), company_id, **payload)
+    except ValueError as exc:
+        return jsonify(error="invalid_company", message=str(exc)), 400
+    if not item:
+        return jsonify(error="company_not_found"), 404
+    return {"company": item}
+
+
+@memory_controls_api.patch("/api/memory/contacts/<int:contact_id>")
+def edit_memory_contact(contact_id: int):
+    payload = request.get_json(silent=True) or {}
+    allowed = {"full_name", "company_id", "position", "phone", "email", "telegram", "notes"}
+    if not payload or set(payload) - allowed:
+        return jsonify(error="invalid_contact_update"), 400
+    try:
+        item = update_contact(_user(), contact_id, **payload)
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_contact", message=str(exc)), 400
+    if not item:
+        return jsonify(error="contact_not_found"), 404
+    return {"contact": item}
+
+
+@memory_controls_api.patch("/api/memory/commitments/<int:commitment_id>")
+def edit_memory_commitment(commitment_id: int):
+    payload = request.get_json(silent=True) or {}
+    if set(payload) != {"status"}:
+        return jsonify(error="invalid_commitment_update"), 400
+    try:
+        item = set_commitment_status(_user(), commitment_id, payload.get("status"))
+    except ValueError as exc:
+        return jsonify(error="invalid_commitment", message=str(exc)), 400
+    if not item:
+        return jsonify(error="commitment_not_found"), 404
+    return {"commitment": item}
