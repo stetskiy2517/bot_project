@@ -7,6 +7,7 @@ import json
 import logging
 import re
 
+from core.ai_memory_store import record_ai_memory_event
 from core.db import get_user_timezone
 from core.email_store import list_email_accounts
 from core.feature_access import has_ai_access
@@ -207,6 +208,28 @@ def _merge_actions(body_actions: list[dict], attachment_actions: list[dict]) -> 
     return merged[:MAX_COMBINED_ACTIONS]
 
 
+
+def _journal_collected_email(user_id: int, account: dict, message: dict) -> None:
+    raw = f"{account.get('account_id')}:{message.get('provider_message_id') or message.get('date') or ''}:{message.get('subject') or ''}"
+    digest = __import__("hashlib").sha256(raw.encode("utf-8")).digest()[:8]
+    entity_id = int.from_bytes(digest, "big") & ((1 << 63) - 1) or 1
+    record_ai_memory_event(
+        user_id,
+        "email",
+        entity_id,
+        "created",
+        {
+            "provider_message_id": str(message.get("provider_message_id") or "")[:500],
+            "from": str(message.get("from") or "")[:500],
+            "subject": str(message.get("subject") or "")[:500],
+            "date": str(message.get("date") or "")[:120],
+            "preview": str(message.get("preview") or "")[:1000],
+            "body": str(message.get("body") or "")[:5000],
+            "account_id": account.get("account_id"),
+        },
+    )
+
+
 def build_email_plan(user_id: int, request_text: str = "", *, include_attachments: bool = False) -> dict:
     if not list_email_accounts(user_id):
         return {"summary": "Почта не подключена.", "actions": [], "draft_reply": None, "ai_used": False}
@@ -223,6 +246,11 @@ def build_email_plan(user_id: int, request_text: str = "", *, include_attachment
     if not collected:
         return {"summary": "Подходящих писем не нашёл.", "actions": [], "draft_reply": None, "ai_used": False}
     messages = collected[:MAX_ANALYSIS_MESSAGES]
+    for account, message in messages:
+        try:
+            _journal_collected_email(user_id, account, message)
+        except Exception:
+            logger.exception("Could not journal manually analyzed email for user %s", user_id)
 
     attachment_result = {"actions": [], "warnings": [], "analyzed": 0, "detected": 0, "supported_found": 0}
     if include_attachments:
