@@ -241,7 +241,7 @@ def create_commitment(user_id: int, title: str, *, due_at: str | None = None, co
     with db_lock:
         cur = conn.execute(
             "INSERT INTO sales_commitments(user_id,company_id,contact_id,title,due_at,status,source_type,source_id,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,'open',?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,'open',?,?,?,?)",
             (int(user_id), company_id, contact_id, title, _clean(due_at, 80), _clean(source_type, 64), _clean(source_id, 300), now, now),
         )
         conn.commit()
