@@ -64,7 +64,9 @@ class UnifiedMemoryScreenTests(unittest.TestCase):
 
         script = self.client.get("/memory-controls.js").get_data(as_text=True)
         self.assertIn('id = "openMemoryScreen"', script)
-        self.assertIn('>Память<', script)
+        self.assertIn('settings-theme-link-title">Память<', script)
+        self.assertIn('document.getElementById("settingsThemes")', script)
+        self.assertIn('themesMenu.appendChild(entry)', script)
         self.assertNotIn('data-view="memory"', script)
 
         mobile = self.client.get("/mobile-ui.js").get_data(as_text=True)
