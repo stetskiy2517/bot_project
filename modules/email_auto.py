@@ -9,6 +9,7 @@ import re
 import threading
 import time
 
+from core.ai_memory_store import record_ai_memory_event
 from core.db import conn, db_lock, get_user_timezone
 from core.email_auto_store import (
     account_is_initialized,
@@ -191,6 +192,31 @@ def _analyze_candidates(user_id: int, messages: list[tuple[dict, dict]], *, anal
     return plan, ai_text_calls
 
 
+
+def _memory_email_entity_id(account: dict, message: dict) -> int:
+    raw = f"{account.get('account_id')}:{message.get('provider_message_id') or message.get('date') or ''}:{message.get('subject') or ''}"
+    digest = __import__("hashlib").sha256(raw.encode("utf-8")).digest()[:8]
+    return int.from_bytes(digest, "big") & ((1 << 63) - 1) or 1
+
+
+def _journal_email_for_memory(user_id: int, account: dict, message: dict) -> None:
+    record_ai_memory_event(
+        user_id,
+        "email",
+        _memory_email_entity_id(account, message),
+        "created",
+        {
+            "provider_message_id": str(message.get("provider_message_id") or "")[:500],
+            "from": str(message.get("from") or "")[:500],
+            "subject": str(message.get("subject") or "")[:500],
+            "date": str(message.get("date") or "")[:120],
+            "preview": str(message.get("preview") or "")[:1000],
+            "body": str(message.get("body") or "")[:5000],
+            "account_id": account.get("account_id"),
+        },
+    )
+
+
 def evaluate_user_email_auto(user_id: int) -> dict:
     metrics = {
         "new_messages": 0,
@@ -259,6 +285,10 @@ def evaluate_user_email_auto(user_id: int) -> dict:
         metrics["already_present"] = int(auto.get("already_present") or 0)
         metrics["failed"] = int(auto.get("failed") or 0)
         for account, message, fingerprint, _ in candidates:
+            try:
+                _journal_email_for_memory(user_id, account, message)
+            except Exception:
+                logger.exception("Could not journal email into unified memory user=%s", user_id)
             mark_message_processed(
                 user_id,
                 int(account["account_id"]),
