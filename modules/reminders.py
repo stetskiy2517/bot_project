@@ -559,13 +559,13 @@ async def list_reminders_from_text(
     timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
     reminders = list_active_reminders(user_id, limit=100)
     if not reminders:
-        clear_current_entity(context, "reminder")
+        clear_current_entity(context)
         await update.message.reply_text("Активных напоминаний нет.")
         return True
     if len(reminders) == 1:
         _remember_reminder_reference(context, reminders[0])
     else:
-        clear_current_entity(context, "reminder")
+        clear_current_entity(context)
     await update.message.reply_text(
         "Напоминания:\n" + "\n".join(_format_line(item, timezone) for item in reminders[:20])
     )
