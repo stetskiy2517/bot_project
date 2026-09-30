@@ -113,8 +113,26 @@ def remember_entity_for_user(
     *,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    context = type("_Context", (), {"user_data": user_state(user_id)})()
-    return remember_entity(context, entity_type, entity_id, title, metadata=metadata)
+    return remember_entity(_context_for_user(user_id), entity_type, entity_id, title, metadata=metadata)
+
+
+def _context_for_user(user_id: int) -> Any:
+    return type("_Context", (), {"user_data": user_state(user_id)})()
+
+
+def current_entity_for_user(
+    user_id: int,
+    entity_type: str | None = None,
+    *,
+    now: float | None = None,
+    ttl_seconds: int = ENTITY_TTL_SECONDS,
+) -> dict[str, Any] | None:
+    return current_entity(
+        _context_for_user(user_id),
+        entity_type,
+        now=now,
+        ttl_seconds=ttl_seconds,
+    )
 
 
 def current_entity(
@@ -176,6 +194,14 @@ def clear_current_entity(context: Any, entity_type: str | None = None, entity_id
     if entity_id is not None and str(entity.get("id")) != str(entity_id):
         return
     root["current_entity"] = None
+
+
+def clear_current_entity_for_user(
+    user_id: int,
+    entity_type: str | None = None,
+    entity_id: object | None = None,
+) -> None:
+    clear_current_entity(_context_for_user(user_id), entity_type, entity_id)
 
 
 def get_pending(context: Any) -> dict[str, Any] | None:
