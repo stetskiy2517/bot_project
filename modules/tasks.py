@@ -23,6 +23,7 @@ from core.db import (
     list_tasks,
     set_task_completed,
 )
+from core.task_planner_store import get_planner_task, update_planner_task
 from modules.calendar import _date_from_text, _extract_title, _parse_datetime
 from modules.calendar_event_features import _priority_value
 from modules.calendar_user import _parse_view_period, _user_zone
@@ -30,6 +31,7 @@ from modules.calendar_user import _parse_view_period, _user_zone
 TASK_CREATE = "task_create"
 TASK_LIST = "task_list"
 TASK_COMPLETE = "task_complete"
+TASK_UPDATE = "task_update"
 TASK_DELETE = "task_delete"
 
 TASK_WORD_RE = re.compile(r"\bзадач\w*\b", re.IGNORECASE)
@@ -52,6 +54,21 @@ TASK_COMPLETE_RE = re.compile(
     re.IGNORECASE,
 )
 TASK_DELETE_RE = re.compile(r"^\s*(?:удали|удалить|убери|убрать)\s+задач\w*\b", re.IGNORECASE)
+TASK_UPDATE_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+    r"переименуй|переименовать|сделай)\s+(?:эту\s+|последн\w*\s+)?задач\w*\b",
+    re.IGNORECASE,
+)
+TASK_UPDATE_PREFIX_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+    r"переименуй|переименовать|сделай)\s+(?:эту\s+|последн\w*\s+)?задач\w*\s*",
+    re.IGNORECASE,
+)
+TASK_DURATION_RE = re.compile(
+    r"\b(?:длительност\w*\s*)?(?:на\s*)?(?P<amount>\d+(?:[.,]\d+)?)\s*"
+    r"(?P<unit>минут\w*|мин\.?|час\w*|ч\.)\b",
+    re.IGNORECASE,
+)
 TASK_DATE_HINT_RE = re.compile(
     r"\b(?:сегодня|завтра|послезавтра|понедельник\w*|вторник\w*|сред\w*|четверг\w*|"
     r"пятниц\w*|суббот\w*|воскресень\w*|\d{1,2}[./-]\d{1,2}|\d{1,2}(?:-?го)?\s+"
@@ -77,6 +94,8 @@ def detect_task_intent(text: str) -> str | None:
     """Распознавать только явные команды задач, чтобы не перехватывать календарь."""
     if TASK_DELETE_RE.search(text):
         return TASK_DELETE
+    if TASK_UPDATE_RE.search(text):
+        return TASK_UPDATE
     if TASK_COMPLETE_RE.search(text):
         return TASK_COMPLETE
     if TASK_LIST_RE.search(text) or TASK_DONE_LIST_RE.search(text):
@@ -273,6 +292,125 @@ async def list_tasks_from_text(update: Update, context: ContextTypes.DEFAULT_TYP
     return True
 
 
+def _task_duration_minutes(text: str) -> int | None:
+    if "длитель" not in _normalise_task_text(text):
+        return None
+    match = TASK_DURATION_RE.search(text)
+    if not match:
+        return None
+    amount = float(match.group("amount").replace(",", "."))
+    unit = match.group("unit").lower()
+    minutes = int(round(amount * 60)) if unit.startswith(("час", "ч")) else int(round(amount))
+    return minutes if 5 <= minutes <= 720 else None
+
+
+def _normalise_task_text(text: str) -> str:
+    return str(text or "").lower().replace("ё", "е")
+
+
+def _task_rename_value(text: str) -> str | None:
+    match = re.match(
+        r"^\s*(?:переименуй|переименовать)\b.+?\s+в\s+(?P<title>.+?)\s*[.!?]*$",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    title = " ".join(match.group("title").split()).strip(" ,.-")
+    return title[:300] if title else None
+
+
+def _task_update_changes(text: str, timezone: str) -> dict:
+    changes: dict = {}
+    lower = _normalise_task_text(text)
+
+    rename = _task_rename_value(text)
+    if rename:
+        changes["title"] = rename
+
+    if TASK_DATE_HINT_RE.search(text) or re.search(
+        r"\b(?:сегодня|завтра|послезавтра|через\s+\d+|(?:в|к)\s*\d{1,2}(?::\d{2})?)\b",
+        lower,
+    ):
+        due_at = _task_due_at(text, timezone)
+        if due_at:
+            changes["due_at"] = due_at.isoformat()
+
+    priority = _priority_value(text)
+    if priority:
+        changes["priority"] = priority
+
+    duration = _task_duration_minutes(text)
+    if duration is not None:
+        changes["estimate_minutes"] = duration
+
+    return changes
+
+
+def _task_update_target_query(text: str) -> str:
+    body = TASK_UPDATE_PREFIX_RE.sub("", text.strip().rstrip("?.!,"), count=1).strip(" ,.-")
+    if not body:
+        return ""
+    if re.match(r"^(?:на|до|срок\w*|длительност\w*|приоритет\w*)\b", body, re.IGNORECASE):
+        return ""
+    marker = re.search(
+        r"\s+(?=(?:на|до)\s+(?:сегодня|завтра|послезавтра|\d|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес)|"
+        r"\s+(?=длительност\w*\b)|\s+(?=приоритет\w*\b)|\s+(?=(?:высок|низк|обычн|средн)\w*\s+приоритет)",
+        body,
+        re.IGNORECASE,
+    )
+    return body[: marker.start()].strip(" ,.-") if marker else body
+
+
+async def update_task_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    task_id: int | None = None,
+) -> bool:
+    user_id = update.effective_user.id
+    timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
+
+    task = get_planner_task(user_id, task_id) if task_id is not None else None
+    if task is None:
+        query = _task_update_target_query(text)
+        if query:
+            matches = [
+                item for item in list_tasks(user_id, status="open", limit=200)
+                if _matches(item, query)
+            ]
+            if len(matches) == 1:
+                task = get_planner_task(user_id, matches[0]["task_id"])
+            elif len(matches) > 1:
+                await update.message.reply_text("Нашёл несколько задач. Уточни название задачи.")
+                return True
+        else:
+            current = _current_task(context, user_id)
+            if current:
+                task = get_planner_task(user_id, current["task_id"])
+
+    if not task:
+        await update.message.reply_text("Какую задачу изменить?")
+        return True
+
+    changes = _task_update_changes(text, timezone)
+    if not changes:
+        await update.message.reply_text(
+            "Что изменить в задаче? Можно срок, длительность, приоритет или название."
+        )
+        return True
+
+    try:
+        updated = update_planner_task(user_id, int(task["task_id"]), changes)
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return True
+    _remember_task(context, updated)
+    await update.message.reply_text(f"Задача «{updated['title']}» изменена.")
+    return True
+
+
 async def complete_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     timezone = get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
     query = _task_query(text)
@@ -385,6 +523,8 @@ async def handle_task_text(
         return await list_tasks_from_text(update, context, text)
     if intent == TASK_COMPLETE:
         return await complete_task_from_text(update, context, text)
+    if intent == TASK_UPDATE:
+        return await update_task_from_text(update, context, text)
     if intent == TASK_DELETE:
         return await delete_task_from_text(update, context, text)
     return False
