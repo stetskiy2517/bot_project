@@ -10,6 +10,7 @@ import time as clock
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import clear_current_entity, get_pending, set_pending
 from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import _build_event, _create_event, _extract_duration, _extract_time
 from modules.calendar_event_features import apply_event_features
@@ -376,7 +377,7 @@ def create_event_in_slot(
 
 
 def slot_choices(context) -> list[dict]:
-    pending = context.user_data.get("smart_planner_pending") or {}
+    pending = get_pending(context) or {}
     kind = pending.get("type")
     if kind not in {"free_slot_choice", "confirm_free_slot"}:
         return []
@@ -395,6 +396,8 @@ async def free_slots_from_text(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
 ) -> bool:
+    # A free-slot result is a list/selection context, not the previously focused entity.
+    clear_current_entity(context)
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
@@ -447,24 +450,24 @@ async def free_slots_from_text(
             await update.message.reply_text("Такого свободного варианта не нашёл. Попробуй выбрать другой.")
             return True
         slot_start, slot_end = slots[index]
-        context.user_data["smart_planner_pending"] = {
+        set_pending(context, {
             "type": "confirm_free_slot", "slot": (slot_start, slot_end),
             "timezone": timezone, "title": booking_title, "expires_at": clock.time() + 300,
             "allow_non_workday": _period_has_explicit_day(text),
-        }
+        })
         await update.message.reply_text(
             f"Поставить «{booking_title}» на {slot_start.strftime('%d.%m %H:%M')}–{slot_end.strftime('%H:%M')}? Да или отмена."
         )
         return True
 
-    context.user_data["smart_planner_pending"] = {
+    set_pending(context, {
         "type": "free_slot_choice",
         "allow_non_workday": _period_has_explicit_day(text),
         "expires_at": clock.time() + 300,
         "slots": slots,
         "timezone": timezone,
         "label": label,
-    }
+    })
     include_date = (end - start) > timedelta(days=1)
     lines = [f"{index}. {_format_slot(slot, include_date=include_date)}" for index, slot in enumerate(slots, start=1)]
     await update.message.reply_text(

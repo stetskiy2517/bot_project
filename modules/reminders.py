@@ -8,6 +8,13 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import (
+    clear_current_entity,
+    clear_pending,
+    current_entity,
+    remember_entity,
+    set_pending,
+)
 from core.db import get_user_timezone
 from core.library_store import get_saved_reminder
 from core.reminder_detail_store import edit_saved_reminder
@@ -137,7 +144,6 @@ CHOICE_WORD_RE = re.compile(r"\b(перв\w*|втор\w*|трет\w*|четве�
 QUERY_STOP_WORDS = {"про", "напоминание", "напоминания", "напоминанию"}
 CANCEL_WORDS = {"нет", "не надо", "отмена", "отменить", "стоп"}
 REMINDER_REFERENCE_REPLIES = {"это", "его", "это напоминание", "последнее", "последнее напоминание"}
-LAST_REMINDER_KEY = "smart_planner_last_reminder"
 _NO_EDIT = object()
 WEEKDAY_REPEAT_PATTERNS = (
     (0, r"(?:кажд\w*\s+понедельник\w*|по\s+понедельникам)"),
@@ -381,22 +387,22 @@ def _matches(reminder: dict, query: str) -> bool:
 
 
 def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
-    context.user_data["smart_planner_pending"] = payload
+    set_pending(context, payload)
 
 
 def _remember_reminder_reference(context: ContextTypes.DEFAULT_TYPE, reminder: dict) -> None:
-    context.user_data[LAST_REMINDER_KEY] = {
-        "reminder_id": reminder.get("reminder_id"),
-        "text": reminder.get("text"),
-    }
+    reminder_id = reminder.get("reminder_id")
+    if reminder_id is None:
+        return
+    remember_entity(context, "reminder", reminder_id, reminder.get("text") or "")
 
 
 def _active_reference(context: ContextTypes.DEFAULT_TYPE, reminders: list[dict]) -> dict | None:
-    reference = context.user_data.get(LAST_REMINDER_KEY)
-    if not isinstance(reference, dict):
+    reference = current_entity(context, "reminder")
+    if not reference:
         return None
-    reminder_id = reference.get("reminder_id")
-    return next((item for item in reminders if item.get("reminder_id") == reminder_id), None)
+    reminder_id = str(reference.get("id") or "")
+    return next((item for item in reminders if str(item.get("reminder_id")) == reminder_id), None)
 
 
 def _split_update_request(text: str) -> tuple[str, str | None]:
@@ -491,11 +497,11 @@ async def _apply_reminder_edit_instruction(
         await update.message.reply_text(str(exc))
         return True
     if not edited:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Это напоминание уже удалено.")
         return True
 
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     _remember_reminder_reference(context, edited)
     await update.message.reply_text(
         f"Напоминание обновлено · «{edited['text']}»\n"
@@ -553,13 +559,13 @@ async def list_reminders_from_text(
     timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
     reminders = list_active_reminders(user_id, limit=100)
     if not reminders:
-        context.user_data.pop(LAST_REMINDER_KEY, None)
+        clear_current_entity(context)
         await update.message.reply_text("Активных напоминаний нет.")
         return True
     if len(reminders) == 1:
         _remember_reminder_reference(context, reminders[0])
     else:
-        context.user_data.pop(LAST_REMINDER_KEY, None)
+        clear_current_entity(context)
     await update.message.reply_text(
         "Напоминания:\n" + "\n".join(_format_line(item, timezone) for item in reminders[:20])
     )
@@ -652,7 +658,7 @@ async def delete_reminder_from_text(
     if not query:
         reminders = list_active_reminders(user_id, limit=200)
         if not reminders:
-            context.user_data.pop(LAST_REMINDER_KEY, None)
+            clear_current_entity(context, "reminder")
             await update.message.reply_text("Активных напоминаний нет.")
             return True
         _store_pending(
@@ -677,8 +683,9 @@ async def delete_reminder_from_text(
             "\n".join(_format_line(item, timezone, index=index) for index, item in enumerate(visible, start=1))
         )
         return True
-    delete_reminder(user_id, matches[0]["reminder_id"])
-    context.user_data.pop(LAST_REMINDER_KEY, None)
+    deleted = matches[0]
+    delete_reminder(user_id, deleted["reminder_id"])
+    clear_current_entity(context, "reminder", deleted["reminder_id"])
     await update.message.reply_text(f"Напоминание «{matches[0]['text']}» удалено.")
     return True
 
@@ -708,7 +715,7 @@ async def resume_pending_reminder(
 ) -> bool:
     normal = _normalise(text)
     if normal in CANCEL_WORDS:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил.")
         return True
 
@@ -721,7 +728,7 @@ async def resume_pending_reminder(
             await update.message.reply_text("Не понял время. Например: «в 22:00», «завтра в 9» или «через 30 минут».")
             return True
         repeat_rule = pending.get("repeat_rule") or _repeat_rule(combined)
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         reminder = create_reminder(
             update.effective_user.id,
             pending["title"],
@@ -738,7 +745,7 @@ async def resume_pending_reminder(
     if pending_type == "reminder_edit":
         reminder = get_saved_reminder(update.effective_user.id, int(pending.get("reminder_id") or 0))
         if not reminder:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Это напоминание уже удалено.")
             return True
         timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
@@ -755,7 +762,7 @@ async def resume_pending_reminder(
             return True
         reminder = get_saved_reminder(update.effective_user.id, int(reminders[index]["reminder_id"]))
         if not reminder:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Это напоминание уже удалено.")
             return True
         timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
@@ -788,8 +795,8 @@ async def resume_pending_reminder(
                 reminder = reminders[0]
             if reminder is None:
                 if not reminders:
-                    context.user_data.pop("smart_planner_pending", None)
-                    context.user_data.pop(LAST_REMINDER_KEY, None)
+                    clear_pending(context)
+                    clear_current_entity(context, "reminder")
                     await update.message.reply_text("Активных напоминаний нет.")
                     return True
                 visible = reminders[:5]
@@ -805,15 +812,15 @@ async def resume_pending_reminder(
                     )
                 )
                 return True
-            context.user_data.pop("smart_planner_pending", None)
-            context.user_data.pop(LAST_REMINDER_KEY, None)
+            clear_pending(context)
+            clear_current_entity(context, "reminder", reminder["reminder_id"])
             if delete_reminder(user_id, reminder["reminder_id"]):
                 await update.message.reply_text(f"Напоминание «{reminder['text']}» удалено.")
             else:
                 await update.message.reply_text("Это напоминание уже выполнено или удалено.")
             return True
 
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await delete_reminder_from_text(update, context, f"удали напоминание {text}")
 
     if pending_type == "reminder_select_delete":
@@ -825,9 +832,9 @@ async def resume_pending_reminder(
         if index < 0 or index >= len(reminders):
             await update.message.reply_text("Такого номера нет. Выбери номер из списка.")
             return True
-        context.user_data.pop("smart_planner_pending", None)
-        context.user_data.pop(LAST_REMINDER_KEY, None)
+        clear_pending(context)
         reminder = reminders[index]
+        clear_current_entity(context, "reminder", reminder["reminder_id"])
         if delete_reminder(update.effective_user.id, reminder["reminder_id"]):
             await update.message.reply_text(f"Напоминание «{reminder['text']}» удалено.")
         else:

@@ -8,16 +8,16 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
+from core.conversation_context import clear_current_entity_for_user, remember_entity_for_user
 from core.task_planner_store import (
     create_planner_task,
-    delete_planner_task,
     get_planner_task,
     list_planner_tasks,
     task_summary,
     update_planner_task,
 )
-from modules.task_planner import apply_task_slot, preview_flexible_schedule, remove_future_task_block
-from modules.task_recurrence import create_next_recurring_task
+from modules.task_planner import apply_task_slot, preview_flexible_schedule
+from modules.task_service import complete_task, delete_task
 
 logger = logging.getLogger(__name__)
 task_api = Blueprint("tasks", __name__)
@@ -101,10 +101,12 @@ def tasks_list():
 
 @task_api.get("/api/tasks/<int:task_id>")
 def tasks_get(task_id: int):
-    task = get_planner_task(_user(), task_id)
+    user_id = _user()
+    task = get_planner_task(user_id, task_id)
     if not task:
         return jsonify(error="task_not_found"), 404
-    subtasks = list_planner_tasks(_user(), status=None, limit=500, parent_task_id=task_id)
+    remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
+    subtasks = list_planner_tasks(user_id, status=None, limit=500, parent_task_id=task_id)
     return {"task": task, "subtasks": subtasks}
 
 
@@ -126,6 +128,7 @@ def tasks_create():
         )
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_task", message=str(exc)), 400
+    remember_entity_for_user(_user(), "task", task["task_id"], task.get("title") or "")
     return {"task": task}, 201
 
 
@@ -138,13 +141,25 @@ def tasks_update(task_id: int):
         return jsonify(error="task_not_found"), 404
     status = payload.get("status")
     try:
-        task = update_planner_task(user_id, task_id, payload)
+        if set(payload) == {"status"} and status in {"open", "done"}:
+            task, next_task = complete_task(user_id, task_id, completed=status == "done")
+            if not task:
+                return jsonify(error="task_not_found"), 404
+        else:
+            changes = dict(payload)
+            next_task = None
+            if status == "done" and current.get("status") != "done":
+                # Persist other edited fields first, then transition status once
+                # through the shared service so cleanup/recurrence cannot be skipped.
+                changes.pop("status", None)
+                if changes:
+                    update_planner_task(user_id, task_id, changes)
+                task, next_task = complete_task(user_id, task_id, completed=True)
+            else:
+                task = update_planner_task(user_id, task_id, changes)
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_task", message=str(exc)), 400
-    next_task = None
-    if status == "done" and current.get("status") != "done":
-        remove_future_task_block(user_id, current)
-        next_task = create_next_recurring_task(user_id, current)
+    remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
     return {"task": task, "next_task": next_task}
 
 
@@ -154,13 +169,11 @@ def tasks_delete(task_id: int):
     current = get_planner_task(user_id, task_id)
     if not current:
         return jsonify(error="task_not_found"), 404
-    remove_future_task_block(user_id, current)
-    subtasks = list_planner_tasks(user_id, status=None, limit=500, parent_task_id=task_id)
-    for subtask in subtasks:
-        update_planner_task(user_id, int(subtask["task_id"]), {"parent_task_id": None})
-    if not delete_planner_task(user_id, task_id):
+    deleted, detached_subtasks = delete_task(user_id, task_id)
+    if not deleted:
         return jsonify(error="task_not_found"), 404
-    return {"ok": True, "detached_subtasks": len(subtasks)}
+    clear_current_entity_for_user(user_id, "task", task_id)
+    return {"ok": True, "detached_subtasks": detached_subtasks}
 
 
 @task_api.get("/api/tasks/schedule/preview")
@@ -196,7 +209,9 @@ def task_schedule_apply():
             continue
         seen.add(task_id)
         try:
-            task = apply_task_slot(_user(), task_id, str(item.get("start") or ""))
+            user_id = _user()
+            task = apply_task_slot(user_id, task_id, str(item.get("start") or ""))
+            remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
             applied.append(task)
         except ValueError as exc:
             errors.append({"task_id": task_id, "error": str(exc)})

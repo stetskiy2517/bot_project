@@ -371,6 +371,17 @@ async def view_from_text(
         await update.message.reply_text("Не удалось прочитать Google Calendar. Попробуй ещё раз.")
         return True
 
+    if len(events) == 1:
+        event = events[0]
+        remember_entity(
+            context,
+            "calendar_event",
+            event.get("id"),
+            event.get("summary") or "Событие",
+            metadata={"start": event.get("start"), "end": event.get("end")},
+        )
+    else:
+        clear_current_entity(context)
     await update.message.reply_text(_format_events(events, timezone, start, end, label))
     return True
 
@@ -403,6 +414,17 @@ async def search_from_text(
         await update.message.reply_text("Не удалось выполнить поиск в Google Calendar. Попробуй ещё раз.")
         return True
 
+    if len(events) == 1:
+        event = events[0]
+        remember_entity(
+            context,
+            "calendar_event",
+            event.get("id"),
+            event.get("summary") or "Событие",
+            metadata={"start": event.get("start"), "end": event.get("end")},
+        )
+    else:
+        clear_current_entity(context)
     await update.message.reply_text(_format_search_results(events, timezone, query))
     return True
 

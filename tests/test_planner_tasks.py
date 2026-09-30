@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
+from core.conversation_context import get_pending, set_pending
 from core.db import create_task, delete_task, list_tasks, set_task_completed
 from modules.router import route_text
 from modules.tasks import (
@@ -11,6 +12,7 @@ from modules.tasks import (
     TASK_CREATE,
     TASK_DELETE,
     TASK_LIST,
+    TASK_UPDATE,
     _task_due_at,
     _task_priority,
     _task_query,
@@ -34,6 +36,7 @@ class PlannerTaskParsingTests(unittest.TestCase):
             "отметь задачу позвонить Иванову выполненной": TASK_COMPLETE,
             "задача позвонить Иванову выполнена": TASK_COMPLETE,
             "удали задачу купить билеты": TASK_DELETE,
+            "перенеси задачу купить билеты на завтра": TASK_UPDATE,
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
@@ -111,12 +114,12 @@ class PlannerTaskRouterTests(unittest.IsolatedAsyncioTestCase):
             "task": {"task_id": 7, "title": "Купить билеты"},
             "timezone": "Europe/Moscow",
         }
-        self.context.user_data["smart_planner_pending"] = pending
-        with patch("modules.tasks.delete_task", return_value=True) as delete:
+        set_pending(self.context, pending)
+        with patch("modules.tasks.delete_task_service", return_value=(True, None)) as delete:
             handled = await resume_pending_task(self.update, self.context, "да", pending)
         self.assertTrue(handled)
         delete.assert_called_once_with(12345, 7)
-        self.assertNotIn("smart_planner_pending", self.context.user_data)
+        self.assertIsNone(get_pending(self.context))
 
 
 if __name__ == "__main__":

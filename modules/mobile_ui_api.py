@@ -12,6 +12,7 @@ from flask import Blueprint, request, send_from_directory, session
 from core.attention_store import dismiss_attention_item, mark_attention_seen
 from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
+from integrations.google_calendar_service import GoogleAuthRequired
 from modules.attention import attention_snapshot
 from modules.calendar_location_api import calendar_location_api
 from modules.calendar_availability import _event_end
@@ -206,11 +207,19 @@ def mobile_today():
     review_kind = "evening" if local_now.hour >= 18 else "morning"
 
     calendar_ok = True
+    calendar_auth_required = False
     events: list[dict] = []
     try:
         raw_events = _list_events(user_id, day_start, day_end)
         events = [_event_payload(item, timezone_name) for item in raw_events]
         events.sort(key=lambda item: item.get("starts_at") or "")
+    except GoogleAuthRequired:
+        # Calendar was never connected. The rest of the assistant remains usable.
+        calendar_ok = False
+    except PermissionError:
+        # A previously connected Google token was rejected/revoked.
+        calendar_ok = False
+        calendar_auth_required = True
     except Exception:
         calendar_ok = False
 
@@ -252,6 +261,7 @@ def mobile_today():
         "date": str(local_now.date()),
         "timezone": timezone_name,
         "calendar_ok": calendar_ok,
+        "calendar_auth_required": calendar_auth_required,
         "events": events[:20],
         "tasks": task_items[:8],
         "task_summary": task_summary(user_id, now=now_utc),

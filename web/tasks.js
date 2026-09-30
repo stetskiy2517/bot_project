@@ -72,7 +72,9 @@
   }
 
   async function editTask(task) {
-    const payload = await editor().openTask({task});
+    const details = await api(`/api/tasks/${task.task_id}`);
+    const activeTask = details?.task || task;
+    const payload = await editor().openTask({task: activeTask});
     if (!payload) return;
     await api(`/api/tasks/${task.task_id}`, {method: "PATCH", body: JSON.stringify(payload)});
     await renderTasks();

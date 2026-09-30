@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.db import get_user_timezone
+from core.conversation_context import remember_entity_for_user
 from core.library_store import get_saved_reminder, list_saved_reminders
 from core.reminder_detail_store import edit_saved_reminder, get_reminder_category_override
 from modules.reminder_categories import REMINDER_CATEGORY_LABELS, detect_reminder_category
@@ -53,9 +54,11 @@ def reminder_details_list():
 
 @reminder_detail_api.get("/api/mobile/reminders/<int:reminder_id>/details")
 def reminder_details(reminder_id: int):
-    reminder = get_saved_reminder(_user(), reminder_id)
+    user_id = _user()
+    reminder = get_saved_reminder(user_id, reminder_id)
     if not reminder:
         return jsonify(error="reminder_not_found"), 404
+    remember_entity_for_user(user_id, "reminder", reminder_id, reminder.get("text") or "")
     return {"reminder": _payload(reminder), "categories": REMINDER_CATEGORY_LABELS}
 
 
@@ -88,4 +91,5 @@ def edit_reminder_details(reminder_id: int):
         return jsonify(error="invalid_reminder_update", message=str(exc)), 400
     if not reminder:
         return jsonify(error="reminder_not_found"), 404
+    remember_entity_for_user(user_id, "reminder", reminder_id, reminder.get("text") or "")
     return {"ok": True, "reminder": _payload(reminder)}

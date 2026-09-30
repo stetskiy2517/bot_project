@@ -234,6 +234,13 @@ def load_conversation(user_id: int) -> dict:
         return {}
 
 
+def delete_conversation(user_id: int) -> None:
+    """Delete durable short-term conversation state for one user."""
+    with db_lock:
+        conn.execute("DELETE FROM conversation_state WHERE user_id=?", (int(user_id),))
+        conn.commit()
+
+
 def save_conversation(user_id: int, state: dict) -> None:
     payload = json.dumps(state, default=_json_default, ensure_ascii=False, allow_nan=False)
     if len(payload.encode()) > 512_000:

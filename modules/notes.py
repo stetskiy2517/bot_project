@@ -8,6 +8,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import clear_pending, set_pending
 from core.note_store import append_note, create_note, delete_note, derive_note_title, list_notes, search_notes
 from core.db import get_user_timezone
 from modules.calendar_user import _user_zone
@@ -303,7 +304,7 @@ def _format_line(note: dict, timezone: str, index: int | None = None) -> str:
 
 
 def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
-    context.user_data["smart_planner_pending"] = payload
+    set_pending(context, payload)
 
 
 def _created_reply(note: dict) -> str:
@@ -449,7 +450,7 @@ async def handle_note_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, pending: dict) -> bool:
     normal = _normalise(text)
     if normal in CANCEL_WORDS:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил.")
         return True
 
@@ -460,7 +461,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("Что записать в заметку?")
             return True
         title, body = _split_note_payload(payload)
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         try:
             note = create_note(update.effective_user.id, body, title=title)
         except ValueError as exc:
@@ -493,7 +494,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             _store_pending(context, {"type": "note_append_text", "note": note})
             await update.message.reply_text(f"Что добавить в заметку «{_note_title(note)}»?")
             return True
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await _append_to_note(update, note, addition)
 
     if pending_type == "note_append_text":
@@ -502,7 +503,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("Что добавить в заметку?")
             return True
         note = pending.get("note") or {}
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await _append_to_note(update, note, addition)
 
     if pending_type in {"note_select_delete", "note_select_append"}:
@@ -522,10 +523,10 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
                 _store_pending(context, {"type": "note_append_text", "note": note})
                 await update.message.reply_text(f"Что добавить в заметку «{_note_title(note)}»?")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             return await _append_to_note(update, note, addition)
 
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         if delete_note(update.effective_user.id, note["note_id"]):
             await update.message.reply_text(f"Заметка «{_note_title(note)}» удалена.")
         else:

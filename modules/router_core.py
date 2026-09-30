@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import clear_pending, current_entity, get_pending, set_pending
 from core.conversation_policy import is_declarative_statement, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
@@ -28,8 +29,22 @@ from modules.note_conversation import (
 )
 from modules.note_reference import resolve_note_reference
 from modules.notes import NOTE_APPEND, NOTE_DELETE, NOTE_SEARCH, detect_note_intent, handle_note_text, resume_pending_note
-from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
-from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
+from modules.reminders import (
+    REMINDER_DELETE,
+    REMINDER_UPDATE,
+    detect_reminder_intent,
+    handle_reminder_text,
+    resume_pending_reminder,
+)
+from modules.tasks import (
+    TASK_COMPLETE,
+    TASK_DELETE,
+    TASK_UPDATE,
+    detect_task_intent,
+    handle_task_text,
+    resume_pending_task,
+    update_task_from_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +203,47 @@ FORCE_CONFLICT_REPLIES = {
     "создай несмотря на конфликт",
     "создавай несмотря на конфликт",
 }
+EXPLICIT_ENTITY_TARGET_RE = re.compile(
+    r"\b(?:событ\w*|встреч\w*|календар\w*|расписани\w*|напоминани\w*|"
+    r"задач\w*|заметк\w*|запис\w*)\b",
+    re.IGNORECASE,
+)
+GENERIC_UPDATE_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+    r"переименуй|переименовать|сделай|добавь|добавить|убери|убрать|поставь|поставить)\b",
+    re.IGNORECASE,
+)
+GENERIC_DELETE_RE = re.compile(
+    r"^\s*(?:удали|удалить|убери|убрать|отмени|отменить)\b",
+    re.IGNORECASE,
+)
+GENERIC_COMPLETE_RE = re.compile(
+    r"^\s*(?:готово|выполнено|сделано|выполнил|выполнила|закрой|закрыть|заверши|завершить|"
+    r"отметь\s+(?:как\s+)?выполненн\w*)\b",
+    re.IGNORECASE,
+)
+LEADING_CONTEXT_REFERENCE_RE = re.compile(
+    r"^\s*(?:его|ее|её|это|эту|этот|последн\w*)\b\s*",
+    re.IGNORECASE,
+)
+EVENT_RELATIVE_REMINDER_RE = re.compile(
+    r"^\s*(?:и\s+)?(?:(?:напомни|напомнить)(?:\s+мне)?|"
+    r"(?:добавь|добавить|поставь|поставить)\s+напоминани\w*)\s+за\s+",
+    re.IGNORECASE,
+)
+CONTEXT_PROPERTY_UPDATE_RE = re.compile(
+    r"^\s*(?:и\s+)?(?:"
+    r"(?:измени|изменить|поменяй|поменять|перенеси|перенести|сделай|добавь|добавить|"
+    r"поставь|поставить|убери|убрать|переименуй|переименовать)\b"
+    r"[^.!?]{0,80}\b(?:адрес|место|локаци\w*|длительност\w*|срок\w*|"
+    r"приоритет\w*|категори\w*|напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b"
+    r"|(?:адрес|место|локаци\w*|длительност\w*|срок\w*|приоритет\w*|категори\w*|"
+    r"напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b"
+    r"[^.!?]{0,40}\b(?:измени|изменить|поменяй|поменять|перенеси|перенести|сделай|"
+    r"добавь|добавить|поставь|поставить|убери|убрать|переименуй|переименовать)\b"
+    r")",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -359,23 +415,11 @@ def _needs_time(text: str) -> bool:
 
 
 def _pending(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
-    value = context.user_data.get("smart_planner_pending")
-    return value if isinstance(value, dict) else None
+    return get_pending(context)
 
 
 def _clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data.pop("smart_planner_pending", None)
-
-
-def _sync_active_reminder_reference(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Consume a reminder opened from the web library as the current chat reference."""
-    active = context.user_data.pop("smart_planner_active_reminder", None)
-    if not isinstance(active, dict) or not active.get("reminder_id"):
-        return
-    context.user_data["smart_planner_last_reminder"] = {
-        "reminder_id": active.get("reminder_id"),
-        "text": active.get("text"),
-    }
+    clear_pending(context)
 
 
 def _normalise_pending_reply(text: str) -> str:
@@ -431,7 +475,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     _clear_pending(context)
     handled = await create_from_text(update, context, combined)
     if not handled:
-        context.user_data["smart_planner_pending"] = pending
+        set_pending(context, pending)
         await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или «завтра в 19».")
     return True
 
@@ -465,6 +509,88 @@ def _blocks_active_note_append(text: str) -> bool:
     return any(word in lower for word in EVENT_WORDS)
 
 
+def _context_action_tail(text: str) -> str:
+    tail = re.sub(
+        r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+        r"переименуй|переименовать|сделай|добавь|добавить|убери|убрать|поставь|поставить)\b",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip(" ,.-")
+    return LEADING_CONTEXT_REFERENCE_RE.sub("", tail, count=1).strip(" ,.-")
+
+
+async def _route_current_entity_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    if EXPLICIT_ENTITY_TARGET_RE.search(text):
+        return False
+    reference = current_entity(context)
+    if not reference:
+        return False
+
+    kind = str(reference.get("type") or "")
+    title = str(reference.get("title") or "").strip()
+    is_delete = bool(GENERIC_DELETE_RE.match(text))
+    is_update = bool(GENERIC_UPDATE_RE.match(text) or CONTEXT_PROPERTY_UPDATE_RE.match(text))
+    is_complete = bool(GENERIC_COMPLETE_RE.match(text))
+    is_event_reminder = bool(EVENT_RELATIVE_REMINDER_RE.match(text))
+    if not (is_delete or is_update or is_complete or is_event_reminder):
+        return False
+
+    if kind == "calendar_event":
+        event_id = str(reference.get("id") or "").strip()
+        if is_delete:
+            return await delete_from_text(update, context, text)
+        if is_update or is_event_reminder:
+            return await update_from_text(
+                update,
+                context,
+                _action_text(text),
+                event_id=event_id or None,
+            )
+        return False
+
+    if kind == "reminder":
+        if is_delete:
+            canonical = f"удали напоминание {title}".strip()
+            return await handle_reminder_text(update, context, canonical, REMINDER_DELETE)
+        if is_update:
+            tail = _context_action_tail(text)
+            canonical = f"измени напоминание {title}".strip()
+            if tail:
+                canonical += f" {tail}"
+            return await handle_reminder_text(update, context, canonical, REMINDER_UPDATE)
+        return False
+
+    if kind == "task":
+        if is_delete:
+            canonical = f"удали задачу {title}".strip()
+            return await handle_task_text(update, context, canonical, TASK_DELETE)
+        if is_complete:
+            canonical = f"закрой задачу {title}".strip()
+            return await handle_task_text(update, context, canonical, TASK_COMPLETE)
+        if is_update:
+            try:
+                task_id = int(reference.get("id"))
+            except (TypeError, ValueError):
+                return False
+            return await update_task_from_text(update, context, text, task_id=task_id)
+        return False
+
+    if kind == "note" and is_delete:
+        canonical = f"удали заметку {title}".strip()
+        handled = await handle_note_text(update, context, canonical, NOTE_DELETE)
+        if handled:
+            clear_active_note(context)
+        return handled
+
+    return False
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -484,7 +610,19 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             _clear_pending(context)
 
     user_id = getattr(update.effective_user, "id", None)
-    _sync_active_reminder_reference(context)
+
+    # Property edits belong to the focused entity before note-append heuristics
+    # can reinterpret generic verbs such as "добавь".
+    if CONTEXT_PROPERTY_UPDATE_RE.match(text) and await _route_current_entity_action(update, context, text):
+        logger.info("Router updated property of focused entity")
+        return True
+
+    # Relative reminder follow-ups ("напомни за час") belong to the focused
+    # calendar event, while absolute reminders ("напомни завтра в 9") remain
+    # standalone reminders.
+    if EVENT_RELATIVE_REMINDER_RE.match(text) and await _route_current_entity_action(update, context, text):
+        logger.info("Router attached reminder to focused calendar event")
+        return True
 
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
@@ -558,12 +696,16 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
                 remember_after_note_action(user_id, context, NOTE_SEARCH, note_search_text)
             return handled
 
+    if await _route_current_entity_action(update, context, text):
+        logger.info("Router resolved action through unified current entity")
+        return True
+
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
     if intent.name == INTENT_CREATE:
         create_text = _creation_text(text)
         if _needs_time(create_text):
-            context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
+            set_pending(context, {"type": "create_time", "text": create_text})
             if DATE_HINT_RE.search(_normalise(create_text)):
                 prompt = "Во сколько поставить событие?"
             else:

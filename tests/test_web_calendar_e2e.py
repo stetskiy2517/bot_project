@@ -1,11 +1,12 @@
 import unittest
 from unittest.mock import MagicMock,patch
 import web_app
+from core.conversation_context import clear_user_state, reset_user_context
 from tests.web_test_support import web_test_app
 from core.db import get_or_create_google_user
 class WebCalendarE2ETests(unittest.TestCase):
     def setUp(self):
-        self.app=web_test_app();self.client=self.app.test_client();web_app._user_state.clear();self.user_id=get_or_create_google_user('e2e-google-sub','e2e@example.test','E2E User')
+        self.app=web_test_app();self.client=self.app.test_client();clear_user_state();self.user_id=get_or_create_google_user('e2e-google-sub','e2e@example.test','E2E User');reset_user_context(self.user_id)
         with self.client.session_transaction() as s:s['user_id']=self.user_id
     def _set_timezone(self):self.assertEqual(self.client.post('/api/settings',json={'timezone':'Europe/Moscow'}).status_code,200)
     def _service(self):

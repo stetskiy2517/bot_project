@@ -5,6 +5,7 @@ import uuid
 from unittest.mock import patch
 
 import web_app
+from core.conversation_context import clear_user_state
 from core.ai_memory_store import list_ai_memory_events
 from core.db import conn, db_lock, get_or_create_google_user
 from core.note_store import list_notes
@@ -23,7 +24,7 @@ class DirectHabitMemoryTests(unittest.TestCase):
         )
         self.app = web_test_app()
         self.client = self.app.test_client()
-        web_app._user_state.clear()
+        clear_user_state()
         with self.client.session_transaction() as session:
             session["user_id"] = self.user_id
 

@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from flask import g, jsonify, request, session
 
 from config import BASE_URL
+from core.conversation_context import clear_user_state, replace_user_state, user_state
 from core.command_store import (
     UserBusyError, begin_request, enter_request, finish_request, leave_request,
     load_conversation, request_effects, save_conversation, set_phase, user_operation,
@@ -114,7 +115,7 @@ def _recover_calendar(user_id: int, request_id: str) -> dict | None:
     }
 
 
-def install_web_security(app, states: dict[int, dict]) -> None:
+def install_web_security(app) -> None:
     @app.before_request
     def guard_web_request():
         if request.path == "/api/google/login":
@@ -170,7 +171,7 @@ def install_web_security(app, states: dict[int, dict]) -> None:
         if not get_google_account(user_id):
             session.clear()
             return jsonify(error="unauthorized"), 401
-        states[user_id] = load_conversation(user_id)
+        replace_user_state(user_id, load_conversation(user_id))
         if not writes:
             return None
 
@@ -217,7 +218,7 @@ def install_web_security(app, states: dict[int, dict]) -> None:
             return response
         user_id, request_id = key
         if not get_google_account(user_id):
-            states.pop(user_id, None)
+            clear_user_state(user_id)
             return response
         data = response.get_json(silent=True)
         if not isinstance(data, dict):
@@ -239,7 +240,7 @@ def install_web_security(app, states: dict[int, dict]) -> None:
         elif response.status_code >= 500 and not g.command_executing:
             phase = "retryable"
         if request.path != "/api/logout":
-            save_conversation(user_id, states.get(user_id, {}))
+            save_conversation(user_id, user_state(user_id))
         data["request_id"] = request_id
         finish_request(user_id, request_id, data, response.status_code, phase=phase)
         response.set_data(app.json.dumps(data))

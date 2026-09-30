@@ -1,5 +1,6 @@
 from datetime import datetime
 from types import SimpleNamespace
+from core.conversation_context import get_pending, set_pending
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -201,10 +202,10 @@ class CalendarRecurringDialogTests(unittest.IsolatedAsyncioTestCase):
             "event": self.event,
             "timezone": "Europe/Moscow",
         }
-        self.context.user_data["smart_planner_pending"] = pending
+        set_pending(self.context, pending)
         handled = await resume_pending_action(self.update, self.context, "всю серию", pending)
         self.assertTrue(handled)
-        next_pending = self.context.user_data["smart_planner_pending"]
+        next_pending = get_pending(self.context)
         self.assertEqual(next_pending["type"], "confirm_delete")
         self.assertEqual(next_pending["scope"], "series")
 
@@ -215,7 +216,7 @@ class CalendarRecurringDialogTests(unittest.IsolatedAsyncioTestCase):
             "timezone": "Europe/Moscow",
             "scope": "series",
         }
-        self.context.user_data["smart_planner_pending"] = pending
+        set_pending(self.context, pending)
         service = MagicMock()
         service.events.return_value.delete.return_value.execute.return_value = None
         with patch("modules.calendar_actions._get_calendar_service", return_value=service):

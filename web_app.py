@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 import logging
 from math import isfinite
 import re
-import threading
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -32,6 +31,16 @@ from core.db import (
     save_user_appearance_theme,
 )
 from core.assistant_preferences import quiet_until
+from core.conversation_context import (
+    clear_current_entity,
+    clear_user_state,
+    reset_user_context,
+    clear_pending,
+    current_entity,
+    get_pending,
+    remember_entity,
+    user_state,
+)
 from core.library_store import get_saved_reminder, list_saved_reminders
 from core.location_context import clear_current_location, save_current_location
 from core.navigation_store import get_navigation_preferences, save_navigation_settings, validate_navigation_settings
@@ -51,7 +60,7 @@ from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
 from modules.navigation import estimate_route, navigation_configured, navigation_provider
 from modules.navigation_monitor import request_navigation_recalculation, start_navigation_monitor_worker
-from modules.note_conversation import clear_active_note, remember_active_note
+from modules.note_conversation import remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
@@ -79,13 +88,8 @@ VOICE_MIME_SUFFIXES = {
 }
 VOICE_SUFFIXES = frozenset(VOICE_MIME_SUFFIXES.values())
 
-_user_state: dict[int, dict] = {}
-_state_lock = threading.RLock()
-
-
 def _state_for(user_id: int) -> dict:
-    with _state_lock:
-        return _user_state.setdefault(user_id, {})
+    return user_state(user_id)
 
 
 def _current_user_id() -> int | None:
@@ -377,11 +381,8 @@ def create_web_app() -> Flask:
         endpoint = payload.get("endpoint")
         if isinstance(endpoint, str):
             delete_push_subscription(user_id, endpoint)
-        _user_state.pop(user_id, None)
+        reset_user_context(user_id)
         clear_current_location(user_id)
-        with db_lock:
-            conn.execute("DELETE FROM conversation_state WHERE user_id=?", (user_id,))
-            conn.commit()
         session.clear()
         return {"ok": True}
 
@@ -446,14 +447,13 @@ def create_web_app() -> Flask:
 
         state = _state_for(user_id)
         context = WebContext(state)
+        clear_pending(context)
 
         if item_type == "note":
             note = get_note(user_id, item_id)
             if not note:
                 return jsonify({"error": "library_item_not_found"}), 404
-            state.pop("smart_planner_pending", None)
             remember_active_note(context, note)
-            state.pop("smart_planner_active_reminder", None)
             return {
                 "type": "note",
                 "id": int(note["note_id"]),
@@ -464,12 +464,12 @@ def create_web_app() -> Flask:
         reminder = get_saved_reminder(user_id, item_id)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
-        state.pop("smart_planner_pending", None)
-        clear_active_note(context)
-        state["smart_planner_active_reminder"] = {
-            "reminder_id": int(reminder["reminder_id"]),
-            "text": str(reminder.get("text") or ""),
-        }
+        remember_entity(
+            context,
+            "reminder",
+            reminder["reminder_id"],
+            reminder.get("text") or "",
+        )
         user_timezone = get_user_timezone(user_id, default="Europe/Moscow") or "Europe/Moscow"
         return {
             "type": "reminder",
@@ -483,10 +483,10 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         if not delete_note(user_id, note_id):
             return jsonify({"error": "library_item_not_found"}), 404
-        state = _state_for(user_id)
-        active = state.get("smart_planner_active_note") or {}
-        if int(active.get("note_id") or 0) == note_id:
-            clear_active_note(WebContext(state))
+        context = WebContext(_state_for(user_id))
+        active = current_entity(context, "note")
+        if active and int(active.get("id") or 0) == note_id:
+            clear_current_entity(context, "note", note_id)
         return {"ok": True}
 
     @app.post("/api/library/reminders/<int:reminder_id>/complete")
@@ -499,6 +499,12 @@ def create_web_app() -> Flask:
         reminder = complete_reminder(user_id, reminder_id, completed=completed)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
+        remember_entity(
+            WebContext(_state_for(user_id)),
+            "reminder",
+            reminder["reminder_id"],
+            reminder.get("text") or "",
+        )
         return {"ok": True, "reminder": _library_reminder_payload(reminder)}
 
     @app.post("/api/library/reminders/<int:reminder_id>/reschedule")
@@ -512,6 +518,12 @@ def create_web_app() -> Flask:
         reminder = reschedule_reminder(user_id, reminder_id, remind_at)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
+        remember_entity(
+            WebContext(_state_for(user_id)),
+            "reminder",
+            reminder["reminder_id"],
+            reminder.get("text") or "",
+        )
         return {"ok": True, "reminder": _library_reminder_payload(reminder)}
 
     @app.delete("/api/library/reminders/<int:reminder_id>")
@@ -519,10 +531,10 @@ def create_web_app() -> Flask:
         user_id = _require_user_id()
         if not delete_saved_reminder(user_id, reminder_id):
             return jsonify({"error": "library_item_not_found"}), 404
-        state = _state_for(user_id)
-        active = state.get("smart_planner_active_reminder") or {}
-        if int(active.get("reminder_id") or 0) == reminder_id:
-            state.pop("smart_planner_active_reminder", None)
+        context = WebContext(_state_for(user_id))
+        active = current_entity(context, "reminder")
+        if active and int(active.get("id") or 0) == reminder_id:
+            clear_current_entity(context, "reminder", reminder_id)
         return {"ok": True}
 
     @app.get("/api/push/config")
@@ -645,7 +657,7 @@ def create_web_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         expected = payload.get("expected_context")
         if expected is not None:
-            pending = _state_for(user_id).get("smart_planner_pending") or {}
+            pending = get_pending(WebContext(_state_for(user_id))) or {}
             if not isinstance(expected, str) or not secrets.compare_digest(expected, str(pending.get("choice_token", ""))):
                 return jsonify(error="stale_choice", message="Этот выбор уже устарел. Запроси новые варианты."), 410
         text = payload.get("message", "")
@@ -811,7 +823,7 @@ def create_web_app() -> Flask:
         return _status_payload(user_id)
 
     app.register_blueprint(assistant_api)
-    install_web_security(app, _user_state)
+    install_web_security(app)
     return app
 
 

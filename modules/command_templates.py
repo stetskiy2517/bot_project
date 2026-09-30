@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+from core.conversation_context import clear_pending, get_pending, set_pending
 from core.db import conn, db_lock, DEFAULT_CATEGORY_COLORS
 from modules.calendar import _extract_time, _relative_offset
 from modules.calendar_actions import create_from_text
@@ -82,18 +83,18 @@ def delete_template(user_id: int, template_id: int) -> bool:
 
 
 async def handle_template(update, context, text: str) -> bool:
-    pending = context.user_data.get("smart_planner_pending") or {}
+    pending = get_pending(context) or {}
     user_id = update.effective_user.id
     templates = list_templates(user_id)
     if pending.get("type") == "template_when":
         if _normal(text).strip(" .!?") in {"отмена", "нет", "стоп", "не надо"}:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Шаблон не выполняю.")
             return True
         template = next((item for item in templates if item["id"] == pending["template_id"]), None)
         when = text
         if not template:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Шаблон уже удалён.")
             return True
     else:
@@ -106,13 +107,13 @@ async def handle_template(update, context, text: str) -> bool:
             return False
         when = normal[len(_normal(template["name"])):].strip()
     if not DATE_RE.search(when) or (_extract_time(when) is None and _relative_offset(when) is None):
-        context.user_data["smart_planner_pending"] = {"type": "template_when", "template_id": template["id"]}
+        set_pending(context, {"type": "template_when", "template_id": template["id"]})
         await update.message.reply_text("На какой день и время? Например: «завтра в 15:00».")
         return True
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     handled = await create_from_text(update, context, when, template=template)
     if not handled:
-        context.user_data["smart_planner_pending"] = {"type": "template_when", "template_id": template["id"]}
+        set_pending(context, {"type": "template_when", "template_id": template["id"]})
         await update.message.reply_text("Не удалось разобрать дату. Укажи день и время.")
     return True
 

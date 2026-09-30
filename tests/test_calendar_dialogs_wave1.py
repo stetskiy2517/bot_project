@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta
 from types import SimpleNamespace
+from core.conversation_context import get_pending, set_pending
 import unittest
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
@@ -90,7 +91,7 @@ class CalendarDialoguePendingTests(unittest.IsolatedAsyncioTestCase):
                 "end": {"dateTime": "2026-09-14T15:00:00+03:00", "timeZone": "Europe/Moscow"},
             },
         }
-        context = SimpleNamespace(user_data={"smart_planner_pending": pending})
+        context = SimpleNamespace(user_data={"smart_planner_context": {"version": 1, "current_entity": None, "recent_entities": [], "pending": pending}})
         with patch("modules.calendar_actions._create_event") as create_event:
             handled = await resume_pending_action(self.update, context, "поставь на второй вариант", pending)
 
@@ -98,7 +99,7 @@ class CalendarDialoguePendingTests(unittest.IsolatedAsyncioTestCase):
         created = create_event.call_args.args[1]
         self.assertEqual(created["start"]["dateTime"], second[0].isoformat())
         self.assertEqual(created["end"]["dateTime"], second[1].isoformat())
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
 
     async def test_free_slot_choice_can_collect_title_then_create(self):
         slot = (
@@ -110,22 +111,22 @@ class CalendarDialoguePendingTests(unittest.IsolatedAsyncioTestCase):
             "timezone": "Europe/Moscow",
             "slots": [slot],
         }
-        context = SimpleNamespace(user_data={"smart_planner_pending": pending})
+        context = SimpleNamespace(user_data={"smart_planner_context": {"version": 1, "current_entity": None, "recent_entities": [], "pending": pending}})
         handled = await resume_pending_action(self.update, context, "займи это окно", pending)
         self.assertTrue(handled)
-        self.assertEqual(context.user_data["smart_planner_pending"]["type"], "free_slot_title")
+        self.assertEqual(get_pending(context)["type"], "free_slot_title")
 
-        pending_title = context.user_data["smart_planner_pending"]
+        pending_title = get_pending(context)
         with patch("modules.calendar_actions.create_event_in_slot", return_value={"summary": "Созвон"}) as create:
             handled = await resume_pending_action(self.update, context, "Созвон", pending_title)
         self.assertTrue(handled)
         create.assert_not_called()
-        confirmation = context.user_data["smart_planner_pending"]
+        confirmation = get_pending(context)
         self.assertEqual(confirmation["type"], "confirm_free_slot")
         with patch("modules.calendar_actions.create_event_in_slot", return_value={"summary": "Созвон"}) as booked:
             await resume_pending_action(self.update, context, "да", confirmation)
         booked.assert_called_once()
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
 
 
 if __name__ == "__main__":

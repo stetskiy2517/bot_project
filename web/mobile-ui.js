@@ -236,6 +236,11 @@
       if (todayResult.status !== "fulfilled") throw todayResult.reason;
       todayPayload = todayResult.value;
       routePayload = routeResult.status === "fulfilled" ? routeResult.value : null;
+      if (todayPayload?.calendar_auth_required) {
+        document.dispatchEvent(new CustomEvent("planner-google-auth-required", {
+          detail: {error: "google_auth_required"},
+        }));
+      }
       renderToday(todayPayload, routePayload);
     } catch (error) {
       if (content) content.innerHTML = `<div class="mobile-error">${escapeHtml(friendly(error))}</div>`;
@@ -286,8 +291,12 @@
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
-  function openTask(taskId) {
-    const task = (todayPayload?.tasks || []).find(item => Number(item.task_id) === Number(taskId));
+  async function openTask(taskId) {
+    let task = (todayPayload?.tasks || []).find(item => Number(item.task_id) === Number(taskId));
+    try {
+      const details = await request(`/api/tasks/${taskId}`);
+      task = details?.task || task;
+    } catch (_) {}
     if (!task) return;
     openSheet(`
       <h2 class="mobile-sheet-title">Задача</h2>
@@ -301,18 +310,28 @@
     if (task.calendar_event_id) sheetBackdrop.querySelector("[data-task-schedule]").disabled = true;
   }
 
-  async function saveTask(taskId) {
+  function currentTaskChanges() {
     const title = document.getElementById("mobileTaskTitle")?.value.trim();
     const dueRaw = document.getElementById("mobileTaskDue")?.value;
     const estimateRaw = document.getElementById("mobileTaskEstimate")?.value;
-    if (!title) return showToast("Нужно название задачи");
-    const changes = {
+    if (!title) throw new Error("Нужно название задачи");
+    const estimate = estimateRaw ? Number(estimateRaw) : null;
+    if (estimate !== null && (!Number.isFinite(estimate) || estimate < 5 || estimate > 720)) {
+      throw new Error("Длительность — от 5 минут до 12 часов");
+    }
+    const due = dueRaw ? new Date(dueRaw) : null;
+    if (dueRaw && !Number.isFinite(due.getTime())) throw new Error("Проверь срок задачи");
+    return {
       title,
-      due_at: dueRaw ? new Date(dueRaw).toISOString() : null,
-      estimate_minutes: estimateRaw ? Number(estimateRaw) : null,
+      due_at: due ? due.toISOString() : null,
+      estimate_minutes: estimate,
       priority: document.getElementById("mobileTaskPriority")?.value || "normal",
       category: document.getElementById("mobileTaskCategory")?.value || "other",
     };
+  }
+
+  async function saveTask(taskId) {
+    const changes = currentTaskChanges();
     await request(`/api/tasks/${taskId}`, {method: "PATCH", body: JSON.stringify(changes)});
     closeSheet();
     todayPayload = null;
@@ -336,10 +355,24 @@
     return window.PlannerTaskEditor.confirmPlan(proposals);
   }
 
+  function scheduleSkipMessage(taskId, skipped) {
+    const item = (skipped || []).find(entry => Number(entry.task_id) === Number(taskId));
+    const reason = item?.reason;
+    if (reason === "missing_deadline") return "Укажи срок задачи";
+    if (reason === "missing_estimate") return "Укажи длительность задачи";
+    if (reason === "overdue") return "Срок задачи уже прошёл. Перенеси срок";
+    if (reason === "no_slot_before_deadline") return "До срока нет свободного окна нужной длительности. Перенеси срок или уменьши длительность";
+    if (reason === "already_scheduled") return "Для этой задачи уже выделено время в календаре";
+    if (reason === "fixed") return "Эта задача не отмечена как гибкая для автопланирования";
+    return "Не удалось подобрать свободное окно для этой задачи";
+  }
+
   async function scheduleTask(taskId) {
+    const changes = currentTaskChanges();
+    await request(`/api/tasks/${taskId}`, {method: "PATCH", body: JSON.stringify(changes)});
     const preview = await request("/api/tasks/schedule/preview");
     const proposal = (preview.proposals || []).find(item => Number(item.task_id) === Number(taskId));
-    if (!proposal) return showToast("Нужны срок, длительность и свободное окно");
+    if (!proposal) return showToast(scheduleSkipMessage(taskId, preview.skipped));
     if (!(await approvePlan([proposal]))) return;
     const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: [proposal]})});
     if (!result.applied_count) throw new Error(result.errors?.[0]?.error || "Окно уже занято");

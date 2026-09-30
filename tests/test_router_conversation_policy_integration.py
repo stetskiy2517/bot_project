@@ -2,13 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from modules.router import (
-    INTENT_CREATE,
-    INTENT_UNKNOWN,
-    _sync_active_reminder_reference,
-    detect_intent,
-    route_text,
-)
+from core.conversation_context import current_entity, get_pending
+from modules.router import INTENT_CREATE, INTENT_UNKNOWN, detect_intent, route_text
 
 
 class _Message:
@@ -46,16 +41,13 @@ class RouterConversationIntentTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(detect_intent(text).name, INTENT_CREATE)
 
-    def test_opened_library_reminder_becomes_one_shot_current_reference(self):
+    def test_legacy_opened_reminder_migrates_into_unified_context(self):
         context = _Context({
-            "smart_planner_last_reminder": {"reminder_id": 4, "text": "старое"},
             "smart_planner_active_reminder": {"reminder_id": 9, "text": "таблетка"},
         })
-        _sync_active_reminder_reference(context)
-        self.assertEqual(
-            context.user_data["smart_planner_last_reminder"],
-            {"reminder_id": 9, "text": "таблетка"},
-        )
+        reference = current_entity(context, "reminder")
+        self.assertEqual(reference["id"], "9")
+        self.assertEqual(reference["title"], "таблетка")
         self.assertNotIn("smart_planner_active_reminder", context.user_data)
 
 
@@ -65,7 +57,7 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
             message=_Message("Покажи календарь на завтра"),
             effective_user=SimpleNamespace(id=123),
         )
-        context = _Context({"smart_planner_pending": {"type": "confirm_delete"}})
+        context = _Context({"smart_planner_context": {"version": 1, "current_entity": None, "recent_entities": [], "pending": {"type": "confirm_delete"}}})
 
         with (
             patch("modules.router.handle_template", new=AsyncMock(return_value=False)),
@@ -77,7 +69,7 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         resume.assert_not_awaited()
         view.assert_awaited_once()
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
 
     async def test_free_time_query_interrupts_confirmation(self):
         update = SimpleNamespace(
@@ -103,7 +95,7 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
             message=_Message("завтра в 15"),
             effective_user=SimpleNamespace(id=123),
         )
-        context = _Context({"smart_planner_pending": {"type": "create_time", "text": "Встреча"}})
+        context = _Context({"smart_planner_context": {"version": 1, "current_entity": None, "recent_entities": [], "pending": {"type": "create_time", "text": "Встреча"}}})
 
         with (
             patch("modules.router.handle_template", new=AsyncMock(return_value=False)),

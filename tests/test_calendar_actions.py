@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from core.conversation_context import get_pending, remember_entity, set_pending
+
 from modules.calendar_actions import (
     _build_update_patch,
     _duration_from_update,
@@ -13,9 +15,11 @@ from modules.calendar_actions import (
     _find_conflicts,
     _has_explicit_delete_period,
     _is_bulk_delete_request,
+    _location_from_update,
     _new_title_from_update,
     delete_from_text,
     resume_pending_action,
+    update_from_text,
 )
 from modules.router import INTENT_UPDATE, detect_intent
 
@@ -45,10 +49,19 @@ class CalendarActionsTests(unittest.TestCase):
         self.assertEqual(_extract_update_target("перенеси врача на субботу"), "врача")
         self.assertEqual(_extract_update_target("сделай встречу на 2 часа"), "встречу")
         self.assertEqual(_extract_update_target("переименуй встречу в созвон с клиентом"), "встречу")
+        self.assertEqual(_extract_update_target("Длительность измени на 1,5 часа"), "")
+        self.assertEqual(_extract_update_target("измени длительность маникюра на 1,5 часа"), "маникюра")
+
+    def test_natural_address_followup_is_parsed(self):
+        self.assertEqual(_location_from_update("добавь адрес Ленина 5"), "Ленина 5")
+        self.assertEqual(_location_from_update("измени место на Тверская 12"), "Тверская 12")
+        self.assertEqual(_location_from_update("адрес добавь Ленина 5"), "Ленина 5")
 
     def test_duration_and_title_changes(self):
         self.assertEqual(_duration_from_update("сделай встречу на 2 часа"), timedelta(hours=2))
         self.assertEqual(_duration_from_update("измени созвон на 30 минут"), timedelta(minutes=30))
+        self.assertEqual(_duration_from_update("Длительность измени на 1,5 часа"), timedelta(minutes=90))
+        self.assertEqual(_duration_from_update("измени длительность на 1.5 часа"), timedelta(minutes=90))
         self.assertEqual(_new_title_from_update("переименуй встречу в созвон с клиентом"), "Созвон с клиентом")
 
     def test_time_update_preserves_duration(self):
@@ -127,6 +140,45 @@ class CalendarActionsTests(unittest.TestCase):
         self.assertEqual(detect_intent("переименуй встречу в созвон").name, INTENT_UPDATE)
 
 
+class CalendarContextUpdateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_duration_followup_updates_recently_created_event(self):
+        event = {
+            "id": "manicure-1",
+            "summary": "Маникюр с укреплением и покрытием гель-лак",
+            "start": {"dateTime": "2026-10-02T18:30:00+03:00"},
+            "end": {"dateTime": "2026-10-02T19:30:00+03:00"},
+        }
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=1),
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+        context = SimpleNamespace(user_data={})
+        service = MagicMock()
+        service.events.return_value.get.return_value.execute.return_value = event
+
+        remember_entity(context, "calendar_event", "manicure-1", event["summary"])
+        with patch("modules.calendar_actions.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.calendar_actions._get_calendar_service", return_value=service), \
+             patch("modules.calendar_actions._find_conflicts", return_value=[]):
+            handled = await update_from_text(
+                update,
+                context,
+                "Длительность измени на 1,5 часа",
+            )
+
+        self.assertTrue(handled)
+        pending = get_pending(context)
+        self.assertEqual(pending["type"], "confirm_update")
+        self.assertEqual(
+            pending["patch"]["end"]["dateTime"],
+            "2026-10-02T20:00:00+03:00",
+        )
+        service.events.return_value.get.assert_called_once_with(
+            calendarId="primary",
+            eventId="manicure-1",
+        )
+
+
 class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.zone = ZoneInfo("Europe/Moscow")
@@ -162,7 +214,7 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
             handled = await delete_from_text(update, context, "удали все встречи завтра")
 
         self.assertTrue(handled)
-        pending = context.user_data["smart_planner_pending"]
+        pending = get_pending(context)
         self.assertEqual(pending["type"], "confirm_delete_many")
         self.assertEqual([event["id"] for event in pending["events"]], ["event-1", "event-2"])
         reply = update.message.reply_text.await_args.args[0]
@@ -171,7 +223,8 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bulk_delete_confirmation_deletes_every_selected_event(self):
         update = self._update()
-        context = SimpleNamespace(user_data={"smart_planner_pending": {}})
+        context = SimpleNamespace(user_data={})
+        set_pending(context, {"type": "confirm_delete_many"})
         pending = {
             "type": "confirm_delete_many",
             "events": self.events,
@@ -184,7 +237,7 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         self.assertEqual(service.events.return_value.delete.call_count, 2)
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
         self.assertIn("Удалил все события", update.message.reply_text.await_args.args[0])
 
 

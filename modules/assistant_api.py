@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.ai_memory_store import record_ai_memory_event
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.chat_context import append_chat_exchange, clear_chat_context, recent_chat_messages
+from core.conversation_context import reset_user_context
 from core.feature_access import ai_access_status, has_ai_access
 from core.memory_store import list_memories, memory_status, suppress_memory
 from core.notification_policy import get_policy, save_policy
@@ -262,6 +263,7 @@ def account_erase():
     user_id = _user()
     erase_account(user_id, payload.get("challenge"), payload.get("confirmation"))
     clear_chat_context(user_id)
+    reset_user_context(user_id)
     session.clear()
     return {"ok": True, "local_data_erased": True, "google_calendar_unchanged": True}
 

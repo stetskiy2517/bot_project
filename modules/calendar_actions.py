@@ -10,6 +10,13 @@ import time as clock
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import (
+    clear_current_entity,
+    clear_pending,
+    current_entity,
+    remember_entity,
+    set_pending,
+)
 from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import (
     NAMED_DATE_RE,
@@ -85,7 +92,8 @@ DELETE_WEEK_PERIOD_RE = re.compile(
     re.IGNORECASE,
 )
 DURATION_RE = re.compile(
-    r"\bна\s+(?:(полчаса)|(полтора\s+часа)|(\d+)\s*(минут\w*|час\w*))\b",
+    r"\bна\s+(?:(?P<half>полчаса)|(?P<one_half>полтора\s+часа)|"
+    r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<unit>минут\w*|час\w*))\b",
     re.IGNORECASE,
 )
 RENAME_RE = re.compile(r"^переименуй\s+(.+?)\s+в\s+(.+)$", re.IGNORECASE)
@@ -113,10 +121,30 @@ CATEGORY_NAMES = {
     "личн": "personal",
     "проч": "other",
 }
+CONTEXT_REFERENCE_QUERIES = {
+    "", "это", "его", "ее", "её", "эту", "этот", "последнее", "последний",
+    "это событие", "эту встречу", "последнее событие", "последнюю встречу",
+}
 
 
 def _normalise(text: str) -> str:
     return text.lower().replace("ё", "е").strip()
+
+
+def _is_context_reference_query(value: str) -> bool:
+    return _normalise(value) in CONTEXT_REFERENCE_QUERIES
+
+
+def _context_calendar_event(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+) -> dict | None:
+    reference = current_entity(context, "calendar_event")
+    event_id = str(reference.get("id") or "") if reference else ""
+    if not event_id:
+        return None
+    service = _get_calendar_service(user_id)
+    return service.events().get(calendarId="primary", eventId=event_id).execute()
 
 
 def _event_end(event: dict, timezone: str) -> datetime | None:
@@ -248,6 +276,13 @@ def _extract_update_target(text: str) -> str:
     duration = DURATION_RE.search(body)
     if duration:
         body = body[: duration.start()]
+        body = re.sub(r"\bдлительност\w*\b", " ", body, flags=re.IGNORECASE)
+        body = re.sub(
+            r"\b(?:измени|изменить|поменяй|поменять|сделай)\b",
+            " ",
+            body,
+            flags=re.IGNORECASE,
+        )
     else:
         feature_tail = re.search(
             r"\s+(?:с\s+)?(?:высок\w*|низк\w*|обычн\w*|средн\w*)\s+приоритет\w*|"
@@ -274,12 +309,12 @@ def _duration_from_update(text: str) -> timedelta | None:
     match = DURATION_RE.search(_normalise(text))
     if not match:
         return None
-    if match.group(1):
+    if match.group("half"):
         return timedelta(minutes=30)
-    if match.group(2):
+    if match.group("one_half"):
         return timedelta(minutes=90)
-    amount = int(match.group(3))
-    return timedelta(minutes=amount) if match.group(4).startswith("минут") else timedelta(hours=amount)
+    amount = float(match.group("amount").replace(",", "."))
+    return timedelta(minutes=amount) if match.group("unit").startswith("минут") else timedelta(hours=amount)
 
 
 def _new_title_from_update(text: str) -> str | None:
@@ -314,7 +349,23 @@ def _location_from_update(text: str) -> str | None:
     direct = _extract_location(text)
     if direct:
         return direct
+    property_first = re.search(
+        r"^\s*(?:адрес|место)\b\s+(?:добавь|добавить|измени|изменить|поменяй|"
+        r"поменять|поставь|поставить)\s*(?:на\s+)?(?P<value>.+)$",
+        text,
+        re.IGNORECASE,
+    )
+    if property_first:
+        value = re.sub(r"\s+", " ", property_first.group("value")).strip(" ,.;")
+        return value[:500] if value else None
     match = LOCATION_UPDATE_VALUE_RE.search(text)
+    if not match:
+        match = re.search(
+            r"\b(?:адрес|место)\b\s*(?:на|:|—|-)?\s*(?P<value>.+?)"
+            r"(?=$|\s+(?:напомин|приоритет|категор|повтор|участник|длительност)\b)",
+            text,
+            re.IGNORECASE,
+        )
     if not match:
         return None
     value = re.sub(r"\s+", " ", match.group("value")).strip(" ,.;")
@@ -447,7 +498,23 @@ def _patch_interval(event: dict, patch: dict, timezone: str) -> tuple[datetime, 
 
 
 def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
-    context.user_data["smart_planner_pending"] = payload
+    set_pending(context, payload)
+
+
+def _remember_calendar_event(context: ContextTypes.DEFAULT_TYPE, event: dict) -> None:
+    event_id = event.get("id")
+    if not event_id:
+        return
+    remember_entity(
+        context,
+        "calendar_event",
+        event_id,
+        event.get("summary") or "Событие",
+        metadata={
+            "start": event.get("start"),
+            "end": event.get("end"),
+        },
+    )
 
 
 def _format_candidates(events: list[dict], timezone: str) -> str:
@@ -524,7 +591,8 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             )
             if not event:
                 return False
-            _create_event(user_id, event)
+            created = _create_event(user_id, event)
+            _remember_calendar_event(context, created)
             await update.message.reply_text(
                 f"Событие «{event['summary']}» добавлено на весь день: {event['start']['date']}"
             )
@@ -575,7 +643,8 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 "Выбери номер варианта, ответь «да», чтобы оставить исходное время, или «нет» для отмены."
             )
             return True
-        _create_event(user_id, event)
+        created = _create_event(user_id, event)
+        _remember_calendar_event(context, created)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -652,13 +721,16 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
 
     query = _extract_delete_query(text)
-    if not query and not bulk_delete:
-        await update.message.reply_text("Какое событие удалить?")
-        return True
     try:
         if bulk_delete:
             start, end = _parse_search_period(text, timezone)
             events = _list_events(user_id, start, end)
+        elif _is_context_reference_query(query):
+            referenced = _context_calendar_event(context, user_id)
+            if not referenced:
+                await update.message.reply_text("Какое событие удалить?")
+                return True
+            events = [referenced]
         else:
             events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
     except PermissionError:
@@ -694,18 +766,32 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     return await _prepare_delete_confirmation(update, context, events[0], text, timezone)
 
 
-async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+async def update_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    event_id: str | None = None,
+) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
         await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
     query = _extract_update_target(text)
-    if not query:
-        await update.message.reply_text("Какое событие изменить?")
-        return True
     try:
-        events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
+        if event_id:
+            service = _get_calendar_service(user_id)
+            referenced = service.events().get(calendarId="primary", eventId=str(event_id)).execute()
+            events = [referenced] if referenced else []
+        elif not _is_context_reference_query(query):
+            events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
+        else:
+            referenced = _context_calendar_event(context, user_id)
+            if not referenced:
+                await update.message.reply_text("Какое событие изменить?")
+                return True
+            events = [referenced]
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -714,7 +800,10 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text("Не удалось найти событие для изменения.")
         return True
     if not events:
-        await update.message.reply_text(f"Не нашёл событие «{query}».")
+        if query:
+            await update.message.reply_text(f"Не нашёл событие «{query}».")
+        else:
+            await update.message.reply_text("Не нашёл последнее событие для изменения. Укажи название.")
         return True
     if len(events) > 1:
         visible = events[:5]
@@ -808,13 +897,13 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
     pending_type = pending.get("type")
 
     if normal in NO_WORDS:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил действие.")
         return True
 
     if pending_type in {"free_slot_title", "free_slot_choice", "confirm_free_slot"}:
         if pending.get("expires_at", clock.time() + 1) <= clock.time():
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Предложение устарело. Запроси свободные окна ещё раз.")
             return True
         expires = pending.get("expires_at", clock.time() + 300)
@@ -822,7 +911,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             if normal not in YES_WORDS:
                 await update.message.reply_text("Ответь «да» или «отмена».")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             slot = pending["slot"]
             try:
                 event = create_event_in_slot(update.effective_user.id, pending["timezone"], pending["title"], *slot, allow_non_workday=pending.get("allow_non_workday", False))
@@ -838,7 +927,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         if pending_type == "free_slot_choice":
             index = _choice_index(text)
             if index is None:
-                context.user_data.pop("smart_planner_pending", None)
+                clear_pending(context)
                 return False
             slots = pending.get("slots") or []
             if not 0 <= index < len(slots):
@@ -850,7 +939,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             slot = pending.get("slot")
             title = text.strip(" ,.-")
         if not slot:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             return False
         if not title:
             _store_pending(context, {"type": "free_slot_title", "slot": slot,
@@ -878,10 +967,11 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             if index < 0 or index >= len(alternatives):
                 await update.message.reply_text("Такого варианта нет. Выбери номер из списка, «да» или «нет».")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             moved = _event_at_alternative(pending["event"], alternatives[index], pending.get("timezone") or "Europe/Moscow")
             try:
-                _create_event(update.effective_user.id, moved)
+                created = _create_event(update.effective_user.id, moved)
+                _remember_calendar_event(context, created)
                 slot = alternatives[index]
                 await update.message.reply_text(
                     f"Поставил «{moved.get('summary', 'Событие')}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
@@ -928,11 +1018,12 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Ответь «да» или «нет».")
         return True
 
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     user_id = update.effective_user.id
     try:
         if pending_type == "confirm_create_conflict":
-            _create_event(user_id, pending["event"])
+            created = _create_event(user_id, pending["event"])
+            _remember_calendar_event(context, created)
             await update.message.reply_text(f"Событие «{pending['event'].get('summary', 'Без названия')}» добавлено несмотря на конфликт.")
             return True
         if pending_type == "confirm_delete":
@@ -946,6 +1037,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                 service.events().delete(calendarId="primary", eventId=event["id"]).execute()
                 safe_delete_travel_for_event(user_id, event["id"])
+            clear_current_entity(context, "calendar_event", event.get("id"))
             await update.message.reply_text(f"Событие «{event.get('summary', 'Без названия')}» удалено.")
             return True
         if pending_type == "confirm_delete_many":
@@ -982,6 +1074,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 patch_kwargs["sendUpdates"] = "all"
             updated = service.events().patch(**patch_kwargs).execute()
             sync_travel_for_event(user_id, updated, pending["timezone"])
+            _remember_calendar_event(context, updated)
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
             )
@@ -994,6 +1087,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 pending["patch"],
                 pending["timezone"],
             )
+            _remember_calendar_event(context, updated)
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено с этого момента и дальше."
             )
