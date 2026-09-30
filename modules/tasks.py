@@ -287,7 +287,7 @@ async def list_tasks_from_text(update: Update, context: ContextTypes.DEFAULT_TYP
     if len(tasks) == 1:
         _remember_task(context, tasks[0])
     elif len(tasks) != 1:
-        clear_current_entity(context, "task")
+        clear_current_entity(context)
     await update.message.reply_text(_format_task_list(tasks, timezone, done=done))
     return True
 
