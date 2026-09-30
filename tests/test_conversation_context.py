@@ -9,6 +9,8 @@ from core.conversation_context import (
     clear_pending,
     context_snapshot,
     current_entity,
+    current_entity_for_user,
+    clear_user_state,
     get_pending,
     recent_entities,
     remember_entity,
@@ -55,6 +57,30 @@ class UnifiedConversationContextTests(unittest.TestCase):
         self.assertEqual(snapshot["version"], 1)
         self.assertEqual(snapshot["current_entity"]["type"], "task")
         self.assertEqual(snapshot["pending"]["type"], "task_confirm_delete")
+
+
+class UnifiedWebContextPersistenceTests(unittest.TestCase):
+    def tearDown(self):
+        clear_user_state()
+
+    def test_first_api_access_restores_durable_context_before_reading_focus(self):
+        stored = {
+            "smart_planner_context": {
+                "version": 1,
+                "current_entity": {
+                    "type": "task",
+                    "id": "77",
+                    "title": "Отчёт",
+                    "touched_at": 9999999999.0,
+                },
+                "recent_entities": [],
+                "pending": {"type": "task_confirm_delete"},
+            }
+        }
+        with patch("core.command_store.load_conversation", return_value=stored) as load:
+            reference = current_entity_for_user(424242)
+        self.assertEqual(reference["id"], "77")
+        load.assert_called_once_with(424242)
 
 
 class UnifiedContextRoutingTests(unittest.IsolatedAsyncioTestCase):
