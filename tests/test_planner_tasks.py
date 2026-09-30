@@ -115,7 +115,7 @@ class PlannerTaskRouterTests(unittest.IsolatedAsyncioTestCase):
             "timezone": "Europe/Moscow",
         }
         set_pending(self.context, pending)
-        with patch("modules.tasks.delete_task", return_value=True) as delete:
+        with patch("modules.tasks.delete_task_service", return_value=(True, None)) as delete:
             handled = await resume_pending_task(self.update, self.context, "да", pending)
         self.assertTrue(handled)
         delete.assert_called_once_with(12345, 7)
