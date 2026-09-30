@@ -537,14 +537,15 @@ async def _route_current_entity_action(
     is_delete = bool(GENERIC_DELETE_RE.match(text))
     is_update = bool(GENERIC_UPDATE_RE.match(text) or CONTEXT_PROPERTY_UPDATE_RE.match(text))
     is_complete = bool(GENERIC_COMPLETE_RE.match(text))
-    if not (is_delete or is_update or is_complete):
+    is_event_reminder = bool(EVENT_RELATIVE_REMINDER_RE.match(text))
+    if not (is_delete or is_update or is_complete or is_event_reminder):
         return False
 
     if kind == "calendar_event":
         event_id = str(reference.get("id") or "").strip()
         if is_delete:
             return await delete_from_text(update, context, text)
-        if is_update or EVENT_RELATIVE_REMINDER_RE.match(text):
+        if is_update or is_event_reminder:
             return await update_from_text(
                 update,
                 context,
