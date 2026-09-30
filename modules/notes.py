@@ -461,7 +461,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("Что записать в заметку?")
             return True
         title, body = _split_note_payload(payload)
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         try:
             note = create_note(update.effective_user.id, body, title=title)
         except ValueError as exc:
@@ -494,7 +494,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             _store_pending(context, {"type": "note_append_text", "note": note})
             await update.message.reply_text(f"Что добавить в заметку «{_note_title(note)}»?")
             return True
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await _append_to_note(update, note, addition)
 
     if pending_type == "note_append_text":
@@ -503,7 +503,7 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("Что добавить в заметку?")
             return True
         note = pending.get("note") or {}
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await _append_to_note(update, note, addition)
 
     if pending_type in {"note_select_delete", "note_select_append"}:
@@ -523,10 +523,10 @@ async def resume_pending_note(update: Update, context: ContextTypes.DEFAULT_TYPE
                 _store_pending(context, {"type": "note_append_text", "note": note})
                 await update.message.reply_text(f"Что добавить в заметку «{_note_title(note)}»?")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             return await _append_to_note(update, note, addition)
 
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         if delete_note(update.effective_user.id, note["note_id"]):
             await update.message.reply_text(f"Заметка «{_note_title(note)}» удалена.")
         else:
