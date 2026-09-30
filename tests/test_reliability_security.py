@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import web_app
+from core.conversation_context import clear_user_state
 from core import command_store
 from core.db import get_or_create_google_user, save_oauth_state, consume_oauth_state
 from core.note_store import create_note, list_notes
@@ -132,7 +133,7 @@ class RequestSecurityTests(unittest.TestCase):
             return True
         with patch.object(web_app, "route_text", side_effect=route):
             self.client.post("/api/chat", json={"message": "first"}, headers=self.headers())
-            web_app._user_state.clear()
+            clear_user_state()
             self.client.post("/api/chat", json={"message": "second"}, headers=self.headers())
         self.assertEqual(seen, [{"at": stamp}])
 
@@ -214,7 +215,7 @@ class RequestSecurityTests(unittest.TestCase):
             first = self.client.post("/api/chat", json={"message": "meeting"}, headers=self.headers(key))
             self.assertEqual(first.status_code, 409)
             self.assertEqual(first.headers["X-Frame-Options"], "DENY")
-            web_app._user_state.clear()
+            clear_user_state()
             service.events().get().execute.side_effect = lambda: dict(event)
             recovered = self.client.post("/api/chat", json={"message": "meeting"}, headers=self.headers(key))
         self.assertEqual(recovered.status_code, 200)
