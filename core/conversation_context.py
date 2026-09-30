@@ -28,6 +28,16 @@ def user_state(user_id: int) -> dict[str, Any]:
         return _web_states.setdefault(int(user_id), {})
 
 
+def replace_user_state(user_id: int, state: dict[str, Any] | None) -> dict[str, Any]:
+    """Load durable state into the one shared in-process mapping without replacing references."""
+    with _web_states_lock:
+        target = _web_states.setdefault(int(user_id), {})
+        target.clear()
+        if isinstance(state, dict):
+            target.update(state)
+        return target
+
+
 def clear_user_state(user_id: int | None = None) -> None:
     with _web_states_lock:
         if user_id is None:
@@ -43,20 +53,59 @@ def _user_data(context: Any) -> dict[str, Any]:
     return data
 
 
+def _legacy_entity(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Migrate pre-unified short-term references once, without keeping parallel state."""
+    note = data.pop("smart_planner_active_note", None)
+    if isinstance(note, dict) and note.get("note_id") is not None:
+        try:
+            touched_at = float(note.get("touched_at") or time.time())
+        except (TypeError, ValueError):
+            touched_at = time.time()
+        return _clean_entity(
+            "note",
+            note.get("note_id"),
+            note.get("title") or "",
+            touched_at=touched_at,
+        )
+
+    reminder = data.pop("smart_planner_active_reminder", None)
+    if not isinstance(reminder, dict):
+        reminder = data.pop("smart_planner_last_reminder", None)
+    else:
+        data.pop("smart_planner_last_reminder", None)
+    if isinstance(reminder, dict) and reminder.get("reminder_id") is not None:
+        return _clean_entity(
+            "reminder",
+            reminder.get("reminder_id"),
+            reminder.get("text") or "",
+        )
+    return None
+
+
 def _root(context: Any, *, create: bool = True) -> dict[str, Any]:
     data = _user_data(context)
     value = data.get(CONTEXT_KEY)
     if isinstance(value, dict):
         if value.get("version") != SCHEMA_VERSION:
             value["version"] = SCHEMA_VERSION
+        legacy_pending = data.pop("smart_planner_pending", None)
+        if value.get("pending") is None and isinstance(legacy_pending, dict):
+            value["pending"] = legacy_pending
+        data.pop("smart_planner_active_note", None)
+        data.pop("smart_planner_active_reminder", None)
+        data.pop("smart_planner_last_reminder", None)
         return value
-    if not create:
+
+    legacy_pending = data.pop("smart_planner_pending", None)
+    legacy_entity = _legacy_entity(data)
+    if not create and not isinstance(legacy_pending, dict) and legacy_entity is None:
         return {}
+
     value = {
         "version": SCHEMA_VERSION,
-        "current_entity": None,
-        "recent_entities": [],
-        "pending": None,
+        "current_entity": legacy_entity,
+        "recent_entities": [legacy_entity] if legacy_entity else [],
+        "pending": legacy_pending if isinstance(legacy_pending, dict) else None,
     }
     data[CONTEXT_KEY] = value
     return value
