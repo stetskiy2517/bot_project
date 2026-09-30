@@ -309,6 +309,15 @@ def _normalise_task_text(text: str) -> str:
 
 
 def _task_rename_value(text: str) -> str | None:
+    property_first = re.match(
+        r"^\s*назван\w*\s+(?:измени|изменить|поменяй|поменять)\s+(?:на|в)\s+"
+        r"(?P<title>.+?)\s*[.!?]*$",
+        text,
+        re.IGNORECASE,
+    )
+    if property_first:
+        title = " ".join(property_first.group("title").split()).strip(" ,.-")
+        return title[:300] if title else None
     match = re.match(
         r"^\s*(?:переименуй|переименовать)\b.+?\s+в\s+(?P<title>.+?)\s*[.!?]*$",
         text,
