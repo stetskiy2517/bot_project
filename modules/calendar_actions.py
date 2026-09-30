@@ -351,6 +351,13 @@ def _location_from_update(text: str) -> str | None:
         return direct
     match = LOCATION_UPDATE_VALUE_RE.search(text)
     if not match:
+        match = re.search(
+            r"\b(?:адрес|место)\b\s*(?:на|:|—|-)?\s*(?P<value>.+?)"
+            r"(?=$|\s+(?:напомин|приоритет|категор|повтор|участник|длительност)\b)",
+            text,
+            re.IGNORECASE,
+        )
+    if not match:
         return None
     value = re.sub(r"\s+", " ", match.group("value")).strip(" ,.;")
     return value[:500] if value else None
