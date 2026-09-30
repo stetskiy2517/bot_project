@@ -146,12 +146,17 @@ def tasks_update(task_id: int):
             if not task:
                 return jsonify(error="task_not_found"), 404
         else:
-            task = update_planner_task(user_id, task_id, payload)
+            changes = dict(payload)
             next_task = None
             if status == "done" and current.get("status") != "done":
-                # Keep compound edits deterministic: persist fields first, then
-                # run the same completion side effects against the saved task.
+                # Persist other edited fields first, then transition status once
+                # through the shared service so cleanup/recurrence cannot be skipped.
+                changes.pop("status", None)
+                if changes:
+                    update_planner_task(user_id, task_id, changes)
                 task, next_task = complete_task(user_id, task_id, completed=True)
+            else:
+                task = update_planner_task(user_id, task_id, changes)
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_task", message=str(exc)), 400
     remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
