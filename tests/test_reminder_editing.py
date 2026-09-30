@@ -5,6 +5,7 @@ import unittest
 from uuid import uuid4
 
 import web_app
+from core.conversation_context import clear_user_state
 from core.db import get_or_create_google_user
 from core.library_store import get_saved_reminder
 from core.reminder_store import create_reminder
@@ -16,7 +17,7 @@ class ReminderEditingTests(unittest.TestCase):
     def setUp(self):
         self.app = web_test_app()
         self.client = self.app.test_client()
-        web_app._user_state.clear()
+        clear_user_state()
         stamp = uuid4().hex
         self.user_id = get_or_create_google_user(
             f"reminder-edit-{stamp}",
