@@ -5,8 +5,8 @@ import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from core.conversation_context import current_entity, remember_entity
 from modules.note_conversation import (
-    ACTIVE_NOTE_KEY,
     NoteAppendResolution,
     active_note_addition,
     append_to_note,
@@ -110,23 +110,20 @@ class ActiveNoteStateTests(unittest.TestCase):
     def test_remember_and_restore_active_note(self):
         context = self._context()
         remember_active_note(context, NOTE)
-        self.assertIn(ACTIVE_NOTE_KEY, context.user_data)
+        self.assertEqual(current_entity(context, "note")["id"], "41")
         with patch("modules.note_conversation.get_note", return_value=NOTE):
             current = get_active_note(context, 1)
         self.assertEqual(current["note_id"], 41)
 
     def test_expired_active_note_is_not_used(self):
         context = self._context()
-        context.user_data[ACTIVE_NOTE_KEY] = {
-            "note_id": 41,
-            "title": "Список покупок",
-            "touched_at": time.time() - 3600,
-        }
+        remember_entity(context, "note", 41, "Список покупок")
+        context.user_data["smart_planner_context"]["current_entity"]["touched_at"] = time.time() - 3600
         with patch("modules.note_conversation.get_note") as get_note:
             current = get_active_note(context, 1)
         self.assertIsNone(current)
         get_note.assert_not_called()
-        self.assertNotIn(ACTIVE_NOTE_KEY, context.user_data)
+        self.assertIsNone(current_entity(context, "note"))
 
     def test_listing_notes_clears_active_context(self):
         context = self._context()
@@ -145,7 +142,7 @@ class ActiveNoteStateTests(unittest.TestCase):
         context = self._context()
         with patch("modules.note_conversation._ordered_matches", return_value=[NOTE]):
             remember_after_note_action(1, context, NOTE_SEARCH, "найди заметки про список покупок")
-        self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], 41)
+        self.assertEqual(current_entity(context, "note")["id"], "41")
 
 
 class DirectAppendReplyTests(unittest.IsolatedAsyncioTestCase):
