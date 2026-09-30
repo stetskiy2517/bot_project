@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 
+from core.conversation_context import current_entity
 from core.note_store import create_note, delete_note, get_note
-from modules.note_conversation import ACTIVE_NOTE_KEY
 from modules.router import route_text
 
 
@@ -48,7 +48,7 @@ class NoteConversationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         stored = get_note(self.USER_ID, note["note_id"])
         self.assertIn("воду", stored["text"])
-        self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], note["note_id"])
+        self.assertEqual(int(current_entity(context, "note")["id"]), note["note_id"])
         self.assertEqual(
             update.message.reply_text.await_args.args[0],
             "Добавил в «Список покупок»: воду.",
@@ -94,7 +94,7 @@ class NoteConversationIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         self.assertIn("Куда добавить", update.message.reply_text.await_args.args[0])
-        self.assertNotIn(ACTIVE_NOTE_KEY, context.user_data)
+        self.assertIsNone(current_entity(context, "note"))
 
 
 if __name__ == "__main__":
