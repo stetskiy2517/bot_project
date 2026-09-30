@@ -113,6 +113,15 @@ class UnifiedContextRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[3], TASK_DELETE)
         self.assertIn("Планерка + статистика для отчета", args[2])
 
+    async def test_property_first_task_update_uses_focused_task_id(self):
+        context = SimpleNamespace(user_data={})
+        remember_entity(context, "task", 13, "Отчёт")
+        update = self._update("длительность измени на 1,5 часа")
+        with patch("modules.router_core.update_task_from_text", new=AsyncMock(return_value=True)) as handler:
+            handled = await router_core._route_current_entity_action(update, context, update.message.text)
+        self.assertTrue(handled)
+        handler.assert_awaited_once_with(update, context, update.message.text, task_id=13)
+
     async def test_generic_task_update_uses_focused_task_id(self):
         context = SimpleNamespace(user_data={})
         remember_entity(context, "task", 12, "Отчёт")
