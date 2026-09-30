@@ -33,6 +33,7 @@ from core.db import (
 from core.assistant_preferences import quiet_until
 from core.conversation_context import (
     clear_current_entity,
+    clear_user_state,
     clear_pending,
     current_entity,
     get_pending,
