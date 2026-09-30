@@ -55,6 +55,7 @@ class CalendarActionsTests(unittest.TestCase):
     def test_natural_address_followup_is_parsed(self):
         self.assertEqual(_location_from_update("добавь адрес Ленина 5"), "Ленина 5")
         self.assertEqual(_location_from_update("измени место на Тверская 12"), "Тверская 12")
+        self.assertEqual(_location_from_update("адрес добавь Ленина 5"), "Ленина 5")
 
     def test_duration_and_title_changes(self):
         self.assertEqual(_duration_from_update("сделай встречу на 2 часа"), timedelta(hours=2))
