@@ -122,6 +122,15 @@ class UnifiedContextRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         handler.assert_awaited_once_with(update, context, update.message.text, task_id=12)
 
+    async def test_event_property_followup_beats_note_append_heuristics(self):
+        context = SimpleNamespace(user_data={})
+        remember_entity(context, "calendar_event", "evt-8", "Встреча")
+        update = self._update("и добавь адрес Ленина 5")
+        with patch("modules.router_core.update_from_text", new=AsyncMock(return_value=True)) as handler:
+            handled = await router_core._route_current_entity_action(update, context, update.message.text)
+        self.assertTrue(handled)
+        self.assertEqual(handler.await_args.kwargs["event_id"], "evt-8")
+
     async def test_relative_reminder_attaches_to_focused_event(self):
         context = SimpleNamespace(user_data={})
         remember_entity(context, "calendar_event", "evt-7", "Маникюр")
