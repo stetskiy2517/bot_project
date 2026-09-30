@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from core.conversation_context import clear_user_state
 from tests.web_test_support import web_test_app
 from core.db import get_or_create_google_user
 
@@ -11,7 +12,7 @@ class WebAppTests(unittest.TestCase):
     def setUp(self):
         self.app = web_test_app()
         self.client = self.app.test_client()
-        web_app._user_state.clear()
+        clear_user_state()
 
     def _google_session(self, client, sub, email, name):
         uid = get_or_create_google_user(sub, email, name)
