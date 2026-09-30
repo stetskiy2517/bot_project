@@ -18,6 +18,7 @@ from core.conversation_context import (
 from core.db import (
     create_task,
     delete_task,
+    get_task,
     get_user_timezone,
     list_tasks,
     set_task_completed,
@@ -216,9 +217,15 @@ def _current_task(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict | No
     reference = current_entity(context, "task")
     if not reference:
         return None
-    task_id = str(reference.get("id") or "")
-    tasks = list_tasks(user_id, status=None, limit=500)
-    return next((item for item in tasks if str(item.get("task_id")) == task_id), None)
+    try:
+        task_id = int(reference.get("id"))
+    except (TypeError, ValueError):
+        clear_current_entity(context, "task")
+        return None
+    task = get_task(user_id, task_id)
+    if not task:
+        clear_current_entity(context, "task", task_id)
+    return task
 
 
 async def create_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
