@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import clear_pending, get_pending, set_pending
 from core.conversation_policy import is_declarative_statement, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
@@ -359,23 +360,11 @@ def _needs_time(text: str) -> bool:
 
 
 def _pending(context: ContextTypes.DEFAULT_TYPE) -> dict | None:
-    value = context.user_data.get("smart_planner_pending")
-    return value if isinstance(value, dict) else None
+    return get_pending(context)
 
 
 def _clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data.pop("smart_planner_pending", None)
-
-
-def _sync_active_reminder_reference(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Consume a reminder opened from the web library as the current chat reference."""
-    active = context.user_data.pop("smart_planner_active_reminder", None)
-    if not isinstance(active, dict) or not active.get("reminder_id"):
-        return
-    context.user_data["smart_planner_last_reminder"] = {
-        "reminder_id": active.get("reminder_id"),
-        "text": active.get("text"),
-    }
+    clear_pending(context)
 
 
 def _normalise_pending_reply(text: str) -> str:
@@ -431,7 +420,7 @@ async def _resume_pending(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     _clear_pending(context)
     handled = await create_from_text(update, context, combined)
     if not handled:
-        context.user_data["smart_planner_pending"] = pending
+        set_pending(context, pending)
         await update.message.reply_text("Не понял время. Напиши, например: 19:00, 19 или «завтра в 19».")
     return True
 
@@ -484,7 +473,6 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             _clear_pending(context)
 
     user_id = getattr(update.effective_user, "id", None)
-    _sync_active_reminder_reference(context)
 
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
@@ -563,7 +551,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if intent.name == INTENT_CREATE:
         create_text = _creation_text(text)
         if _needs_time(create_text):
-            context.user_data["smart_planner_pending"] = {"type": "create_time", "text": create_text}
+            set_pending(context, {"type": "create_time", "text": create_text})
             if DATE_HINT_RE.search(_normalise(create_text)):
                 prompt = "Во сколько поставить событие?"
             else:
