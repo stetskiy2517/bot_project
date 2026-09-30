@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.conversation_context import clear_pending, get_pending, set_pending
+from core.conversation_context import clear_pending, current_entity, get_pending, set_pending
 from core.conversation_policy import is_declarative_statement, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
@@ -29,8 +29,20 @@ from modules.note_conversation import (
 )
 from modules.note_reference import resolve_note_reference
 from modules.notes import NOTE_APPEND, NOTE_DELETE, NOTE_SEARCH, detect_note_intent, handle_note_text, resume_pending_note
-from modules.reminders import detect_reminder_intent, handle_reminder_text, resume_pending_reminder
-from modules.tasks import detect_task_intent, handle_task_text, resume_pending_task
+from modules.reminders import (
+    REMINDER_DELETE,
+    REMINDER_UPDATE,
+    detect_reminder_intent,
+    handle_reminder_text,
+    resume_pending_reminder,
+)
+from modules.tasks import (
+    TASK_COMPLETE,
+    TASK_DELETE,
+    detect_task_intent,
+    handle_task_text,
+    resume_pending_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +201,29 @@ FORCE_CONFLICT_REPLIES = {
     "создай несмотря на конфликт",
     "создавай несмотря на конфликт",
 }
+EXPLICIT_ENTITY_TARGET_RE = re.compile(
+    r"\b(?:событ\w*|встреч\w*|календар\w*|расписани\w*|напоминани\w*|"
+    r"задач\w*|заметк\w*|запис\w*)\b",
+    re.IGNORECASE,
+)
+GENERIC_UPDATE_RE = re.compile(
+    r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+    r"переименуй|переименовать|сделай|добавь|добавить|убери|убрать|поставь|поставить)\b",
+    re.IGNORECASE,
+)
+GENERIC_DELETE_RE = re.compile(
+    r"^\s*(?:удали|удалить|убери|убрать|отмени|отменить)\b",
+    re.IGNORECASE,
+)
+GENERIC_COMPLETE_RE = re.compile(
+    r"^\s*(?:готово|выполнено|сделано|выполнил|выполнила|закрой|закрыть|заверши|завершить|"
+    r"отметь\s+(?:как\s+)?выполненн\w*)\b",
+    re.IGNORECASE,
+)
+LEADING_CONTEXT_REFERENCE_RE = re.compile(
+    r"^\s*(?:его|ее|её|это|эту|этот|последн\w*)\b\s*",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -454,6 +489,75 @@ def _blocks_active_note_append(text: str) -> bool:
     return any(word in lower for word in EVENT_WORDS)
 
 
+def _context_action_tail(text: str) -> str:
+    tail = re.sub(
+        r"^\s*(?:измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+        r"переименуй|переименовать|сделай|добавь|добавить|убери|убрать|поставь|поставить)\b",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip(" ,.-")
+    return LEADING_CONTEXT_REFERENCE_RE.sub("", tail, count=1).strip(" ,.-")
+
+
+async def _route_current_entity_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    if EXPLICIT_ENTITY_TARGET_RE.search(text):
+        return False
+    reference = current_entity(context)
+    if not reference:
+        return False
+
+    kind = str(reference.get("type") or "")
+    title = str(reference.get("title") or "").strip()
+    is_delete = bool(GENERIC_DELETE_RE.match(text))
+    is_update = bool(GENERIC_UPDATE_RE.match(text))
+    is_complete = bool(GENERIC_COMPLETE_RE.match(text))
+    if not (is_delete or is_update or is_complete):
+        return False
+
+    if kind == "calendar_event":
+        if is_delete:
+            return await delete_from_text(update, context, text)
+        if is_update:
+            return await update_from_text(update, context, _action_text(text))
+        return False
+
+    if kind == "reminder":
+        if is_delete:
+            canonical = f"удали напоминание {title}".strip()
+            return await handle_reminder_text(update, context, canonical, REMINDER_DELETE)
+        if is_update:
+            tail = _context_action_tail(text)
+            canonical = f"измени напоминание {title}".strip()
+            if tail:
+                canonical += f" {tail}"
+            return await handle_reminder_text(update, context, canonical, REMINDER_UPDATE)
+        return False
+
+    if kind == "task":
+        if is_delete:
+            canonical = f"удали задачу {title}".strip()
+            return await handle_task_text(update, context, canonical, TASK_DELETE)
+        if is_complete:
+            canonical = f"закрой задачу {title}".strip()
+            return await handle_task_text(update, context, canonical, TASK_COMPLETE)
+        return False
+
+    if kind == "note" and is_delete:
+        canonical = f"удали заметку {title}".strip()
+        handled = await handle_note_text(update, context, canonical, NOTE_DELETE)
+        if handled:
+            clear_active_note(context)
+        return handled
+
+    return False
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -545,6 +649,10 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             if handled and not _pending(context):
                 remember_after_note_action(user_id, context, NOTE_SEARCH, note_search_text)
             return handled
+
+    if await _route_current_entity_action(update, context, text):
+        logger.info("Router resolved action through unified current entity")
+        return True
 
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
