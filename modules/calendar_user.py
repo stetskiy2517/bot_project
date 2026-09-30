@@ -381,7 +381,7 @@ async def view_from_text(
             metadata={"start": event.get("start"), "end": event.get("end")},
         )
     else:
-        clear_current_entity(context, "calendar_event")
+        clear_current_entity(context)
     await update.message.reply_text(_format_events(events, timezone, start, end, label))
     return True
 
