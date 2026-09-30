@@ -339,6 +339,15 @@ class FileIngestTests(unittest.TestCase):
         self.assertEqual(result["tasks"][0]["title"], "Позвонить Косте")
         self.assertEqual(result["tasks"][0]["due_at"], "2026-09-15T16:30:00+03:00")
 
+    def test_screenshot_prompts_treat_fixed_time_blocks_as_calendar_events(self):
+        prompt = file_ingest._analysis_prompt(user_timezone="Europe/Moscow", now=NOW)
+        retry = file_ingest._image_retry_prompt(user_timezone="Europe/Moscow", now=NOW)
+
+        self.assertIn("каждый блок, привязанный к конкретному времени", prompt)
+        self.assertIn("тренировка", prompt)
+        self.assertIn("возвращай в events", retry)
+        self.assertIn("окончания нет", retry)
+
     def test_provider_file_is_deleted_when_analysis_fails(self):
         with patch("modules.file_ingest.upload_file_bytes", return_value="file-2"), \
              patch("modules.file_ingest.complete_with_file", side_effect=RuntimeError("provider failed")), \
