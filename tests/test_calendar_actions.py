@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from core.conversation_context import get_pending, remember_entity, set_pending
+
 from modules.calendar_actions import (
     _build_update_patch,
     _duration_from_update,
@@ -148,8 +150,8 @@ class CalendarContextUpdateTests(unittest.IsolatedAsyncioTestCase):
         service = MagicMock()
         service.events.return_value.get.return_value.execute.return_value = event
 
+        remember_entity(context, "calendar_event", "manicure-1", event["summary"])
         with patch("modules.calendar_actions.get_user_timezone", return_value="Europe/Moscow"), \
-             patch("modules.calendar_actions.recent_calendar_event_id", return_value="manicure-1"), \
              patch("modules.calendar_actions._get_calendar_service", return_value=service), \
              patch("modules.calendar_actions._find_conflicts", return_value=[]):
             handled = await update_from_text(
@@ -159,7 +161,7 @@ class CalendarContextUpdateTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(handled)
-        pending = context.user_data["smart_planner_pending"]
+        pending = get_pending(context)
         self.assertEqual(pending["type"], "confirm_update")
         self.assertEqual(
             pending["patch"]["end"]["dateTime"],
@@ -206,7 +208,7 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
             handled = await delete_from_text(update, context, "удали все встречи завтра")
 
         self.assertTrue(handled)
-        pending = context.user_data["smart_planner_pending"]
+        pending = get_pending(context)
         self.assertEqual(pending["type"], "confirm_delete_many")
         self.assertEqual([event["id"] for event in pending["events"]], ["event-1", "event-2"])
         reply = update.message.reply_text.await_args.args[0]
@@ -215,7 +217,8 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bulk_delete_confirmation_deletes_every_selected_event(self):
         update = self._update()
-        context = SimpleNamespace(user_data={"smart_planner_pending": {}})
+        context = SimpleNamespace(user_data={})
+        set_pending(context, {"type": "confirm_delete_many"})
         pending = {
             "type": "confirm_delete_many",
             "events": self.events,
@@ -228,7 +231,7 @@ class CalendarBulkDeleteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         self.assertEqual(service.events.return_value.delete.call_count, 2)
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
         self.assertIn("Удалил все события", update.message.reply_text.await_args.args[0])
 
 
