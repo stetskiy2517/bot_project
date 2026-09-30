@@ -58,7 +58,7 @@ from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
 from modules.navigation import estimate_route, navigation_configured, navigation_provider
 from modules.navigation_monitor import request_navigation_recalculation, start_navigation_monitor_worker
-from modules.note_conversation import clear_active_note, remember_active_note
+from modules.note_conversation import remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
@@ -500,6 +500,12 @@ def create_web_app() -> Flask:
         reminder = complete_reminder(user_id, reminder_id, completed=completed)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
+        remember_entity(
+            WebContext(_state_for(user_id)),
+            "reminder",
+            reminder["reminder_id"],
+            reminder.get("text") or "",
+        )
         return {"ok": True, "reminder": _library_reminder_payload(reminder)}
 
     @app.post("/api/library/reminders/<int:reminder_id>/reschedule")
@@ -513,6 +519,12 @@ def create_web_app() -> Flask:
         reminder = reschedule_reminder(user_id, reminder_id, remind_at)
         if not reminder:
             return jsonify({"error": "library_item_not_found"}), 404
+        remember_entity(
+            WebContext(_state_for(user_id)),
+            "reminder",
+            reminder["reminder_id"],
+            reminder.get("text") or "",
+        )
         return {"ok": True, "reminder": _library_reminder_payload(reminder)}
 
     @app.delete("/api/library/reminders/<int:reminder_id>")
