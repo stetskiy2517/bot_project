@@ -150,6 +150,25 @@ class MobileUiApiTests(unittest.TestCase):
         self.assertEqual(payload["tasks"][0]["title"], "Подготовить отчёт")
 
 
+    def test_today_marks_google_reauth_separately_from_calendar_outage(self):
+        with self.client.session_transaction() as session:
+            session["user_id"] = 42
+        review = {"kind": "morning", "date": "2026-09-15", "calendar_ok": False, "text": "Обзор дня", "reminders": []}
+        with patch("modules.mobile_ui_api.get_user_timezone", return_value="Europe/Moscow"), patch(
+            "modules.mobile_ui_api._list_events", side_effect=PermissionError("GOOGLE_AUTH_REQUIRED")
+        ), patch("modules.mobile_ui_api.list_planner_tasks", return_value=[]), patch(
+            "modules.mobile_ui_api.task_summary", return_value={"open": 0, "overdue": 0, "high_priority": 0, "scheduled": 0}
+        ), patch("modules.mobile_ui_api.build_day_review", return_value=review):
+            response = self.client.get("/api/mobile/today")
+        payload = response.get_json()
+        self.assertFalse(payload["calendar_ok"])
+        self.assertTrue(payload["calendar_auth_required"])
+
+    def test_mobile_client_reacts_to_today_google_reauth(self):
+        source = Path("web/mobile-ui.js").read_text(encoding="utf-8")
+        self.assertIn("calendar_auth_required", source)
+        self.assertIn("planner-google-auth-required", source)
+
     def test_task_schedule_saves_open_form_and_explains_missing_slot(self):
         source = Path("web/mobile-ui.js").read_text(encoding="utf-8")
         self.assertIn("currentTaskChanges()", source)
