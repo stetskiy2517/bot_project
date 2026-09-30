@@ -10,6 +10,7 @@ import time as clock
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.calendar_reference import recent_calendar_event_id, remember_calendar_event
 from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import (
     NAMED_DATE_RE,
@@ -85,7 +86,8 @@ DELETE_WEEK_PERIOD_RE = re.compile(
     re.IGNORECASE,
 )
 DURATION_RE = re.compile(
-    r"\bна\s+(?:(полчаса)|(полтора\s+часа)|(\d+)\s*(минут\w*|час\w*))\b",
+    r"\bна\s+(?:(?P<half>полчаса)|(?P<one_half>полтора\s+часа)|"
+    r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<unit>минут\w*|час\w*))\b",
     re.IGNORECASE,
 )
 RENAME_RE = re.compile(r"^переименуй\s+(.+?)\s+в\s+(.+)$", re.IGNORECASE)
@@ -248,6 +250,13 @@ def _extract_update_target(text: str) -> str:
     duration = DURATION_RE.search(body)
     if duration:
         body = body[: duration.start()]
+        body = re.sub(r"\bдлительност\w*\b", " ", body, flags=re.IGNORECASE)
+        body = re.sub(
+            r"\b(?:измени|изменить|поменяй|поменять|сделай)\b",
+            " ",
+            body,
+            flags=re.IGNORECASE,
+        )
     else:
         feature_tail = re.search(
             r"\s+(?:с\s+)?(?:высок\w*|низк\w*|обычн\w*|средн\w*)\s+приоритет\w*|"
@@ -274,12 +283,12 @@ def _duration_from_update(text: str) -> timedelta | None:
     match = DURATION_RE.search(_normalise(text))
     if not match:
         return None
-    if match.group(1):
+    if match.group("half"):
         return timedelta(minutes=30)
-    if match.group(2):
+    if match.group("one_half"):
         return timedelta(minutes=90)
-    amount = int(match.group(3))
-    return timedelta(minutes=amount) if match.group(4).startswith("минут") else timedelta(hours=amount)
+    amount = float(match.group("amount").replace(",", "."))
+    return timedelta(minutes=amount) if match.group("unit").startswith("минут") else timedelta(hours=amount)
 
 
 def _new_title_from_update(text: str) -> str | None:
@@ -524,7 +533,8 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             )
             if not event:
                 return False
-            _create_event(user_id, event)
+            created = _create_event(user_id, event)
+            remember_calendar_event(user_id, created)
             await update.message.reply_text(
                 f"Событие «{event['summary']}» добавлено на весь день: {event['start']['date']}"
             )
@@ -575,7 +585,8 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 "Выбери номер варианта, ответь «да», чтобы оставить исходное время, или «нет» для отмены."
             )
             return True
-        _create_event(user_id, event)
+        created = _create_event(user_id, event)
+        remember_calendar_event(user_id, created)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -701,11 +712,17 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text("Сначала выбери часовой пояс для календаря: /timezone")
         return True
     query = _extract_update_target(text)
-    if not query:
-        await update.message.reply_text("Какое событие изменить?")
-        return True
     try:
-        events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
+        if query:
+            events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
+        else:
+            event_id = recent_calendar_event_id(user_id)
+            if not event_id:
+                await update.message.reply_text("Какое событие изменить?")
+                return True
+            service = _get_calendar_service(user_id)
+            referenced = service.events().get(calendarId="primary", eventId=event_id).execute()
+            events = [referenced] if referenced else []
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
@@ -714,7 +731,10 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text("Не удалось найти событие для изменения.")
         return True
     if not events:
-        await update.message.reply_text(f"Не нашёл событие «{query}».")
+        if query:
+            await update.message.reply_text(f"Не нашёл событие «{query}».")
+        else:
+            await update.message.reply_text("Не нашёл последнее событие для изменения. Укажи название.")
         return True
     if len(events) > 1:
         visible = events[:5]
