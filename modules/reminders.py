@@ -501,7 +501,7 @@ async def _apply_reminder_edit_instruction(
         await update.message.reply_text("Это напоминание уже удалено.")
         return True
 
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     _remember_reminder_reference(context, edited)
     await update.message.reply_text(
         f"Напоминание обновлено · «{edited['text']}»\n"
@@ -714,7 +714,7 @@ async def resume_pending_reminder(
 ) -> bool:
     normal = _normalise(text)
     if normal in CANCEL_WORDS:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил.")
         return True
 
@@ -727,7 +727,7 @@ async def resume_pending_reminder(
             await update.message.reply_text("Не понял время. Например: «в 22:00», «завтра в 9» или «через 30 минут».")
             return True
         repeat_rule = pending.get("repeat_rule") or _repeat_rule(combined)
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         reminder = create_reminder(
             update.effective_user.id,
             pending["title"],
@@ -744,7 +744,7 @@ async def resume_pending_reminder(
     if pending_type == "reminder_edit":
         reminder = get_saved_reminder(update.effective_user.id, int(pending.get("reminder_id") or 0))
         if not reminder:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Это напоминание уже удалено.")
             return True
         timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
@@ -761,7 +761,7 @@ async def resume_pending_reminder(
             return True
         reminder = get_saved_reminder(update.effective_user.id, int(reminders[index]["reminder_id"]))
         if not reminder:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Это напоминание уже удалено.")
             return True
         timezone = pending.get("timezone") or get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
@@ -794,7 +794,7 @@ async def resume_pending_reminder(
                 reminder = reminders[0]
             if reminder is None:
                 if not reminders:
-                    context.user_data.pop("smart_planner_pending", None)
+                    clear_pending(context)
                     context.user_data.pop(LAST_REMINDER_KEY, None)
                     await update.message.reply_text("Активных напоминаний нет.")
                     return True
@@ -811,7 +811,7 @@ async def resume_pending_reminder(
                     )
                 )
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             context.user_data.pop(LAST_REMINDER_KEY, None)
             if delete_reminder(user_id, reminder["reminder_id"]):
                 await update.message.reply_text(f"Напоминание «{reminder['text']}» удалено.")
@@ -819,7 +819,7 @@ async def resume_pending_reminder(
                 await update.message.reply_text("Это напоминание уже выполнено или удалено.")
             return True
 
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         return await delete_reminder_from_text(update, context, f"удали напоминание {text}")
 
     if pending_type == "reminder_select_delete":
@@ -831,7 +831,7 @@ async def resume_pending_reminder(
         if index < 0 or index >= len(reminders):
             await update.message.reply_text("Такого номера нет. Выбери номер из списка.")
             return True
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         context.user_data.pop(LAST_REMINDER_KEY, None)
         reminder = reminders[index]
         if delete_reminder(update.effective_user.id, reminder["reminder_id"]):
