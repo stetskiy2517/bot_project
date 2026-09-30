@@ -150,5 +150,12 @@ class MobileUiApiTests(unittest.TestCase):
         self.assertEqual(payload["tasks"][0]["title"], "Подготовить отчёт")
 
 
+    def test_task_schedule_saves_open_form_and_explains_missing_slot(self):
+        source = Path("web/mobile-ui.js").read_text(encoding="utf-8")
+        self.assertIn("currentTaskChanges()", source)
+        self.assertIn("no_slot_before_deadline", source)
+        self.assertIn("Перенеси срок или уменьши длительность", source)
+        self.assertIn("scheduleSkipMessage(taskId, preview.skipped)", source)
+
 if __name__ == "__main__":
     unittest.main()
