@@ -129,14 +129,14 @@ class ActiveNoteStateTests(unittest.TestCase):
         context = self._context()
         remember_active_note(context, NOTE)
         remember_after_note_action(1, context, NOTE_LIST, "покажи мои заметки")
-        self.assertNotIn(ACTIVE_NOTE_KEY, context.user_data)
+        self.assertIsNone(current_entity(context, "note"))
 
     def test_ambiguous_search_clears_active_context(self):
         context = self._context()
         remember_active_note(context, NOTE)
         with patch("modules.note_conversation._ordered_matches", return_value=[NOTE, SECOND_NOTE]):
             remember_after_note_action(1, context, NOTE_SEARCH, "найди заметки про покупки")
-        self.assertNotIn(ACTIVE_NOTE_KEY, context.user_data)
+        self.assertIsNone(current_entity(context, "note"))
 
     def test_unique_search_sets_active_context(self):
         context = self._context()
@@ -159,7 +159,7 @@ class DirectAppendReplyTests(unittest.IsolatedAsyncioTestCase):
         reply = update.message.reply_text.await_args.args[0]
         self.assertEqual(reply, "Добавил в «Список покупок»: шоколад.")
         self.assertNotIn("масло сливочное", reply)
-        self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], 41)
+        self.assertEqual(current_entity(context, "note")["id"], "41")
 
 
 class NoteConversationRouterTests(unittest.IsolatedAsyncioTestCase):
