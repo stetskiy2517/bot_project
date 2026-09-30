@@ -46,6 +46,14 @@ def clear_user_state(user_id: int | None = None) -> None:
             _web_states.pop(int(user_id), None)
 
 
+def reset_user_context(user_id: int) -> None:
+    """Clear both live and durable short-term context for one user."""
+    from core.command_store import delete_conversation
+
+    clear_user_state(int(user_id))
+    delete_conversation(int(user_id))
+
+
 def _user_data(context: Any) -> dict[str, Any]:
     data = getattr(context, "user_data", None)
     if not isinstance(data, dict):
