@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
+from core.calendar_reference import remember_calendar_event
 from core.db import get_category_colors, get_user_timezone
 from core.feature_access import has_ai_access
 from integrations.ai import AIConfigurationError, AIProviderError
@@ -207,7 +208,9 @@ def create_event_from_file():
         event["colorId"] = color
 
     try:
-        created = _create_event(_user(), event)
+        user_id = _user()
+        created = _create_event(user_id, event)
+        remember_calendar_event(user_id, created)
     except PermissionError:
         return jsonify(
             error="calendar_not_connected",
