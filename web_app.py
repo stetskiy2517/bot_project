@@ -34,6 +34,7 @@ from core.assistant_preferences import quiet_until
 from core.conversation_context import (
     clear_current_entity,
     clear_user_state,
+    reset_user_context,
     clear_pending,
     current_entity,
     get_pending,
@@ -380,11 +381,8 @@ def create_web_app() -> Flask:
         endpoint = payload.get("endpoint")
         if isinstance(endpoint, str):
             delete_push_subscription(user_id, endpoint)
-        clear_user_state(user_id)
+        reset_user_context(user_id)
         clear_current_location(user_id)
-        with db_lock:
-            conn.execute("DELETE FROM conversation_state WHERE user_id=?", (user_id,))
-            conn.commit()
         session.clear()
         return {"ok": True}
 
