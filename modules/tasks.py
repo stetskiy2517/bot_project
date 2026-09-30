@@ -15,15 +15,14 @@ from core.conversation_context import (
     remember_entity,
     set_pending,
 )
-from core.db import (
-    create_task,
-    delete_task,
-    get_task,
-    get_user_timezone,
-    list_tasks,
-    set_task_completed,
+from core.db import get_user_timezone
+from core.task_planner_store import (
+    create_planner_task,
+    delete_planner_task,
+    get_planner_task,
+    list_planner_tasks,
+    update_planner_task,
 )
-from core.task_planner_store import get_planner_task, update_planner_task
 from modules.calendar import _date_from_text, _extract_title, _parse_datetime
 from modules.calendar_event_features import _priority_value
 from modules.calendar_user import _parse_view_period, _user_zone
@@ -168,8 +167,45 @@ def _matches(task: dict, query: str) -> bool:
     return True
 
 
+def _task_for_user(user_id: int, task_id: int) -> dict | None:
+    return get_planner_task(user_id, task_id)
+
+
+def _tasks_for_user(
+    user_id: int,
+    *,
+    status: str = "open",
+    due_start: datetime | None = None,
+    due_end: datetime | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    tasks = list_planner_tasks(user_id, status=status, limit=limit)
+    if due_start is None and due_end is None:
+        return tasks
+
+    result = []
+    for task in tasks:
+        due = _due_datetime(task, "UTC")
+        if due is None:
+            continue
+        due_utc = due.astimezone(ZoneInfo("UTC"))
+        if due_start is not None and due_utc < due_start.astimezone(ZoneInfo("UTC")):
+            continue
+        if due_end is not None and due_utc >= due_end.astimezone(ZoneInfo("UTC")):
+            continue
+        result.append(task)
+    return result
+
+
+def _complete_task(user_id: int, task_id: int, completed: bool = True) -> dict | None:
+    task = get_planner_task(user_id, task_id)
+    if not task:
+        return None
+    return update_planner_task(user_id, task_id, {"status": "done" if completed else "open"})
+
+
 def _find_matching_tasks(user_id: int, query: str, *, status: str = "open") -> list[dict]:
-    return [task for task in list_tasks(user_id, status=status, limit=200) if _matches(task, query)]
+    return [task for task in _tasks_for_user(user_id, status=status, limit=200) if _matches(task, query)]
 
 
 def _task_period(text: str, timezone: str, now: datetime | None = None) -> tuple[datetime, datetime] | None:
@@ -241,7 +277,7 @@ def _current_task(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict | No
     except (TypeError, ValueError):
         clear_current_entity(context)
         return None
-    task = get_task(user_id, task_id)
+    task = _task_for_user(user_id, task_id)
     if not task:
         clear_current_entity(context, "task", task_id)
     return task
@@ -254,10 +290,10 @@ async def create_task_from_text(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Что записать в задачу?")
         return True
     due_at = _task_due_at(text, timezone)
-    task = create_task(
+    task = create_planner_task(
         update.effective_user.id,
         title,
-        due_at=due_at,
+        due_at=due_at.isoformat() if due_at else None,
         priority=_task_priority(text),
     )
     _remember_task(context, task)
@@ -275,7 +311,7 @@ async def list_tasks_from_text(update: Update, context: ContextTypes.DEFAULT_TYP
     status = "done" if done else "open"
     period = _task_period(text, timezone)
     if period:
-        tasks = list_tasks(
+        tasks = _tasks_for_user(
             update.effective_user.id,
             status=status,
             due_start=period[0],
@@ -283,7 +319,7 @@ async def list_tasks_from_text(update: Update, context: ContextTypes.DEFAULT_TYP
             limit=100,
         )
     else:
-        tasks = list_tasks(update.effective_user.id, status=status, limit=100)
+        tasks = _tasks_for_user(update.effective_user.id, status=status, limit=100)
     if len(tasks) == 1:
         _remember_task(context, tasks[0])
     elif len(tasks) != 1:
@@ -386,7 +422,7 @@ async def update_task_from_text(
         query = _task_update_target_query(text)
         if query:
             matches = [
-                item for item in list_tasks(user_id, status="open", limit=200)
+                item for item in _tasks_for_user(user_id, status="open", limit=200)
                 if _matches(item, query)
             ]
             if len(matches) == 1:
@@ -442,7 +478,7 @@ async def complete_task_from_text(update: Update, context: ContextTypes.DEFAULT_
             "\n".join(_format_task_line(task, timezone, index=index) for index, task in enumerate(visible, start=1))
         )
         return True
-    task = set_task_completed(update.effective_user.id, matches[0]["task_id"], True)
+    task = _complete_task(update.effective_user.id, matches[0]["task_id"], True)
     _remember_task(context, task)
     await update.message.reply_text(f"Готово · «{task['title']}»")
     return True
@@ -495,7 +531,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         task = tasks[index]
         if pending_type == "task_select_complete":
             clear_pending(context)
-            completed = set_task_completed(update.effective_user.id, task["task_id"], True)
+            completed = _complete_task(update.effective_user.id, task["task_id"], True)
             _remember_task(context, completed)
             await update.message.reply_text(f"Готово · «{completed['title']}»")
             return True
@@ -509,7 +545,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         clear_pending(context)
         task = pending["task"]
-        if delete_task(update.effective_user.id, task["task_id"]):
+        if delete_planner_task(update.effective_user.id, task["task_id"]):
             clear_current_entity(context, "task", task["task_id"])
             await update.message.reply_text(f"Задача «{task['title']}» удалена.")
         else:
