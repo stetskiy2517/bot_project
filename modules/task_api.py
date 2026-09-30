@@ -102,10 +102,12 @@ def tasks_list():
 
 @task_api.get("/api/tasks/<int:task_id>")
 def tasks_get(task_id: int):
-    task = get_planner_task(_user(), task_id)
+    user_id = _user()
+    task = get_planner_task(user_id, task_id)
     if not task:
         return jsonify(error="task_not_found"), 404
-    subtasks = list_planner_tasks(_user(), status=None, limit=500, parent_task_id=task_id)
+    remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
+    subtasks = list_planner_tasks(user_id, status=None, limit=500, parent_task_id=task_id)
     return {"task": task, "subtasks": subtasks}
 
 
