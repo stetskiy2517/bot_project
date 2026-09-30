@@ -286,8 +286,12 @@
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
-  function openTask(taskId) {
-    const task = (todayPayload?.tasks || []).find(item => Number(item.task_id) === Number(taskId));
+  async function openTask(taskId) {
+    let task = (todayPayload?.tasks || []).find(item => Number(item.task_id) === Number(taskId));
+    try {
+      const details = await request(`/api/tasks/${taskId}`);
+      task = details?.task || task;
+    } catch (_) {}
     if (!task) return;
     openSheet(`
       <h2 class="mobile-sheet-title">Задача</h2>
