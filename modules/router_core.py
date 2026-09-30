@@ -232,10 +232,16 @@ EVENT_RELATIVE_REMINDER_RE = re.compile(
     re.IGNORECASE,
 )
 CONTEXT_PROPERTY_UPDATE_RE = re.compile(
-    r"^\s*(?:и\s+)?(?:измени|изменить|поменяй|поменять|сделай|добавь|добавить|"
+    r"^\s*(?:и\s+)?(?:"
+    r"(?:измени|изменить|поменяй|поменять|перенеси|перенести|сделай|добавь|добавить|"
     r"поставь|поставить|убери|убрать|переименуй|переименовать)\b"
     r"[^.!?]{0,80}\b(?:адрес|место|локаци\w*|длительност\w*|срок\w*|"
-    r"приоритет\w*|категори\w*|напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b",
+    r"приоритет\w*|категори\w*|напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b"
+    r"|(?:адрес|место|локаци\w*|длительност\w*|срок\w*|приоритет\w*|категори\w*|"
+    r"напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b"
+    r"[^.!?]{0,40}\b(?:измени|изменить|поменяй|поменять|перенеси|перенести|сделай|"
+    r"добавь|добавить|поставь|поставить|убери|убрать|переименуй|переименовать)\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -529,7 +535,7 @@ async def _route_current_entity_action(
     kind = str(reference.get("type") or "")
     title = str(reference.get("title") or "").strip()
     is_delete = bool(GENERIC_DELETE_RE.match(text))
-    is_update = bool(GENERIC_UPDATE_RE.match(text))
+    is_update = bool(GENERIC_UPDATE_RE.match(text) or CONTEXT_PROPERTY_UPDATE_RE.match(text))
     is_complete = bool(GENERIC_COMPLETE_RE.match(text))
     if not (is_delete or is_update or is_complete):
         return False
