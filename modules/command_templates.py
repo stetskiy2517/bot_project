@@ -94,7 +94,7 @@ async def handle_template(update, context, text: str) -> bool:
         template = next((item for item in templates if item["id"] == pending["template_id"]), None)
         when = text
         if not template:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Шаблон уже удалён.")
             return True
     else:
@@ -113,7 +113,7 @@ async def handle_template(update, context, text: str) -> bool:
     context.user_data.pop("smart_planner_pending", None)
     handled = await create_from_text(update, context, when, template=template)
     if not handled:
-        context.user_data["smart_planner_pending"] = {"type": "template_when", "template_id": template["id"]}
+        set_pending(context, {"type": "template_when", "template_id": template["id"]})
         await update.message.reply_text("Не удалось разобрать дату. Укажи день и время.")
     return True
 
