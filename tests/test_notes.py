@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from core.conversation_context import get_pending, set_pending
 from modules.notes import (
     NOTE_APPEND,
     NOTE_CREATE,
@@ -117,7 +118,7 @@ class NoteAppendTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(handled)
         search.assert_called_once_with(1, "Иванова", limit=50)
         append.assert_called_once_with(1, 7, "он согласовал цену")
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
 
     async def test_append_asks_which_note_when_several_match(self):
         update = self._update("добавь в заметку про Иванова, что созвон в пятницу")
@@ -133,7 +134,7 @@ class NoteAppendTests(unittest.IsolatedAsyncioTestCase):
             handled = await append_note_from_text(update, context, update.message.text)
         self.assertTrue(handled)
         append.assert_not_called()
-        pending = context.user_data["smart_planner_pending"]
+        pending = get_pending(context)
         self.assertEqual(pending["type"], "note_select_append")
         self.assertEqual(pending["addition"], "созвон в пятницу")
 
@@ -149,7 +150,7 @@ class NoteAppendTests(unittest.IsolatedAsyncioTestCase):
         with patch("modules.notes.search_notes", return_value=[note]):
             handled = await append_note_from_text(update, context, update.message.text)
         self.assertTrue(handled)
-        pending = context.user_data["smart_planner_pending"]
+        pending = get_pending(context)
         self.assertEqual(pending["type"], "note_append_text")
         self.assertEqual(pending["note"]["note_id"], 7)
 
@@ -187,7 +188,10 @@ class NoteRouterTests(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     def _context(pending: dict | None = None):
-        return SimpleNamespace(user_data={"smart_planner_pending": pending} if pending else {})
+        context = SimpleNamespace(user_data={})
+        if pending:
+            set_pending(context, pending)
+        return context
 
     async def test_router_sends_note_command_to_note_module_not_calendar(self):
         update = self._update("запиши заметку Иван ждёт смету")
