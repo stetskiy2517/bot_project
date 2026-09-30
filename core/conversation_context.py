@@ -10,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any
 
 CONTEXT_KEY = "smart_planner_context"
@@ -117,7 +118,7 @@ def remember_entity_for_user(
 
 
 def _context_for_user(user_id: int) -> Any:
-    return type("_Context", (), {"user_data": user_state(user_id)})()
+    return SimpleNamespace(user_data=user_state(user_id))
 
 
 def current_entity_for_user(
