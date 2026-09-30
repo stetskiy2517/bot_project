@@ -239,7 +239,7 @@ def _current_task(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict | No
     try:
         task_id = int(reference.get("id"))
     except (TypeError, ValueError):
-        clear_current_entity(context, "task")
+        clear_current_entity(context)
         return None
     task = get_task(user_id, task_id)
     if not task:
