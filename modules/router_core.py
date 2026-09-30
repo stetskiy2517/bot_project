@@ -39,9 +39,11 @@ from modules.reminders import (
 from modules.tasks import (
     TASK_COMPLETE,
     TASK_DELETE,
+    TASK_UPDATE,
     detect_task_intent,
     handle_task_text,
     resume_pending_task,
+    update_task_from_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -546,6 +548,12 @@ async def _route_current_entity_action(
         if is_complete:
             canonical = f"закрой задачу {title}".strip()
             return await handle_task_text(update, context, canonical, TASK_COMPLETE)
+        if is_update:
+            try:
+                task_id = int(reference.get("id"))
+            except (TypeError, ValueError):
+                return False
+            return await update_task_from_text(update, context, text, task_id=task_id)
         return False
 
     if kind == "note" and is_delete:
