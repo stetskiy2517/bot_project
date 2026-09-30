@@ -14,6 +14,7 @@ import re
 import time
 from typing import Any
 
+from core.conversation_context import clear_current_entity, current_entity, remember_entity
 from core.note_store import append_note, get_note, list_notes, search_notes
 from modules.notes import (
     NOTE_CREATE,
@@ -24,7 +25,6 @@ from modules.notes import (
     _note_query,
 )
 
-ACTIVE_NOTE_KEY = "smart_planner_active_note"
 NOTE_LIST_CONTEXT_KEY = "smart_planner_note_list_context"
 ACTIVE_NOTE_TTL_SECONDS = 10 * 60
 NOTE_LIST_TTL_SECONDS = 10 * 60
@@ -203,11 +203,7 @@ def remember_active_note(context: Any, note: dict) -> None:
     note_id = note.get("note_id")
     if note_id is None:
         return
-    context.user_data[ACTIVE_NOTE_KEY] = {
-        "note_id": int(note_id),
-        "title": _note_title(note),
-        "touched_at": time.time(),
-    }
+    remember_entity(context, "note", int(note_id), _note_title(note))
 
 
 def remember_latest_note(user_id: int, context: Any) -> None:
@@ -219,21 +215,21 @@ def remember_latest_note(user_id: int, context: Any) -> None:
 
 
 def clear_active_note(context: Any) -> None:
-    context.user_data.pop(ACTIVE_NOTE_KEY, None)
+    clear_current_entity(context, "note")
 
 
 def get_active_note(context: Any, user_id: int, *, now: float | None = None) -> dict | None:
-    value = context.user_data.get(ACTIVE_NOTE_KEY)
-    if not isinstance(value, dict):
+    reference = current_entity(
+        context,
+        "note",
+        now=now,
+        ttl_seconds=ACTIVE_NOTE_TTL_SECONDS,
+    )
+    if not reference:
         return None
     try:
-        touched_at = float(value.get("touched_at"))
-        note_id = int(value.get("note_id"))
+        note_id = int(reference.get("id"))
     except (TypeError, ValueError):
-        clear_active_note(context)
-        return None
-    current = time.time() if now is None else float(now)
-    if current - touched_at > ACTIVE_NOTE_TTL_SECONDS:
         clear_active_note(context)
         return None
     note = get_note(user_id, note_id)
