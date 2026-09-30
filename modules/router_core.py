@@ -226,6 +226,11 @@ LEADING_CONTEXT_REFERENCE_RE = re.compile(
     r"^\s*(?:его|ее|её|это|эту|этот|последн\w*)\b\s*",
     re.IGNORECASE,
 )
+EVENT_RELATIVE_REMINDER_RE = re.compile(
+    r"^\s*(?:и\s+)?(?:(?:напомни|напомнить)(?:\s+мне)?|"
+    r"(?:добавь|добавить|поставь|поставить)\s+напоминани\w*)\s+за\s+",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -523,10 +528,16 @@ async def _route_current_entity_action(
         return False
 
     if kind == "calendar_event":
+        event_id = str(reference.get("id") or "").strip()
         if is_delete:
             return await delete_from_text(update, context, text)
-        if is_update:
-            return await update_from_text(update, context, _action_text(text))
+        if is_update or EVENT_RELATIVE_REMINDER_RE.match(text):
+            return await update_from_text(
+                update,
+                context,
+                _action_text(text),
+                event_id=event_id or None,
+            )
         return False
 
     if kind == "reminder":
@@ -585,6 +596,13 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             _clear_pending(context)
 
     user_id = getattr(update.effective_user, "id", None)
+
+    # Relative reminder follow-ups ("напомни за час") belong to the focused
+    # calendar event, while absolute reminders ("напомни завтра в 9") remain
+    # standalone reminders.
+    if EVENT_RELATIVE_REMINDER_RE.match(text) and await _route_current_entity_action(update, context, text):
+        logger.info("Router attached reminder to focused calendar event")
+        return True
 
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
