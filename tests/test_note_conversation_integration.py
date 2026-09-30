@@ -78,7 +78,7 @@ class NoteConversationIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         read = self._update("Что у меня в списке покупок?")
         self.assertTrue(await route_text(read, context))
-        self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], note["note_id"])
+        self.assertEqual(int(current_entity(context, "note")["id"]), note["note_id"])
 
         followup = self._update("И молоко")
         self.assertTrue(await route_text(followup, context))
