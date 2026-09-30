@@ -121,10 +121,30 @@ CATEGORY_NAMES = {
     "личн": "personal",
     "проч": "other",
 }
+CONTEXT_REFERENCE_QUERIES = {
+    "", "это", "его", "ее", "её", "эту", "этот", "последнее", "последний",
+    "это событие", "эту встречу", "последнее событие", "последнюю встречу",
+}
 
 
 def _normalise(text: str) -> str:
     return text.lower().replace("ё", "е").strip()
+
+
+def _is_context_reference_query(value: str) -> bool:
+    return _normalise(value) in CONTEXT_REFERENCE_QUERIES
+
+
+def _context_calendar_event(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+) -> dict | None:
+    reference = current_entity(context, "calendar_event")
+    event_id = str(reference.get("id") or "") if reference else ""
+    if not event_id:
+        return None
+    service = _get_calendar_service(user_id)
+    return service.events().get(calendarId="primary", eventId=event_id).execute()
 
 
 def _event_end(event: dict, timezone: str) -> datetime | None:
@@ -685,13 +705,16 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
 
     query = _extract_delete_query(text)
-    if not query and not bulk_delete:
-        await update.message.reply_text("Какое событие удалить?")
-        return True
     try:
         if bulk_delete:
             start, end = _parse_search_period(text, timezone)
             events = _list_events(user_id, start, end)
+        elif _is_context_reference_query(query):
+            referenced = _context_calendar_event(context, user_id)
+            if not referenced:
+                await update.message.reply_text("Какое событие удалить?")
+                return True
+            events = [referenced]
         else:
             events = _candidate_search(user_id, timezone, text, query, use_text_period=True)
     except PermissionError:
@@ -735,17 +758,14 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
     query = _extract_update_target(text)
     try:
-        if query:
+        if not _is_context_reference_query(query):
             events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
         else:
-            reference = current_entity(context, "calendar_event")
-            event_id = str(reference.get("id") or "") if reference else ""
-            if not event_id:
+            referenced = _context_calendar_event(context, user_id)
+            if not referenced:
                 await update.message.reply_text("Какое событие изменить?")
                 return True
-            service = _get_calendar_service(user_id)
-            referenced = service.events().get(calendarId="primary", eventId=event_id).execute()
-            events = [referenced] if referenced else []
+            events = [referenced]
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
