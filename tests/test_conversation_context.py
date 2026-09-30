@@ -87,6 +87,33 @@ class UnifiedContextRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[3], TASK_DELETE)
         self.assertIn("Планерка + статистика для отчета", args[2])
 
+    async def test_generic_task_update_uses_focused_task_id(self):
+        context = SimpleNamespace(user_data={})
+        remember_entity(context, "task", 12, "Отчёт")
+        update = self._update("перенеси её на завтра в 10")
+        with patch("modules.router_core.update_task_from_text", new=AsyncMock(return_value=True)) as handler:
+            handled = await router_core._route_current_entity_action(update, context, update.message.text)
+        self.assertTrue(handled)
+        handler.assert_awaited_once_with(update, context, update.message.text, task_id=12)
+
+    async def test_relative_reminder_attaches_to_focused_event(self):
+        context = SimpleNamespace(user_data={})
+        remember_entity(context, "calendar_event", "evt-7", "Маникюр")
+        update = self._update("напомни за час")
+        with patch("modules.router_core.update_from_text", new=AsyncMock(return_value=True)) as handler:
+            handled = await router_core._route_current_entity_action(update, context, update.message.text)
+        self.assertTrue(handled)
+        self.assertEqual(handler.await_args.kwargs["event_id"], "evt-7")
+
+    async def test_absolute_reminder_is_not_claimed_by_focused_event(self):
+        context = SimpleNamespace(user_data={})
+        remember_entity(context, "calendar_event", "evt-7", "Маникюр")
+        update = self._update("напомни завтра в 9 купить молоко")
+        with patch("modules.router_core.update_from_text", new=AsyncMock(return_value=True)) as handler:
+            handled = await router_core._route_current_entity_action(update, context, update.message.text)
+        self.assertFalse(handled)
+        handler.assert_not_awaited()
+
     async def test_explicit_other_entity_does_not_use_stale_focus(self):
         context = SimpleNamespace(user_data={})
         remember_entity(context, "reminder", 8, "Купить лекарства")
