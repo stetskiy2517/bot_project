@@ -824,7 +824,7 @@ def create_web_app() -> Flask:
         return _status_payload(user_id)
 
     app.register_blueprint(assistant_api)
-    install_web_security(app, _user_state)
+    install_web_security(app)
     return app
 
 
