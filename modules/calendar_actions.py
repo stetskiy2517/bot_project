@@ -750,7 +750,13 @@ async def delete_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     return await _prepare_delete_confirmation(update, context, events[0], text, timezone)
 
 
-async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+async def update_from_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    event_id: str | None = None,
+) -> bool:
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
@@ -758,7 +764,11 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return True
     query = _extract_update_target(text)
     try:
-        if not _is_context_reference_query(query):
+        if event_id:
+            service = _get_calendar_service(user_id)
+            referenced = service.events().get(calendarId="primary", eventId=str(event_id)).execute()
+            events = [referenced] if referenced else []
+        elif not _is_context_reference_query(query):
             events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
         else:
             referenced = _context_calendar_event(context, user_id)
