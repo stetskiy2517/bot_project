@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from core.conversation_context import get_pending, set_pending
 from modules.reminders import delete_reminder_from_text, resume_pending_reminder
 
 
@@ -44,7 +45,7 @@ class ReminderDeleteContextTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         self.assertEqual(update.message.replies[-1], "Какое напоминание удалить?")
-        pending = context.user_data.get("smart_planner_pending")
+        pending = get_pending(context)
         self.assertIsNotNone(pending)
         self.assertEqual(pending["type"], "reminder_delete_query")
         self.assertEqual(pending["reference"]["reminder_id"], 7)
@@ -61,7 +62,7 @@ class ReminderDeleteContextTests(unittest.IsolatedAsyncioTestCase):
             "reference": reminder,
         }
         context = self.Context()
-        context.user_data["smart_planner_pending"] = pending
+        set_pending(context, pending)
         update = self.Update()
 
         with patch("modules.reminders.list_active_reminders", return_value=[reminder]), patch(
@@ -71,7 +72,7 @@ class ReminderDeleteContextTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         delete.assert_called_once_with(1, 7)
-        self.assertNotIn("smart_planner_pending", context.user_data)
+        self.assertIsNone(get_pending(context))
         self.assertEqual(update.message.replies[-1], "Напоминание «Выпить таблетку» удалено.")
 
     async def test_this_with_ambiguous_context_asks_for_number(self):
@@ -93,7 +94,7 @@ class ReminderDeleteContextTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(handled)
         self.assertIn("Не понял, какое именно. Напиши номер:", update.message.replies[-1])
-        self.assertEqual(context.user_data["smart_planner_pending"]["type"], "reminder_select_delete")
+        self.assertEqual(get_pending(context)["type"], "reminder_select_delete")
 
 
 if __name__ == "__main__":
