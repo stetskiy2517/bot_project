@@ -202,7 +202,9 @@ def task_schedule_apply():
             continue
         seen.add(task_id)
         try:
-            task = apply_task_slot(_user(), task_id, str(item.get("start") or ""))
+            user_id = _user()
+            task = apply_task_slot(user_id, task_id, str(item.get("start") or ""))
+            remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
             applied.append(task)
         except ValueError as exc:
             errors.append({"task_id": task_id, "error": str(exc)})
