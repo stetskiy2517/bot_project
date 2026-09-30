@@ -393,14 +393,14 @@ def remember_after_note_action(user_id: int, context: Any, intent: str, text: st
     if intent == NOTE_LIST:
         notes = list_notes(user_id, limit=NOTE_LIST_LIMIT)
         _remember_note_list(context, notes)
-        clear_active_note(context)
+        clear_current_entity(context)
         return
     if intent != NOTE_SEARCH:
         return
 
     query = _note_query(text, NOTE_SEARCH_PREFIX_RE)
     if not query:
-        clear_active_note(context)
+        clear_current_entity(context)
         _clear_note_list(context)
         return
     matches = _ordered_matches(user_id, query)[:NOTE_LIST_LIMIT]
@@ -408,7 +408,7 @@ def remember_after_note_action(user_id: int, context: Any, intent: str, text: st
     if len(matches) == 1:
         remember_active_note(context, matches[0])
     else:
-        clear_active_note(context)
+        clear_current_entity(context)
 
 
 def resolve_named_note_delete(user_id: int, text: str) -> str | None:
