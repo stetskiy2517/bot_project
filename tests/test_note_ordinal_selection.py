@@ -111,7 +111,7 @@ class NoteOrdinalIntegrationTests(unittest.IsolatedAsyncioTestCase):
             reply = update.message.reply_text.await_args.args[0]
             self.assertIn("Список покупок", reply, phrase)
             self.assertIn("Бананы", reply, phrase)
-            self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], note["note_id"])
+            self.assertEqual(int(current_entity(context, "note")["id"]), note["note_id"])
 
     async def test_out_of_range_number_is_explained(self):
         self._create("Одна", "Единственная заметка")
