@@ -8,6 +8,13 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from core.conversation_context import (
+    clear_current_entity,
+    clear_pending,
+    current_entity,
+    remember_entity,
+    set_pending,
+)
 from core.db import (
     create_task,
     delete_task,
@@ -195,7 +202,23 @@ def _format_task_list(tasks: list[dict], timezone: str, *, done: bool = False) -
 
 
 def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
-    context.user_data["smart_planner_pending"] = payload
+    set_pending(context, payload)
+
+
+def _remember_task(context: ContextTypes.DEFAULT_TYPE, task: dict) -> None:
+    task_id = task.get("task_id")
+    if task_id is None:
+        return
+    remember_entity(context, "task", task_id, task.get("title") or "")
+
+
+def _current_task(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> dict | None:
+    reference = current_entity(context, "task")
+    if not reference:
+        return None
+    task_id = str(reference.get("id") or "")
+    tasks = list_tasks(user_id, status=None, limit=500)
+    return next((item for item in tasks if str(item.get("task_id")) == task_id), None)
 
 
 async def create_task_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -211,6 +234,7 @@ async def create_task_from_text(update: Update, context: ContextTypes.DEFAULT_TY
         due_at=due_at,
         priority=_task_priority(text),
     )
+    _remember_task(context, task)
     suffix = f" · {_format_due(task, timezone)}" if due_at else ""
     priority = task["priority"]
     if priority != "normal":
@@ -234,6 +258,10 @@ async def list_tasks_from_text(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     else:
         tasks = list_tasks(update.effective_user.id, status=status, limit=100)
+    if len(tasks) == 1:
+        _remember_task(context, tasks[0])
+    elif len(tasks) != 1:
+        clear_current_entity(context, "task")
     await update.message.reply_text(_format_task_list(tasks, timezone, done=done))
     return True
 
@@ -242,9 +270,13 @@ async def complete_task_from_text(update: Update, context: ContextTypes.DEFAULT_
     timezone = get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
     query = _task_query(text)
     if not query:
-        await update.message.reply_text("Какую задачу отметить выполненной?")
-        return True
-    matches = _find_matching_tasks(update.effective_user.id, query)
+        referenced = _current_task(context, update.effective_user.id)
+        matches = [referenced] if referenced and referenced.get("status") == "open" else []
+        if not matches:
+            await update.message.reply_text("Какую задачу отметить выполненной?")
+            return True
+    else:
+        matches = _find_matching_tasks(update.effective_user.id, query)
     if not matches:
         await update.message.reply_text(f"Не нашёл открытую задачу «{query}».")
         return True
@@ -257,6 +289,7 @@ async def complete_task_from_text(update: Update, context: ContextTypes.DEFAULT_
         )
         return True
     task = set_task_completed(update.effective_user.id, matches[0]["task_id"], True)
+    _remember_task(context, task)
     await update.message.reply_text(f"Готово · «{task['title']}»")
     return True
 
@@ -265,9 +298,13 @@ async def delete_task_from_text(update: Update, context: ContextTypes.DEFAULT_TY
     timezone = get_user_timezone(update.effective_user.id, default="Europe/Moscow") or "Europe/Moscow"
     query = _task_query(text)
     if not query:
-        await update.message.reply_text("Какую задачу удалить?")
-        return True
-    matches = _find_matching_tasks(update.effective_user.id, query)
+        referenced = _current_task(context, update.effective_user.id)
+        matches = [referenced] if referenced and referenced.get("status") == "open" else []
+        if not matches:
+            await update.message.reply_text("Какую задачу удалить?")
+            return True
+    else:
+        matches = _find_matching_tasks(update.effective_user.id, query)
     if not matches:
         await update.message.reply_text(f"Не нашёл открытую задачу «{query}».")
         return True
@@ -288,7 +325,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
     pending_type = pending.get("type")
     normal = text.lower().replace("ё", "е").strip()
     if normal in {"нет", "не надо", "отмена", "отменить", "стоп"}:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил.")
         return True
 
@@ -305,6 +342,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         if pending_type == "task_select_complete":
             context.user_data.pop("smart_planner_pending", None)
             completed = set_task_completed(update.effective_user.id, task["task_id"], True)
+            _remember_task(context, completed)
             await update.message.reply_text(f"Готово · «{completed['title']}»")
             return True
         _store_pending(context, {"type": "task_confirm_delete", "task": task, "timezone": pending.get("timezone")})
@@ -318,6 +356,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("smart_planner_pending", None)
         task = pending["task"]
         if delete_task(update.effective_user.id, task["task_id"]):
+            clear_current_entity(context, "task", task["task_id"])
             await update.message.reply_text(f"Задача «{task['title']}» удалена.")
         else:
             await update.message.reply_text("Задача уже удалена или не найдена.")
