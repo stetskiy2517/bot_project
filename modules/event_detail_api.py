@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, request, session
 
 from core.category_store import get_category_colors, get_user_categories
+from core.conversation_context import clear_current_entity_for_user, remember_entity_for_user
 from core.db import get_user_timezone
 from modules import calendar as calendar_module
 from modules.calendar_actions import _find_conflicts
@@ -326,6 +327,13 @@ def event_details(event_id: str):
         service = _get_calendar_service(user_id)
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
         parent = _load_parent(service, event)
+        remember_entity_for_user(
+            user_id,
+            "calendar_event",
+            event.get("id"),
+            event.get("summary") or "Событие",
+            metadata={"start": event.get("start"), "end": event.get("end")},
+        )
         return {"event": _event_payload(event, timezone_name, user_id, parent=parent)}
     except PermissionError:
         return {"error": "calendar_not_connected", "message": "Google Calendar не подключён."}, 409
@@ -460,6 +468,13 @@ def update_event(event_id: str):
             except Exception:
                 pass
         updated_parent = _load_parent(service, updated)
+        remember_entity_for_user(
+            user_id,
+            "calendar_event",
+            updated.get("id"),
+            updated.get("summary") or "Событие",
+            metadata={"start": updated.get("start"), "end": updated.get("end")},
+        )
         return {"event": _event_payload(updated, timezone_name, user_id, parent=updated_parent)}
     except ValueError as exc:
         return {"error": "invalid_event", "message": str(exc)}, 400
@@ -496,6 +511,7 @@ def delete_event(event_id: str):
                 safe_delete_travel_for_event(user_id, event_id)
             except Exception:
                 pass
+        clear_current_entity_for_user(user_id, "calendar_event", event_id)
         return {"ok": True, "scope": scope}
     except ValueError as exc:
         return {"error": "invalid_event", "message": str(exc)}, 400
