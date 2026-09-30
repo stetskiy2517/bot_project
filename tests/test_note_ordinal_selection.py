@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from core.conversation_context import current_entity
 from core.note_store import create_note, delete_note, get_note, list_notes
 from modules.note_conversation import (
-    ACTIVE_NOTE_KEY,
     NOTE_LIST_CONTEXT_KEY,
     note_selection_index,
 )
@@ -96,7 +96,7 @@ class NoteOrdinalIntegrationTests(unittest.IsolatedAsyncioTestCase):
         reply = selection.message.reply_text.await_args.args[0]
         self.assertIn(expected["title"], reply)
         self.assertIn(expected["text"], reply)
-        self.assertEqual(context.user_data[ACTIVE_NOTE_KEY]["note_id"], first_id)
+        self.assertEqual(int(current_entity(context, "note")["id"]), first_id)
 
     async def test_all_three_screenshot_variants_open_note(self):
         note = self._create("Список покупок", "Бананы, масло, шоколад")
