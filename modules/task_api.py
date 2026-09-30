@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
+from core.conversation_context import clear_current_entity, remember_entity_for_user
 from core.task_planner_store import (
     create_planner_task,
     delete_planner_task,
@@ -126,6 +127,7 @@ def tasks_create():
         )
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_task", message=str(exc)), 400
+    remember_entity_for_user(_user(), "task", task["task_id"], task.get("title") or "")
     return {"task": task}, 201
 
 
@@ -141,6 +143,7 @@ def tasks_update(task_id: int):
         task = update_planner_task(user_id, task_id, payload)
     except (TypeError, ValueError) as exc:
         return jsonify(error="invalid_task", message=str(exc)), 400
+    remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
     next_task = None
     if status == "done" and current.get("status") != "done":
         remove_future_task_block(user_id, current)
@@ -160,6 +163,9 @@ def tasks_delete(task_id: int):
         update_planner_task(user_id, int(subtask["task_id"]), {"parent_task_id": None})
     if not delete_planner_task(user_id, task_id):
         return jsonify(error="task_not_found"), 404
+    from core.web_transport import WebContext
+    from core.conversation_context import user_state
+    clear_current_entity(WebContext(user_state(user_id)), "task", task_id)
     return {"ok": True, "detached_subtasks": len(subtasks)}
 
 
