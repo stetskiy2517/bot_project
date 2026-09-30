@@ -110,7 +110,7 @@ async def handle_template(update, context, text: str) -> bool:
         set_pending(context, {"type": "template_when", "template_id": template["id"]})
         await update.message.reply_text("На какой день и время? Например: «завтра в 15:00».")
         return True
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     handled = await create_from_text(update, context, when, template=template)
     if not handled:
         set_pending(context, {"type": "template_when", "template_id": template["id"]})
