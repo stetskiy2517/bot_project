@@ -10,7 +10,13 @@ import time as clock
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.calendar_reference import recent_calendar_event_id, remember_calendar_event
+from core.conversation_context import (
+    clear_current_entity,
+    clear_pending,
+    current_entity,
+    remember_entity,
+    set_pending,
+)
 from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import (
     NAMED_DATE_RE,
@@ -456,7 +462,23 @@ def _patch_interval(event: dict, patch: dict, timezone: str) -> tuple[datetime, 
 
 
 def _store_pending(context: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
-    context.user_data["smart_planner_pending"] = payload
+    set_pending(context, payload)
+
+
+def _remember_calendar_event(context: ContextTypes.DEFAULT_TYPE, event: dict) -> None:
+    event_id = event.get("id")
+    if not event_id:
+        return
+    remember_entity(
+        context,
+        "calendar_event",
+        event_id,
+        event.get("summary") or "Событие",
+        metadata={
+            "start": event.get("start"),
+            "end": event.get("end"),
+        },
+    )
 
 
 def _format_candidates(events: list[dict], timezone: str) -> str:
@@ -534,7 +556,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             if not event:
                 return False
             created = _create_event(user_id, event)
-            remember_calendar_event(user_id, created)
+            _remember_calendar_event(context, created)
             await update.message.reply_text(
                 f"Событие «{event['summary']}» добавлено на весь день: {event['start']['date']}"
             )
@@ -716,7 +738,8 @@ async def update_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         if query:
             events = _candidate_search(user_id, timezone, text, query, use_text_period=False)
         else:
-            event_id = recent_calendar_event_id(user_id)
+            reference = current_entity(context, "calendar_event")
+            event_id = str(reference.get("id") or "") if reference else ""
             if not event_id:
                 await update.message.reply_text("Какое событие изменить?")
                 return True
@@ -828,7 +851,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
     pending_type = pending.get("type")
 
     if normal in NO_WORDS:
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         await update.message.reply_text("Хорошо, отменил действие.")
         return True
 
@@ -901,7 +924,8 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data.pop("smart_planner_pending", None)
             moved = _event_at_alternative(pending["event"], alternatives[index], pending.get("timezone") or "Europe/Moscow")
             try:
-                _create_event(update.effective_user.id, moved)
+                created = _create_event(update.effective_user.id, moved)
+                _remember_calendar_event(context, created)
                 slot = alternatives[index]
                 await update.message.reply_text(
                     f"Поставил «{moved.get('summary', 'Событие')}» на {slot[0].strftime('%d.%m %H:%M')}–{slot[1].strftime('%H:%M')}."
@@ -952,7 +976,8 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     try:
         if pending_type == "confirm_create_conflict":
-            _create_event(user_id, pending["event"])
+            created = _create_event(user_id, pending["event"])
+            _remember_calendar_event(context, created)
             await update.message.reply_text(f"Событие «{pending['event'].get('summary', 'Без названия')}» добавлено несмотря на конфликт.")
             return True
         if pending_type == "confirm_delete":
@@ -966,6 +991,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                 service.events().delete(calendarId="primary", eventId=event["id"]).execute()
                 safe_delete_travel_for_event(user_id, event["id"])
+            clear_current_entity(context, "calendar_event", event.get("id"))
             await update.message.reply_text(f"Событие «{event.get('summary', 'Без названия')}» удалено.")
             return True
         if pending_type == "confirm_delete_many":
@@ -1002,6 +1028,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 patch_kwargs["sendUpdates"] = "all"
             updated = service.events().patch(**patch_kwargs).execute()
             sync_travel_for_event(user_id, updated, pending["timezone"])
+            _remember_calendar_event(context, updated)
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено."
             )
@@ -1014,6 +1041,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
                 pending["patch"],
                 pending["timezone"],
             )
+            _remember_calendar_event(context, updated)
             await update.message.reply_text(
                 f"Событие «{updated.get('summary', pending['event'].get('summary', 'Без названия'))}» изменено с этого момента и дальше."
             )
