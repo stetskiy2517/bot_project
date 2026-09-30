@@ -181,7 +181,6 @@ def note_details(note_id: int):
     if not note:
         return jsonify(error="note_not_found"), 404
     remember_entity_for_user(user_id, "note", note_id, note.get("title") or "")
-    remember_entity_for_user(_user(), "note", note_id, note.get("title") or "")
     return {"note": _public_note(note)}
 
 
@@ -201,17 +200,19 @@ def edit_note_metadata(note_id: int):
     payload = request.get_json(silent=True) or {}
     if set(payload) - {"pinned", "tags", "checklist", "category"}:
         raise ValueError("Неизвестные поля заметки")
-    current = enhanced_note(_user(), note_id)
+    user_id = _user()
+    current = enhanced_note(user_id, note_id)
     if not current:
         return jsonify(error="note_not_found"), 404
     note = update_note_metadata(
-        _user(),
+        user_id,
         note_id,
         pinned=payload.get("pinned", current.get("pinned", False)),
         tags=payload.get("tags", current.get("tags", [])),
         checklist=payload.get("checklist", current.get("checklist", [])),
         category=payload.get("category", current.get("category", DEFAULT_NOTE_CATEGORY)),
     )
+    remember_entity_for_user(user_id, "note", note_id, note.get("title") or "")
     return {"note": _public_note(note)}
 
 
