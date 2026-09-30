@@ -18,7 +18,6 @@ from core.conversation_context import (
 from core.db import get_user_timezone
 from core.task_planner_store import (
     create_planner_task,
-    delete_planner_task,
     get_planner_task,
     list_planner_tasks,
     update_planner_task,
@@ -26,6 +25,7 @@ from core.task_planner_store import (
 from modules.calendar import _date_from_text, _extract_title, _parse_datetime
 from modules.calendar_event_features import _priority_value
 from modules.calendar_user import _parse_view_period, _user_zone
+from modules.task_service import complete_task as complete_task_service, delete_task as delete_task_service
 
 TASK_CREATE = "task_create"
 TASK_LIST = "task_list"
@@ -198,10 +198,8 @@ def _tasks_for_user(
 
 
 def _complete_task(user_id: int, task_id: int, completed: bool = True) -> dict | None:
-    task = get_planner_task(user_id, task_id)
-    if not task:
-        return None
-    return update_planner_task(user_id, task_id, {"status": "done" if completed else "open"})
+    task, _next_task = complete_task_service(user_id, task_id, completed=completed)
+    return task
 
 
 def _find_matching_tasks(user_id: int, query: str, *, status: str = "open") -> list[dict]:
@@ -545,7 +543,8 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         clear_pending(context)
         task = pending["task"]
-        if delete_planner_task(update.effective_user.id, task["task_id"]):
+        deleted, _detached = delete_task_service(update.effective_user.id, task["task_id"])
+        if deleted:
             clear_current_entity(context, "task", task["task_id"])
             await update.message.reply_text(f"Задача «{task['title']}» удалена.")
         else:
