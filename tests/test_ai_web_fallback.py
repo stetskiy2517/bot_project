@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import web_app
+from core.conversation_context import clear_user_state
 from core.chat_context import clear_chat_context
 from core.db import get_or_create_google_user
 from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, UNHANDLED_WEB_MESSAGE_EN
@@ -14,7 +15,7 @@ class AIWebFallbackTests(unittest.TestCase):
     def setUp(self):
         self.app = web_test_app()
         self.client = self.app.test_client()
-        web_app._user_state.clear()
+        clear_user_state()
         self.user_id = get_or_create_google_user(
             "ai-web-fallback",
             "ai-web-fallback@example.test",
