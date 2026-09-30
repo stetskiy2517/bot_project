@@ -424,7 +424,7 @@ async def search_from_text(
             metadata={"start": event.get("start"), "end": event.get("end")},
         )
     else:
-        clear_current_entity(context, "calendar_event")
+        clear_current_entity(context)
     await update.message.reply_text(_format_search_results(events, timezone, query))
     return True
 
