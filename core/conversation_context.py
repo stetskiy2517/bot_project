@@ -155,6 +155,13 @@ def remember_entity(
     return deepcopy(entity)
 
 
+def _persist_user_state(user_id: int) -> None:
+    """Persist web/PWA context so UI focus survives workers and process restarts."""
+    from core.command_store import save_conversation
+
+    save_conversation(int(user_id), user_state(user_id))
+
+
 def remember_entity_for_user(
     user_id: int,
     entity_type: str,
@@ -163,7 +170,15 @@ def remember_entity_for_user(
     *,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return remember_entity(_context_for_user(user_id), entity_type, entity_id, title, metadata=metadata)
+    entity = remember_entity(
+        _context_for_user(user_id),
+        entity_type,
+        entity_id,
+        title,
+        metadata=metadata,
+    )
+    _persist_user_state(user_id)
+    return entity
 
 
 def _context_for_user(user_id: int) -> Any:
@@ -252,6 +267,7 @@ def clear_current_entity_for_user(
     entity_id: object | None = None,
 ) -> None:
     clear_current_entity(_context_for_user(user_id), entity_type, entity_id)
+    _persist_user_state(user_id)
 
 
 def get_pending(context: Any) -> dict[str, Any] | None:
