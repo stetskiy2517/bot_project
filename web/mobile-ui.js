@@ -236,6 +236,11 @@
       if (todayResult.status !== "fulfilled") throw todayResult.reason;
       todayPayload = todayResult.value;
       routePayload = routeResult.status === "fulfilled" ? routeResult.value : null;
+      if (todayPayload?.calendar_auth_required) {
+        document.dispatchEvent(new CustomEvent("planner-google-auth-required", {
+          detail: {error: "google_auth_required"},
+        }));
+      }
       renderToday(todayPayload, routePayload);
     } catch (error) {
       if (content) content.innerHTML = `<div class="mobile-error">${escapeHtml(friendly(error))}</div>`;
