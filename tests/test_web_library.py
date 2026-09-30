@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import web_app
 from tests.web_test_support import web_test_app
+from core.conversation_context import clear_user_state, current_entity_for_user
 from core.db import get_or_create_google_user
 from core.note_store import create_note
 from core.reminder_store import (
@@ -12,14 +13,13 @@ from core.reminder_store import (
     create_reminder,
     list_reminders,
 )
-from modules.note_conversation import ACTIVE_NOTE_KEY
 
 
 class WebLibraryTests(unittest.TestCase):
     def setUp(self):
         self.app = web_test_app()
         self.client = self.app.test_client()
-        web_app._user_state.clear()
+        clear_user_state()
         stamp = uuid4().hex
         self.user_id = get_or_create_google_user(
             f"library-user-{stamp}",
@@ -88,15 +88,13 @@ class WebLibraryTests(unittest.TestCase):
         response.close()
         self.assertEqual(payload["label"], "Список покупок")
         self.assertIn("Бананы, масло", payload["chat_text"])
-        self.assertEqual(
-            web_app._user_state[self.user_id][ACTIVE_NOTE_KEY]["note_id"],
-            note["note_id"],
-        )
+        reference = current_entity_for_user(self.user_id, "note")
+        self.assertEqual(int(reference["id"]), note["note_id"])
 
     def test_open_reminder_clears_active_note_and_sets_reminder_context(self):
         note = create_note(self.user_id, "Черновик", title="Проект")
         self.client.post("/api/library/open", json={"type": "note", "id": note["note_id"]})
-        self.assertIn(ACTIVE_NOTE_KEY, web_app._user_state[self.user_id])
+        self.assertEqual(current_entity_for_user(self.user_id, "note")["type"], "note")
 
         reminder = create_reminder(
             self.user_id,
@@ -112,11 +110,8 @@ class WebLibraryTests(unittest.TestCase):
         response.close()
         self.assertEqual(payload["label"], "Напоминание")
         self.assertIn("Забрать документы", payload["chat_text"])
-        self.assertNotIn(ACTIVE_NOTE_KEY, web_app._user_state[self.user_id])
-        self.assertEqual(
-            web_app._user_state[self.user_id]["smart_planner_active_reminder"]["reminder_id"],
-            reminder["reminder_id"],
-        )
+        reference = current_entity_for_user(self.user_id, "reminder")
+        self.assertEqual(int(reference["id"]), reminder["reminder_id"])
 
     def test_fired_and_completed_reminder_states_are_distinct(self):
         now = datetime.now(timezone.utc)
