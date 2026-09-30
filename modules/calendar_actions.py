@@ -877,7 +877,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
 
     if pending_type in {"free_slot_title", "free_slot_choice", "confirm_free_slot"}:
         if pending.get("expires_at", clock.time() + 1) <= clock.time():
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             await update.message.reply_text("Предложение устарело. Запроси свободные окна ещё раз.")
             return True
         expires = pending.get("expires_at", clock.time() + 300)
@@ -885,7 +885,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             if normal not in YES_WORDS:
                 await update.message.reply_text("Ответь «да» или «отмена».")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             slot = pending["slot"]
             try:
                 event = create_event_in_slot(update.effective_user.id, pending["timezone"], pending["title"], *slot, allow_non_workday=pending.get("allow_non_workday", False))
@@ -901,7 +901,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         if pending_type == "free_slot_choice":
             index = _choice_index(text)
             if index is None:
-                context.user_data.pop("smart_planner_pending", None)
+                clear_pending(context)
                 return False
             slots = pending.get("slots") or []
             if not 0 <= index < len(slots):
@@ -913,7 +913,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             slot = pending.get("slot")
             title = text.strip(" ,.-")
         if not slot:
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             return False
         if not title:
             _store_pending(context, {"type": "free_slot_title", "slot": slot,
@@ -941,7 +941,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
             if index < 0 or index >= len(alternatives):
                 await update.message.reply_text("Такого варианта нет. Выбери номер из списка, «да» или «нет».")
                 return True
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             moved = _event_at_alternative(pending["event"], alternatives[index], pending.get("timezone") or "Europe/Moscow")
             try:
                 created = _create_event(update.effective_user.id, moved)
@@ -992,7 +992,7 @@ async def resume_pending_action(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Ответь «да» или «нет».")
         return True
 
-    context.user_data.pop("smart_planner_pending", None)
+    clear_pending(context)
     user_id = update.effective_user.id
     try:
         if pending_type == "confirm_create_conflict":
