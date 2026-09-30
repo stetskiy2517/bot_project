@@ -15,6 +15,7 @@ from modules.calendar_actions import (
     _find_conflicts,
     _has_explicit_delete_period,
     _is_bulk_delete_request,
+    _location_from_update,
     _new_title_from_update,
     delete_from_text,
     resume_pending_action,
@@ -50,6 +51,10 @@ class CalendarActionsTests(unittest.TestCase):
         self.assertEqual(_extract_update_target("переименуй встречу в созвон с клиентом"), "встречу")
         self.assertEqual(_extract_update_target("Длительность измени на 1,5 часа"), "")
         self.assertEqual(_extract_update_target("измени длительность маникюра на 1,5 часа"), "маникюра")
+
+    def test_natural_address_followup_is_parsed(self):
+        self.assertEqual(_location_from_update("добавь адрес Ленина 5"), "Ленина 5")
+        self.assertEqual(_location_from_update("измени место на Тверская 12"), "Тверская 12")
 
     def test_duration_and_title_changes(self):
         self.assertEqual(_duration_from_update("сделай встречу на 2 часа"), timedelta(hours=2))
