@@ -565,7 +565,7 @@ async def list_reminders_from_text(
     if len(reminders) == 1:
         _remember_reminder_reference(context, reminders[0])
     else:
-        context.user_data.pop(LAST_REMINDER_KEY, None)
+        clear_current_entity(context, "reminder")
     await update.message.reply_text(
         "Напоминания:\n" + "\n".join(_format_line(item, timezone) for item in reminders[:20])
     )
@@ -658,7 +658,7 @@ async def delete_reminder_from_text(
     if not query:
         reminders = list_active_reminders(user_id, limit=200)
         if not reminders:
-            context.user_data.pop(LAST_REMINDER_KEY, None)
+            clear_current_entity(context, "reminder")
             await update.message.reply_text("Активных напоминаний нет.")
             return True
         _store_pending(
@@ -683,8 +683,9 @@ async def delete_reminder_from_text(
             "\n".join(_format_line(item, timezone, index=index) for index, item in enumerate(visible, start=1))
         )
         return True
-    delete_reminder(user_id, matches[0]["reminder_id"])
-    context.user_data.pop(LAST_REMINDER_KEY, None)
+    deleted = matches[0]
+    delete_reminder(user_id, deleted["reminder_id"])
+    clear_current_entity(context, "reminder", deleted["reminder_id"])
     await update.message.reply_text(f"Напоминание «{matches[0]['text']}» удалено.")
     return True
 
@@ -795,7 +796,7 @@ async def resume_pending_reminder(
             if reminder is None:
                 if not reminders:
                     clear_pending(context)
-                    context.user_data.pop(LAST_REMINDER_KEY, None)
+                    clear_current_entity(context, "reminder")
                     await update.message.reply_text("Активных напоминаний нет.")
                     return True
                 visible = reminders[:5]
@@ -812,7 +813,7 @@ async def resume_pending_reminder(
                 )
                 return True
             clear_pending(context)
-            context.user_data.pop(LAST_REMINDER_KEY, None)
+            clear_current_entity(context, "reminder", reminder["reminder_id"])
             if delete_reminder(user_id, reminder["reminder_id"]):
                 await update.message.reply_text(f"Напоминание «{reminder['text']}» удалено.")
             else:
@@ -832,8 +833,8 @@ async def resume_pending_reminder(
             await update.message.reply_text("Такого номера нет. Выбери номер из списка.")
             return True
         clear_pending(context)
-        context.user_data.pop(LAST_REMINDER_KEY, None)
         reminder = reminders[index]
+        clear_current_entity(context, "reminder", reminder["reminder_id"])
         if delete_reminder(update.effective_user.id, reminder["reminder_id"]):
             await update.message.reply_text(f"Напоминание «{reminder['text']}» удалено.")
         else:
