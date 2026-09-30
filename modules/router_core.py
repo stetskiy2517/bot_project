@@ -231,6 +231,13 @@ EVENT_RELATIVE_REMINDER_RE = re.compile(
     r"(?:добавь|добавить|поставь|поставить)\s+напоминани\w*)\s+за\s+",
     re.IGNORECASE,
 )
+CONTEXT_PROPERTY_UPDATE_RE = re.compile(
+    r"^\s*(?:и\s+)?(?:измени|изменить|поменяй|поменять|сделай|добавь|добавить|"
+    r"поставь|поставить|убери|убрать|переименуй|переименовать)\b"
+    r"[^.!?]{0,80}\b(?:адрес|место|локаци\w*|длительност\w*|срок\w*|"
+    r"приоритет\w*|категори\w*|напоминани\w*|повтор\w*|участник\w*|назван\w*|текст)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -596,6 +603,12 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             _clear_pending(context)
 
     user_id = getattr(update.effective_user, "id", None)
+
+    # Property edits belong to the focused entity before note-append heuristics
+    # can reinterpret generic verbs such as "добавь".
+    if CONTEXT_PROPERTY_UPDATE_RE.match(text) and await _route_current_entity_action(update, context, text):
+        logger.info("Router updated property of focused entity")
+        return True
 
     # Relative reminder follow-ups ("напомни за час") belong to the focused
     # calendar event, while absolute reminders ("напомни завтра в 9") remain
