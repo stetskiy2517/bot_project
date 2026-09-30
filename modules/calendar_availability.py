@@ -10,7 +10,7 @@ import time as clock
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.conversation_context import get_pending, set_pending
+from core.conversation_context import clear_current_entity, get_pending, set_pending
 from core.db import get_calendar_preferences, get_category_colors, get_user_timezone
 from modules.calendar import _build_event, _create_event, _extract_duration, _extract_time
 from modules.calendar_event_features import apply_event_features
@@ -396,6 +396,8 @@ async def free_slots_from_text(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
 ) -> bool:
+    # A free-slot result is a list/selection context, not the previously focused entity.
+    clear_current_entity(context)
     user_id = update.effective_user.id
     timezone = get_user_timezone(user_id, default=None)
     if not timezone:
