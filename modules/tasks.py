@@ -340,7 +340,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         task = tasks[index]
         if pending_type == "task_select_complete":
-            context.user_data.pop("smart_planner_pending", None)
+            clear_pending(context)
             completed = set_task_completed(update.effective_user.id, task["task_id"], True)
             _remember_task(context, completed)
             await update.message.reply_text(f"Готово · «{completed['title']}»")
@@ -353,7 +353,7 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         if normal not in {"да", "ага", "удаляй", "подтверждаю", "ок", "окей"}:
             await update.message.reply_text("Ответь «да» или «нет».")
             return True
-        context.user_data.pop("smart_planner_pending", None)
+        clear_pending(context)
         task = pending["task"]
         if delete_task(update.effective_user.id, task["task_id"]):
             clear_current_entity(context, "task", task["task_id"])
