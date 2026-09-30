@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.feature_access import has_ai_access
+from core.conversation_context import remember_entity_for_user
 from core.note_enhancements import (
     DEFAULT_NOTE_CATEGORY,
     NOTE_CATEGORIES,
@@ -159,23 +160,28 @@ def create_note_from_ui():
     pinned, tags, checklist, category = _validate_create_metadata(payload)
     text = str(payload.get("text") or "").strip()
     title = str(payload.get("title") or "").strip() or None
-    note = create_note(_user(), text, title=title)
+    user_id = _user()
+    note = create_note(user_id, text, title=title)
     note = update_note_metadata(
-        _user(),
+        user_id,
         note["note_id"],
         pinned=pinned,
         tags=tags,
         checklist=checklist,
         category=category,
     )
+    remember_entity_for_user(user_id, "note", note["note_id"], note.get("title") or "")
     return {"note": _public_note(note)}, 201
 
 
 @note_tools_api.get("/api/note-tools/<int:note_id>")
 def note_details(note_id: int):
-    note = enhanced_note(_user(), note_id)
+    user_id = _user()
+    note = enhanced_note(user_id, note_id)
     if not note:
         return jsonify(error="note_not_found"), 404
+    remember_entity_for_user(user_id, "note", note_id, note.get("title") or "")
+    remember_entity_for_user(_user(), "note", note_id, note.get("title") or "")
     return {"note": _public_note(note)}
 
 
@@ -184,7 +190,9 @@ def edit_note(note_id: int):
     payload = request.get_json(silent=True) or {}
     if set(payload) != {"title", "text"}:
         raise ValueError("Нужны название и текст заметки")
-    note = update_note_content(_user(), note_id, title=payload.get("title"), text=payload.get("text"))
+    user_id = _user()
+    note = update_note_content(user_id, note_id, title=payload.get("title"), text=payload.get("text"))
+    remember_entity_for_user(user_id, "note", note_id, note.get("title") or "")
     return {"note": _public_note(note)}
 
 
@@ -223,6 +231,7 @@ def note_to_task(note_id: int):
         estimate_minutes=payload.get("estimate_minutes"),
         flexible=payload.get("flexible", True),
     )
+    remember_entity_for_user(_user(), "task", task["task_id"], task.get("title") or "")
     return {"task": task}, 201
 
 
