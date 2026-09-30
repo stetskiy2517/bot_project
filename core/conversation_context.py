@@ -190,7 +190,17 @@ def remember_entity_for_user(
 
 
 def _context_for_user(user_id: int) -> Any:
-    return SimpleNamespace(user_data=user_state(user_id))
+    """Return user context, restoring durable state on first access in this process."""
+    uid = int(user_id)
+    with _web_states_lock:
+        state = _web_states.get(uid)
+        if state is None:
+            from core.command_store import load_conversation
+
+            loaded = load_conversation(uid)
+            state = dict(loaded) if isinstance(loaded, dict) else {}
+            _web_states[uid] = state
+        return SimpleNamespace(user_data=state)
 
 
 def current_entity_for_user(
