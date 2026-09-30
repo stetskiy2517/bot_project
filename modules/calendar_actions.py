@@ -628,7 +628,7 @@ async def create_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
             )
             return True
         created = _create_event(user_id, event)
-        remember_calendar_event(user_id, created)
+        _remember_calendar_event(context, created)
     except PermissionError:
         await update.message.reply_text("Сначала подключите Google Calendar: /start")
         return True
