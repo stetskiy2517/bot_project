@@ -452,20 +452,20 @@ async def free_slots_from_text(
             "type": "confirm_free_slot", "slot": (slot_start, slot_end),
             "timezone": timezone, "title": booking_title, "expires_at": clock.time() + 300,
             "allow_non_workday": _period_has_explicit_day(text),
-        }
+        })
         await update.message.reply_text(
             f"Поставить «{booking_title}» на {slot_start.strftime('%d.%m %H:%M')}–{slot_end.strftime('%H:%M')}? Да или отмена."
         )
         return True
 
-    context.user_data["smart_planner_pending"] = {
+    set_pending(context, {
         "type": "free_slot_choice",
         "allow_non_workday": _period_has_explicit_day(text),
         "expires_at": clock.time() + 300,
         "slots": slots,
         "timezone": timezone,
         "label": label,
-    }
+    })
     include_date = (end - start) > timedelta(days=1)
     lines = [f"{index}. {_format_slot(slot, include_date=include_date)}" for index, slot in enumerate(slots, start=1)]
     await update.message.reply_text(
