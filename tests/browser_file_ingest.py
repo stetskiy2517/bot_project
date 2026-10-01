@@ -44,6 +44,8 @@ def main() -> None:
 
         proposal = {
             "ok": True,
+            "draft_id": "draft-live-1",
+            "source_name": "ticket.pdf",
             "document_type": "flight_ticket",
             "summary": "Нашёл авиабилет Таллин — Хельсинки.",
             "warnings": [],
@@ -92,6 +94,15 @@ def main() -> None:
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
+            drafts_payload = {"drafts": []}
+            page.route(
+                "**/api/files/drafts",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(drafts_payload, ensure_ascii=False),
+                ),
+            )
             page.route(
                 "**/api/files/analyze",
                 lambda route: route.fulfill(
@@ -101,7 +112,7 @@ def main() -> None:
                 ),
             )
             page.route(
-                "**/api/tasks",
+                "**/api/files/task",
                 lambda route: route.fulfill(
                     status=201,
                     content_type="application/json",
@@ -199,6 +210,46 @@ def main() -> None:
             expect(add_button).to_be_enabled()
             add_button.click()
             expect(add_button).to_have_text("Добавлено ✓")
+
+            # An unfinished import must survive a page reload and restore real actions,
+            # not only flattened chat text.
+            restored = {
+                **proposal,
+                "draft_id": "draft-restored-1",
+                "source_name": "IMG_0793.jpeg",
+                "events": [],
+                "tasks": [{
+                    "title": "Обсуждение целей и концепции",
+                    "description": "ВКС",
+                    "due_at": "2026-10-01T11:15:00+03:00",
+                    "due_timezone": "Europe/Moscow",
+                    "priority": "normal",
+                    "category": "work",
+                    "estimate_minutes": None,
+                    "confidence": 1.0,
+                    "ready": True,
+                    "warnings": [],
+                }],
+            }
+            drafts_payload["drafts"] = [{
+                "draft_id": "draft-restored-1",
+                "result": restored,
+                "created_at": time.time(),
+                "updated_at": time.time(),
+            }]
+            page.reload(wait_until="networkidle")
+            page.wait_for_function(
+                "window.PlannerRequests && !document.getElementById('login').classList.contains('open')"
+            )
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            restored_card = page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")
+            expect(restored_card).to_be_visible()
+            restored_buttons = restored_card.locator("button")
+            expect(restored_buttons).to_have_count(2)
+            expect(restored_buttons.nth(0)).to_have_text("Добавить задачу")
+            expect(restored_buttons.nth(1)).to_have_text("Добавить в календарь")
+            expect(restored_buttons.nth(0)).to_be_enabled()
+            expect(restored_buttons.nth(1)).to_be_enabled()
 
             manual_email_action = {
                 "action_type": "calendar_event",
