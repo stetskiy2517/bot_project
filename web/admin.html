@@ -37,6 +37,7 @@
     .toggle { border:0; border-radius:10px; padding:8px 10px; cursor:pointer; background:#111; color:#fff; min-width:92px; }
     .toggle.secondary { background:#eee; color:#111; }
     .toggle:disabled { opacity:.45; cursor:default; }
+    .action-row { display:flex; gap:6px; flex-wrap:wrap; }
     .status { min-height:20px; margin:8px 0 0; color:#6e6e73; font-size:13px; }
     .error { color:#a00; }
     @media (max-width:760px) {
@@ -77,6 +78,19 @@
         <table>
           <thead><tr><th>ID</th><th>Пользователь</th><th>Регистрация</th><th>Роль</th><th>AI</th><th>Управление</th></tr></thead>
           <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="activityPanel" hidden>
+      <div class="panel-head">
+        <div><h2 id="activityTitle">Диагностика пользователя</h2><div class="status" id="activityStatus"></div></div>
+        <button class="toggle secondary" id="closeActivity" type="button">Закрыть</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Когда</th><th>Метод</th><th>API</th><th>Статус</th><th>Ошибка</th><th>Время</th><th>Детали</th></tr></thead>
+          <tbody id="activityBody"></tbody>
         </table>
       </div>
     </section>
