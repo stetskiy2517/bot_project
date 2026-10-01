@@ -324,7 +324,6 @@
         </div>`;
       document.body.appendChild(root);
     }
-    document.getElementById("closeMemoryScreen")?.addEventListener("click", closeScreen);
 
     root.addEventListener("click", event => {
       const tab = event.target.closest("[data-memory-tab]");
@@ -359,6 +358,10 @@
     `;
     document.head.appendChild(style);
   }
+
+  document.addEventListener("click", event => {
+    if (event.target.closest?.("#closeMemoryScreen")) closeScreen();
+  });
 
   document.addEventListener("planner-ready", () => {
     install();
