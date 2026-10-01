@@ -94,7 +94,34 @@
     userId = null;
     csrf = "";
   }
-  window.PlannerRequests = {request, status, newId, draft, saveDraft, clearDraft, clearAll};
+  function track(event, details = {}) {
+    if (!event) return;
+    request("/api/client/activity", {
+      method: "POST",
+      requestId: newId(),
+      body: JSON.stringify({event, details}),
+    }).catch(() => {});
+  }
+
+  window.PlannerRequests = {request, status, newId, draft, saveDraft, clearDraft, clearAll, track};
+
+  window.addEventListener("error", event => {
+    track("js_error", {
+      message: String(event.message || "JavaScript error").slice(0, 1200),
+      name: event.error?.name || "Error",
+      stack: String(event.error?.stack || "").slice(0, 2000),
+      source: String(event.filename || "").slice(0, 500),
+    });
+  });
+
+  window.addEventListener("unhandledrejection", event => {
+    const reason = event.reason;
+    track("unhandled_rejection", {
+      message: String(reason?.message || reason || "Unhandled rejection").slice(0, 1200),
+      name: String(reason?.name || "PromiseRejection").slice(0, 120),
+      stack: String(reason?.stack || "").slice(0, 2000),
+    });
+  });
 })();
 
 (() => {
