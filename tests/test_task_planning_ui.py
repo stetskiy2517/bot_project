@@ -18,6 +18,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.worker = Path("web/sw.js").read_text(encoding="utf-8")
         self.prebeta = Path("web/prebeta-polish.js").read_text(encoding="utf-8")
         self.ux = Path("web/ux-polish.js").read_text(encoding="utf-8")
+        self.settings_themes = Path("web/settings-themes.js").read_text(encoding="utf-8")
 
     def test_planning_feedback_is_visible_inside_tasks_view(self):
         self.assertIn("plannerTaskFeedback", self.script)
@@ -157,6 +158,11 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("notesProductToolbarWrap", self.swipes)
         self.assertIn('card.addEventListener("click", openEditor)', self.script)
         self.assertIn('event.target.closest(".planner-reminder-task")', self.unified)
+
+    def test_settings_section_reconciles_late_groups_before_open(self):
+        open_block = self.settings_themes.split("function openTheme", 1)[1].split("function showHome", 1)[0]
+        self.assertIn("organize();", open_block)
+        self.assertIn("navigationAdvancedGroup", self.settings_themes)
 
     def test_prebeta_reliability_and_polish_are_present(self):
         self.assertIn("Нет соединения", self.prebeta)
