@@ -126,7 +126,16 @@
     return parts.join("\n");
   }
 
-  async function applyTask(task, button) {
+  async function markImported(draftId, kind, index, target) {
+    if (!draftId) return;
+    await PlannerRequests.request(`/api/files/drafts/${encodeURIComponent(draftId)}/mark`, {
+      method: "POST",
+      requestId: PlannerRequests.newId(),
+      body: JSON.stringify({kind, index, target}),
+    });
+  }
+
+  async function applyTask(task, button, draftId = null, index = -1) {
     if (!task.ready || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
@@ -145,7 +154,10 @@
           flexible: true,
         }),
       });
+      await markImported(draftId, "task", index, "task");
+      task.imported = {...(task.imported || {}), task: true};
       button.textContent = "Добавлено ✓";
+      button.disabled = true;
       document.dispatchEvent(new CustomEvent("planner-library-changed", {detail: {type: "task", item: result.task}}));
     } catch (error) {
       button.disabled = false;
@@ -154,7 +166,7 @@
     }
   }
 
-  async function applyTaskToCalendar(task, button) {
+  async function applyTaskToCalendar(task, button, draftId = null, index = -1) {
     if (!task.ready || !task.due_at || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
@@ -165,7 +177,10 @@
         requestId: PlannerRequests.newId(),
         body: JSON.stringify({task}),
       });
+      await markImported(draftId, "task", index, "calendar");
+      task.imported = {...(task.imported || {}), calendar: true};
       button.textContent = "В календаре ✓";
+      button.disabled = true;
       document.dispatchEvent(new CustomEvent("planner-library-changed", {
         detail: {type: "calendar_event", item: result.event},
       }));
@@ -176,9 +191,10 @@
     }
   }
 
-  function renderTask(task) {
+  function renderTask(task, draftId = null, index = -1) {
     const card = document.createElement("div");
     card.className = "msg assistant file-analysis-card";
+    if (draftId) card.dataset.importDraftId = draftId;
 
     const title = document.createElement("div");
     title.className = "file-analysis-title";
@@ -210,17 +226,20 @@
     const add = document.createElement("button");
     add.type = "button";
     add.className = "action primary";
-    add.textContent = task.ready ? "Добавить задачу" : "Нужна ручная проверка";
-    add.disabled = !task.ready;
-    add.addEventListener("click", () => applyTask(task, add));
+    const taskImported = Boolean(task.imported?.task);
+    add.textContent = taskImported ? "Добавлено ✓" : (task.ready ? "Добавить задачу" : "Нужна ручная проверка");
+    add.disabled = taskImported || !task.ready;
+    add.addEventListener("click", () => applyTask(task, add, draftId, index));
     actions.appendChild(add);
 
     if (task.ready && task.due_at) {
       const calendar = document.createElement("button");
       calendar.type = "button";
       calendar.className = "action";
-      calendar.textContent = "Добавить в календарь";
-      calendar.addEventListener("click", () => applyTaskToCalendar(task, calendar));
+      const calendarImported = Boolean(task.imported?.calendar);
+      calendar.textContent = calendarImported ? "В календаре ✓" : "Добавить в календарь";
+      calendar.disabled = calendarImported;
+      calendar.addEventListener("click", () => applyTaskToCalendar(task, calendar, draftId, index));
       actions.appendChild(calendar);
     }
     card.appendChild(actions);
@@ -228,7 +247,7 @@
     chat.appendChild(card);
   }
 
-  async function applyEvent(event, button) {
+  async function applyEvent(event, button, draftId = null, index = -1) {
     if (!event.ready || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
@@ -239,7 +258,10 @@
         requestId: PlannerRequests.newId(),
         body: JSON.stringify({event}),
       });
+      await markImported(draftId, "event", index, "calendar");
+      event.imported = {...(event.imported || {}), calendar: true};
       button.textContent = "Добавлено ✓";
+      button.disabled = true;
       document.dispatchEvent(new CustomEvent("planner-library-changed", {detail: {type: "calendar_event", item: result.event}}));
     } catch (error) {
       button.disabled = false;
@@ -248,9 +270,10 @@
     }
   }
 
-  function renderEvent(event) {
+  function renderEvent(event, draftId = null, index = -1) {
     const card = document.createElement("div");
     card.className = "msg assistant file-analysis-card";
+    if (draftId) card.dataset.importDraftId = draftId;
 
     const title = document.createElement("div");
     title.className = "file-analysis-title";
@@ -275,16 +298,27 @@
     const add = document.createElement("button");
     add.type = "button";
     add.className = "action primary";
-    add.textContent = event.ready ? "Добавить в календарь" : "Нужна ручная проверка";
-    add.disabled = !event.ready;
-    add.addEventListener("click", () => applyEvent(event, add));
+    const calendarImported = Boolean(event.imported?.calendar);
+    add.textContent = calendarImported ? "В календаре ✓" : (event.ready ? "Добавить в календарь" : "Нужна ручная проверка");
+    add.disabled = calendarImported || !event.ready;
+    add.addEventListener("click", () => applyEvent(event, add, draftId, index));
     actions.appendChild(add);
     card.appendChild(actions);
 
     chat.appendChild(card);
   }
 
-  function renderAnalysis(result) {
+  function renderAnalysis(result, {restored = false} = {}) {
+    const draftId = result?.draft_id || null;
+    if (draftId) {
+      const exists = [...chat.querySelectorAll("[data-import-draft-id]")].some(
+        node => node.dataset.importDraftId === draftId
+      );
+      if (exists) return;
+    }
+    if (restored) {
+      addMessage(`Черновик импорта${result.source_name ? " · " + result.source_name : ""}`, "assistant");
+    }
     if (result.summary) addMessage(result.summary, "assistant");
     const warnings = Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [];
     if (warnings.length) addMessage("Проверь: " + warnings.join(" "), "assistant");
@@ -297,8 +331,8 @@
       return;
     }
 
-    tasks.forEach(renderTask);
-    events.forEach(renderEvent);
+    tasks.forEach((task, index) => renderTask(task, draftId, index));
+    events.forEach((event, index) => renderEvent(event, draftId, index));
     chat.scrollTop = chat.scrollHeight;
   }
 
@@ -335,6 +369,33 @@
     }
   }
 
+  function draftHasPending(result) {
+    const tasks = Array.isArray(result?.tasks) ? result.tasks : [];
+    const events = Array.isArray(result?.events) ? result.events : [];
+    const taskPending = tasks.some(task => {
+      if (!task?.ready) return false;
+      if (!task.imported?.task) return true;
+      return Boolean(task.due_at) && !task.imported?.calendar;
+    });
+    const eventPending = events.some(event => event?.ready && !event.imported?.calendar);
+    return taskPending || eventPending;
+  }
+
+  async function restoreImportDrafts() {
+    try {
+      const payload = await PlannerRequests.request("/api/files/drafts");
+      const drafts = Array.isArray(payload?.drafts) ? payload.drafts : [];
+      const pending = drafts
+        .map(draft => ({...draft.result, draft_id: draft.draft_id}))
+        .filter(draftHasPending)
+        .reverse();
+      pending.forEach(result => renderAnalysis(result, {restored: true}));
+    } catch (_) {
+      // Import history is optional; the rest of chat must stay usable.
+    }
+  }
+
   attachButton.addEventListener("click", () => fileInput.click());
+  restoreImportDrafts();
   fileInput.addEventListener("change", () => analyzeFile(fileInput.files?.[0]));
 })();
