@@ -133,6 +133,7 @@ def mark_file_import_item(
     kind: str,
     index: int,
     target: str,
+    value: object = True,
 ) -> dict:
     if kind not in {"task", "event"}:
         raise ValueError("Некорректный тип элемента")
@@ -158,7 +159,7 @@ def mark_file_import_item(
         if not isinstance(item, dict):
             raise ValueError("Элемент импорта повреждён")
         imported = item.setdefault("imported", {})
-        imported[target] = True
+        imported[target] = value
         now = time.time()
         conn.execute(
             "UPDATE file_import_drafts SET result_json=?,updated_at=?,expires_at=? "
