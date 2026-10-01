@@ -119,6 +119,16 @@ ACTIVITY_IGNORED_PATHS = {
 }
 
 
+def _should_record_activity(path: str, method: str, status: int) -> bool:
+    if path in ACTIVITY_IGNORED_PATHS or path.startswith("/api/admin/"):
+        return False
+    if int(status) >= 400:
+        return True
+    if str(method).upper() not in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    return path.startswith("/api/files/") or "/schedule/preview" in path
+
+
 def _activity_details(path: str, payload: dict | None) -> dict:
     """Keep diagnostics useful without copying user content into the log."""
     if not isinstance(payload, dict):
@@ -305,8 +315,7 @@ def create_web_app() -> Flask:
         if (
             user_id is not None
             and request.path.startswith("/api/")
-            and request.path not in ACTIVITY_IGNORED_PATHS
-            and not request.path.startswith("/api/admin/")
+            and _should_record_activity(request.path, request.method, response.status_code)
         ):
             started = getattr(g, "user_activity_started_at", None)
             duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000)) if started is not None else None
