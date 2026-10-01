@@ -99,6 +99,43 @@ def _clean_location(value: object) -> str:
     return " ".join(str(value or "").split()).strip(" ,.;")[:500]
 
 
+def _calendar_proposal(payload: dict) -> dict:
+    event = payload.get("event")
+    if isinstance(event, dict):
+        return event
+
+    task = payload.get("task")
+    if not isinstance(task, dict):
+        raise ValueError("Нет события или задачи для добавления в календарь")
+    if task.get("ready") is False:
+        raise ValueError("Задача требует ручной проверки перед добавлением")
+
+    due_at = task.get("due_at")
+    start = _aware_datetime(due_at, "время начала")
+    estimate = task.get("estimate_minutes")
+    if estimate in {None, ""}:
+        minutes = 60
+    else:
+        try:
+            minutes = int(estimate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Некорректная длительность задачи") from exc
+        if not 5 <= minutes <= 720:
+            raise ValueError("Длительность задачи должна быть от 5 минут до 12 часов")
+
+    return {
+        "title": task.get("title"),
+        "description": task.get("description") or "",
+        "start": start.isoformat(),
+        "end": (start + timedelta(minutes=minutes)).isoformat(),
+        "start_timezone": task.get("due_timezone"),
+        "end_timezone": task.get("due_timezone"),
+        "category": task.get("category") or "other",
+        "confidence": task.get("confidence"),
+        "ready": True,
+    }
+
+
 @file_ingest_api.get("/file-ingest.js")
 def file_ingest_js():
     return send_from_directory(WEB_DIR, "file-ingest.js", mimetype="application/javascript")
@@ -140,9 +177,7 @@ def analyze_uploaded_file():
 @file_ingest_api.post("/api/files/calendar")
 def create_event_from_file():
     payload = request.get_json(silent=True) or {}
-    proposal = payload.get("event")
-    if not isinstance(proposal, dict):
-        raise ValueError("Нет события для добавления")
+    proposal = _calendar_proposal(payload)
     if proposal.get("ready") is False:
         raise ValueError("Событие требует ручной проверки перед добавлением")
 
