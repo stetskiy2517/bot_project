@@ -18,6 +18,7 @@ from core.command_store import (
     load_conversation, request_effects, save_conversation, set_phase, user_operation,
 )
 from core.db import get_google_account
+from core.user_activity_store import record_user_activity
 
 logger = logging.getLogger(__name__)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -83,6 +84,116 @@ def _fingerprint() -> str:
     return digest.hexdigest()
 
 
+def _diagnostic_request_details() -> dict:
+    details: dict = {}
+    if request.path == "/api/chat":
+        payload = request.get_json(silent=True) or {}
+        message = payload.get("message")
+        if isinstance(message, str):
+            details["message"] = " ".join(message.split())[:1200]
+        if payload.get("expected_context") is not None:
+            details["has_expected_context"] = True
+    elif request.path == "/api/voice":
+        details["duration_ms"] = request.form.get("duration_ms")
+        audio = request.files.get("audio")
+        if audio:
+            details["filename"] = str(audio.filename or "")[:200]
+            details["mimetype"] = str(audio.mimetype or "")[:100]
+    elif request.path == "/api/files/analyze":
+        upload = request.files.get("file")
+        if upload:
+            details["filename"] = str(upload.filename or "")[:200]
+            details["mimetype"] = str(upload.mimetype or "")[:100]
+            try:
+                details["content_length"] = int(request.content_length or 0)
+            except (TypeError, ValueError):
+                pass
+    elif request.method not in SAFE_METHODS:
+        payload = request.get_json(silent=True)
+        if isinstance(payload, dict):
+            details["payload_keys"] = sorted(str(key)[:80] for key in payload.keys())[:40]
+            for key in ("draft_id", "index", "kind", "target", "task_id", "status"):
+                value = payload.get(key)
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    details[key] = value
+    return details
+
+
+def _diagnostic_response_details(data: dict) -> dict:
+    details: dict = {}
+    if not isinstance(data, dict):
+        return details
+    for key in ("handled", "recovered", "document_type", "file_kind", "source_name", "applied_count"):
+        if key in data and isinstance(data.get(key), (str, int, float, bool)):
+            details[key] = data.get(key)
+    if isinstance(data.get("choices"), list):
+        details["choices_count"] = len(data["choices"])
+    if isinstance(data.get("replies"), list):
+        details["replies_count"] = len(data["replies"])
+    if isinstance(data.get("tasks"), list):
+        details["tasks"] = [
+            {
+                "title": str(item.get("title") or "")[:240],
+                "due_at": item.get("due_at"),
+                "ready": item.get("ready"),
+                "confidence": item.get("confidence"),
+            }
+            for item in data["tasks"][:12]
+            if isinstance(item, dict)
+        ]
+    if isinstance(data.get("events"), list):
+        details["events"] = [
+            {
+                "title": str(item.get("title") or "")[:240],
+                "start": item.get("start"),
+                "end": item.get("end"),
+                "ready": item.get("ready"),
+                "confidence": item.get("confidence"),
+            }
+            for item in data["events"][:12]
+            if isinstance(item, dict)
+        ]
+    for entity_key in ("task", "event", "item"):
+        entity = data.get(entity_key)
+        if isinstance(entity, dict):
+            identifier = entity.get("task_id") or entity.get("id")
+            if identifier is not None:
+                details[f"{entity_key}_id"] = identifier
+            title = entity.get("title") or entity.get("summary")
+            if title:
+                details[f"{entity_key}_title"] = str(title)[:240]
+    return details
+
+
+def _record_request_activity(response, *, phase: str | None = None, data: dict | None = None) -> None:
+    user_id = session.get("user_id")
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        return
+    started = getattr(g, "activity_started", None)
+    duration_ms = None
+    if isinstance(started, (int, float)):
+        duration_ms = round((time.monotonic() - started) * 1000)
+    payload = data if isinstance(data, dict) else response.get_json(silent=True)
+    if not isinstance(payload, dict):
+        payload = {}
+    details = dict(getattr(g, "activity_request_details", {}) or {})
+    details.update(_diagnostic_response_details(payload))
+    try:
+        record_user_activity(
+            user_id,
+            request_id=(getattr(g, "command_key", None) or (None, None))[1],
+            method=request.method,
+            path=request.path,
+            status=response.status_code,
+            phase=phase,
+            error_code=str(payload.get("error") or "") or None,
+            duration_ms=duration_ms,
+            details=details,
+        )
+    except Exception:
+        logger.warning("Could not persist user activity user=%s path=%s", user_id, request.path, exc_info=True)
+
+
 def mark_executing() -> None:
     key = getattr(g, "command_key", None)
     if key:
@@ -118,6 +229,9 @@ def _recover_calendar(user_id: int, request_id: str) -> dict | None:
 def install_web_security(app) -> None:
     @app.before_request
     def guard_web_request():
+        if request.path.startswith("/api/"):
+            g.activity_started = time.monotonic()
+            g.activity_request_details = _diagnostic_request_details()
         if request.path == "/api/google/login":
             if request.headers.get("Sec-Fetch-Site") == "cross-site":
                 return jsonify(error="cross_site_request"), 403
@@ -215,10 +329,12 @@ def install_web_security(app) -> None:
             response.headers["X-Client-Upgrade"] = "reload"
         key = getattr(g, "command_key", None)
         if not key:
+            _record_request_activity(response)
             return response
         user_id, request_id = key
         if not get_google_account(user_id):
             clear_user_state(user_id)
+            _record_request_activity(response)
             return response
         data = response.get_json(silent=True)
         if not isinstance(data, dict):
@@ -245,6 +361,7 @@ def install_web_security(app) -> None:
         finish_request(user_id, request_id, data, response.status_code, phase=phase)
         response.set_data(app.json.dumps(data))
         response.mimetype = "application/json"
+        _record_request_activity(response, phase=phase, data=data)
         return response
 
     @app.teardown_request
