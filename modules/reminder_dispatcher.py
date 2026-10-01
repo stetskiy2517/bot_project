@@ -22,7 +22,11 @@ from core.reminder_store import claim_due_for_push, complete_push_delivery, rele
 from core.db import get_google_account
 from core.library_store import get_saved_reminder
 from core.command_store import user_operation, UserBusyError
-from core.assistant_preferences import get_assistant_preferences, quiet_until
+from core.assistant_preferences import (
+    get_assistant_preferences,
+    list_scheduled_review_user_ids,
+    quiet_until,
+)
 from core.notification_policy import activate_repeats, claim_repeat_attempts, postpone_transport
 from modules.attention import sync_attention_context
 from modules.daily_review import deliver_reviews_for_user
@@ -204,50 +208,58 @@ def dispatch_due_reminders_once(limit: int = 50) -> dict[str, int]:
     stats = {"claimed": 0, "delivered": 0, "released": 0, "subscriptions_removed": 0,
              "repeated": 0, "reviews": 0, "attention_pushed": 0, "attention_failed": 0}
     now = datetime.now(timezone.utc)
-    for user_id in list_push_user_ids():
-        if stats["claimed"] >= limit:
-            break
+    push_user_ids = set(list_push_user_ids())
+    review_user_ids = set(list_scheduled_review_user_ids())
+    for user_id in sorted(push_user_ids | review_user_ids):
         try:
             with user_operation(user_id, blocking=False):
                 if not get_google_account(user_id) or quiet_until(user_id, now):
                     continue
-                reminders = claim_due_for_push([user_id], limit=limit - stats["claimed"])
-                stats["claimed"] += len(reminders)
-                for claimed in reminders:
-                    reminder = get_saved_reminder(user_id, claimed["reminder_id"])
-                    if not reminder or reminder["status"] != "delivering":
-                        continue
-                    payload = _notification_payload(
-                        title="Напоминание", body=reminder["text"][:1600],
-                        tag=f"reminder-{reminder['reminder_id']}",
-                        reminder_id=reminder["reminder_id"],
-                    )
-                    result = _deliver_payload(user_id, payload)
-                    stats["subscriptions_removed"] += result["removed"]
-                    if result["accepted"]:
-                        if complete_push_delivery(reminder["reminder_id"]):
-                            activate_repeats(reminder, now)
-                            stats["delivered"] += 1
-                    else:
-                        error = (result["errors"] or ["No active push subscriptions"])[0]
-                        if result["subscriptions"] > result["removed"]:
-                            postpone_transport(reminder, now)
-                        release_push_delivery(reminder["reminder_id"], error)
-                        stats["released"] += 1
-                for attempt in claim_repeat_attempts(user_id, now):
-                    reminder = get_saved_reminder(user_id, attempt["reminder_id"])
-                    if not reminder or reminder["status"] != "delivered":
-                        continue
-                    _deliver_payload(user_id, _notification_payload(
-                        title=f"Напоминание · повтор {attempt['attempt']}",
-                        body=reminder["text"][:1600], tag=f"reminder-{reminder['reminder_id']}",
-                        reminder_id=reminder["reminder_id"],
-                    ))
-                    stats["repeated"] += 1
-                stats["reviews"] += deliver_reviews_for_user(user_id, _send_review, now=now)
-                attention_delivered, attention_failed = _dispatch_attention_pushes(user_id, now)
-                stats["attention_pushed"] += attention_delivered
-                stats["attention_failed"] += attention_failed
+
+                if user_id in push_user_ids and stats["claimed"] < limit:
+                    reminders = claim_due_for_push([user_id], limit=limit - stats["claimed"])
+                    stats["claimed"] += len(reminders)
+                    for claimed in reminders:
+                        reminder = get_saved_reminder(user_id, claimed["reminder_id"])
+                        if not reminder or reminder["status"] != "delivering":
+                            continue
+                        payload = _notification_payload(
+                            title="Напоминание", body=reminder["text"][:1600],
+                            tag=f"reminder-{reminder['reminder_id']}",
+                            reminder_id=reminder["reminder_id"],
+                        )
+                        result = _deliver_payload(user_id, payload)
+                        stats["subscriptions_removed"] += result["removed"]
+                        if result["accepted"]:
+                            if complete_push_delivery(reminder["reminder_id"]):
+                                activate_repeats(reminder, now)
+                                stats["delivered"] += 1
+                        else:
+                            error = (result["errors"] or ["No active push subscriptions"])[0]
+                            if result["subscriptions"] > result["removed"]:
+                                postpone_transport(reminder, now)
+                            release_push_delivery(reminder["reminder_id"], error)
+                            stats["released"] += 1
+
+                    for attempt in claim_repeat_attempts(user_id, now):
+                        reminder = get_saved_reminder(user_id, attempt["reminder_id"])
+                        if not reminder or reminder["status"] != "delivered":
+                            continue
+                        _deliver_payload(user_id, _notification_payload(
+                            title=f"Напоминание · повтор {attempt['attempt']}",
+                            body=reminder["text"][:1600], tag=f"reminder-{reminder['reminder_id']}",
+                            reminder_id=reminder["reminder_id"],
+                        ))
+                        stats["repeated"] += 1
+
+                if user_id in review_user_ids:
+                    sender = _send_review if user_id in push_user_ids else (lambda *_args, **_kwargs: False)
+                    stats["reviews"] += deliver_reviews_for_user(user_id, sender, now=now)
+
+                if user_id in push_user_ids:
+                    attention_delivered, attention_failed = _dispatch_attention_pushes(user_id, now)
+                    stats["attention_pushed"] += attention_delivered
+                    stats["attention_failed"] += attention_failed
         except UserBusyError:
             continue
         except Exception as exc:
@@ -260,10 +272,10 @@ def _worker_loop() -> None:
     while True:
         try:
             stats = dispatch_due_reminders_once()
-            if stats["claimed"] or stats["attention_pushed"]:
-                logger.info("Reminder/attention Web Push dispatch: %s", stats)
+            if stats["claimed"] or stats["reviews"] or stats["attention_pushed"]:
+                logger.info("Reminder/review/attention dispatch: %s", stats)
         except Exception:
-            logger.exception("Reminder Web Push worker iteration failed")
+            logger.exception("Reminder/review Web Push worker iteration failed")
         sleep(interval)
 
 

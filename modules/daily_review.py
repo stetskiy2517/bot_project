@@ -88,8 +88,7 @@ def _format_free_slots(slots: list[tuple[datetime, datetime]]) -> str:
     if not merged:
         return ""
     ranges = ", ".join(f"{start:%H:%M}–{end:%H:%M}" for start, end in merged[:3])
-    prefix = "Ближайшее свободное время" if len(merged) == 1 else "Ближайшие свободные окна"
-    return f"{prefix}: {ranges}."
+    return f"Окна по 30 минут — ближайшее свободное время: {ranges}."
 
 
 def _ai_source_hash(text: str) -> str:
@@ -449,7 +448,7 @@ def build_day_review(user_id: int, kind: str = "morning", *, now: datetime | Non
     }
 
 
-def deliver_reviews_for_user(user_id: int, sender, *, now: datetime | None = None) -> int:
+def deliver_reviews_for_user(user_id: int, sender=None, *, now: datetime | None = None) -> int:
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if quiet_until(user_id, current):
         return 0
@@ -477,8 +476,11 @@ def deliver_reviews_for_user(user_id: int, sender, *, now: datetime | None = Non
         try:
             review = build_day_review(user_id, kind, now=current)
             capture_review_attention(user_id, review, kind=kind, now=current)
-            result = sender(user_id, review["text"], f"review-{kind}-{local.date()}")
-            phase = "accepted" if result else "failed"
+            if sender is None:
+                phase = "in_app"
+            else:
+                result = sender(user_id, review["text"], f"review-{kind}-{local.date()}")
+                phase = "accepted" if result else "failed"
         except Exception as exc:
             phase = "failed"
             logger.warning("Review delivery failed for user %s (%s)", user_id, type(exc).__name__)
@@ -488,7 +490,7 @@ def deliver_reviews_for_user(user_id: int, sender, *, now: datetime | None = Non
                 (phase, user_id, str(local.date()), kind),
             )
             conn.commit()
-        delivered += phase == "accepted"
+        delivered += phase in {"accepted", "in_app"}
     return delivered
 
 

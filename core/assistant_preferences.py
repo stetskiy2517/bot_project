@@ -42,6 +42,26 @@ def get_assistant_preferences(user_id: int) -> dict:
     return values
 
 
+def list_scheduled_review_user_ids() -> list[int]:
+    """Return users who opted into at least one scheduled day review.
+
+    This deliberately does not depend on Web Push subscriptions: a scheduled
+    briefing must still be generated for the in-app attention center when the
+    user has no active push endpoint.
+    """
+    with db_lock:
+        rows = conn.execute("SELECT user_id,settings_json FROM assistant_preferences").fetchall()
+    result: list[int] = []
+    for user_id, raw in rows:
+        try:
+            settings = json.loads(raw) if raw else {}
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if settings.get("morning_enabled") is True or settings.get("evening_enabled") is True:
+            result.append(int(user_id))
+    return sorted(set(result))
+
+
 def save_assistant_preferences(user_id: int, changes: dict) -> dict:
     if not isinstance(changes, dict) or set(changes) - set(DEFAULTS):
         raise ValueError("Неизвестные настройки уведомлений")
