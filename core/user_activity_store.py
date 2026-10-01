@@ -40,6 +40,8 @@ def init_user_activity_store() -> None:
             "CREATE INDEX IF NOT EXISTS idx_user_activity_created "
             "ON user_activity_log(created_at)"
         )
+        cutoff = (_now() - timedelta(days=RETENTION_DAYS)).isoformat()
+        conn.execute("DELETE FROM user_activity_log WHERE created_at<?", (cutoff,))
         conn.commit()
 
 
@@ -68,9 +70,6 @@ def record_user_activity(
     if len(payload.encode("utf-8")) > MAX_DETAILS_BYTES:
         payload = json.dumps({"truncated": True}, separators=(",", ":"))
     with db_lock:
-        # Opportunistic bounded-retention cleanup keeps the table self-managing.
-        cutoff = (_now() - timedelta(days=RETENTION_DAYS)).isoformat()
-        conn.execute("DELETE FROM user_activity_log WHERE created_at<?", (cutoff,))
         cursor = conn.execute(
             "INSERT INTO user_activity_log "
             "(user_id,request_id,method,path,endpoint,status,error_code,duration_ms,details_json,created_at) "
