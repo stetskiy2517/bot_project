@@ -356,16 +356,18 @@
     chat.appendChild(card);
   }
 
-  function renderAnalysis(result, {restored = false} = {}) {
+  function renderAnalysis(result, {restored = false, replaceExisting = false} = {}) {
     const draftId = result?.draft_id || null;
     if (draftId) {
-      const exists = [...chat.querySelectorAll("[data-import-draft-id]")].some(
+      const existing = [...chat.querySelectorAll("[data-import-draft-id]")].filter(
         node => node.dataset.importDraftId === draftId
       );
-      if (exists) return;
+      if (replaceExisting) existing.forEach(node => node.remove());
+      else if (existing.length) return;
     }
     if (restored) {
-      addMessage(`Черновик импорта${result.source_name ? " · " + result.source_name : ""}`, "assistant");
+      const summary = addMessage(`Черновик импорта${result.source_name ? " · " + result.source_name : ""}`, "assistant");
+      if (draftId) summary.dataset.importDraftSummary = draftId;
     }
     if (result.summary) addMessage(result.summary, "assistant");
     const warnings = Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [];
@@ -429,21 +431,40 @@
     return taskPending || eventPending;
   }
 
-  async function restoreImportDrafts() {
-    try {
-      const payload = await PlannerRequests.request("/api/files/drafts");
-      const drafts = Array.isArray(payload?.drafts) ? payload.drafts : [];
-      const pending = drafts
-        .map(draft => ({...draft.result, draft_id: draft.draft_id}))
-        .filter(draftHasPending)
-        .reverse();
-      pending.forEach(result => renderAnalysis(result, {restored: true}));
-    } catch (_) {
-      // Import history is optional; the rest of chat must stay usable.
-    }
+  let restorePromise = null;
+
+  async function restoreImportDrafts({replaceExisting = false} = {}) {
+    if (restorePromise) return restorePromise;
+    restorePromise = (async () => {
+      try {
+        const payload = await PlannerRequests.request("/api/files/drafts");
+        const drafts = Array.isArray(payload?.drafts) ? payload.drafts : [];
+        const pending = drafts
+          .map(draft => ({...draft.result, draft_id: draft.draft_id}))
+          .filter(draftHasPending)
+          .reverse();
+
+        if (replaceExisting) {
+          const pendingIds = new Set(pending.map(item => item.draft_id).filter(Boolean));
+          chat.querySelectorAll("[data-import-draft-summary]").forEach(node => {
+            if (pendingIds.has(node.dataset.importDraftSummary)) node.remove();
+          });
+        }
+
+        pending.forEach(result => renderAnalysis(result, {restored: true, replaceExisting}));
+      } catch (_) {
+        // Import history is optional; the rest of chat must stay usable.
+      } finally {
+        restorePromise = null;
+      }
+    })();
+    return restorePromise;
   }
 
   attachButton.addEventListener("click", () => fileInput.click());
   restoreImportDrafts();
+  document.addEventListener("planner-view-changed", event => {
+    if (event.detail?.view === "chat") restoreImportDrafts({replaceExisting: true});
+  });
   fileInput.addEventListener("change", () => analyzeFile(fileInput.files?.[0]));
 })();
