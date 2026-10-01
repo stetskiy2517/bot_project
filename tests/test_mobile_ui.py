@@ -175,6 +175,8 @@ class MobileUiApiTests(unittest.TestCase):
         self.assertIn("no_slot_before_deadline", source)
         self.assertIn("Перенеси срок или уменьши длительность", source)
         self.assertIn("scheduleSkipMessage(taskId, preview.skipped)", source)
+        self.assertIn("const approved = await approvePlan([proposal]);", source)
+        self.assertIn("JSON.stringify({proposals: approved})", source)
 
 if __name__ == "__main__":
     unittest.main()

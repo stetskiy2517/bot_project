@@ -45,6 +45,16 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('input[type="date"]', self.editor)
         self.assertIn("max-inline-size:100%", self.editor)
 
+    def test_calendar_plan_allows_manual_start_time_and_uses_edited_proposals(self):
+        self.assertIn('type="datetime-local"', self.editor)
+        self.assertIn('data-task-plan-start', self.editor)
+        self.assertIn("dateTimeLocalValue(item.start)", self.editor)
+        self.assertIn("start: start.toISOString()", self.editor)
+        self.assertIn("Можно оставить предложенное время или выбрать другое", self.editor)
+        self.assertIn("JSON.stringify({proposals: approved})", self.mobile)
+        self.assertIn("JSON.stringify({proposals: approved})", self.script)
+        self.assertNotIn("if (!(await approvePlan([proposal]))) return;", self.mobile)
+
     def test_notification_tasks_edit_time_in_same_sheet(self):
         self.assertIn('id="reminderEditDate"', self.reminder_editor)
         self.assertIn('id="reminderEditTime"', self.reminder_editor)

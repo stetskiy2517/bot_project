@@ -350,7 +350,7 @@
   async function approvePlan(proposals) {
     if (!window.PlannerTaskEditor?.confirmPlan) {
       showToast("Редактор плана ещё загружается");
-      return false;
+      return null;
     }
     return window.PlannerTaskEditor.confirmPlan(proposals);
   }
@@ -373,8 +373,9 @@
     const preview = await request("/api/tasks/schedule/preview");
     const proposal = (preview.proposals || []).find(item => Number(item.task_id) === Number(taskId));
     if (!proposal) return showToast(scheduleSkipMessage(taskId, preview.skipped));
-    if (!(await approvePlan([proposal]))) return;
-    const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: [proposal]})});
+    const approved = await approvePlan([proposal]);
+    if (!approved) return;
+    const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: approved})});
     if (!result.applied_count) throw new Error(result.errors?.[0]?.error || "Окно уже занято");
     closeSheet();
     todayPayload = null;
@@ -386,8 +387,9 @@
     const preview = await request("/api/tasks/schedule/preview");
     const proposals = preview.proposals || [];
     if (!proposals.length) return showToast("Нет задач, которые можно безопасно распланировать");
-    if (!(await approvePlan(proposals))) return;
-    const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals})});
+    const approved = await approvePlan(proposals);
+    if (!approved) return;
+    const result = await request("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: approved})});
     todayPayload = null;
     await loadToday(true);
     showToast(`В календарь добавлено: ${result.applied_count || 0}`);

@@ -200,7 +200,7 @@
     }
     const approved = await editor().confirmPlan(proposals);
     if (!approved) return;
-    const result = await api("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals})});
+    const result = await api("/api/tasks/schedule/apply", {method: "POST", body: JSON.stringify({proposals: approved})});
     await renderTasks();
     if (result.errors?.length) notify(`В календарь добавлено: ${result.applied_count}. Часть окон успела измениться — обновите план.`);
     else notify(`Готово. В календарь добавлено задач: ${result.applied_count}.`);
