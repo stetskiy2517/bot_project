@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+from core import db
+from core.file_import_store import (
+    create_file_import_draft,
+    list_file_import_drafts,
+    mark_file_import_item,
+)
 from modules.file_ingest_api import (
     MAX_DOCUMENT_BYTES,
     MAX_IMAGE_BYTES,
@@ -18,6 +24,15 @@ class _Upload:
 
 
 class FileIngestAPITests(unittest.TestCase):
+    def setUp(self):
+        self.user_id = 993100001
+        with db.db_lock:
+            db.conn.execute("DELETE FROM file_import_drafts WHERE user_id=?", (self.user_id,))
+            db.conn.commit()
+
+    def tearDown(self):
+        self.setUp()
+
     def test_pdf_uses_document_limit(self):
         name, mimetype, limit = _file_type(_Upload("ticket.pdf", "application/pdf"))
         self.assertEqual(name, "document.pdf")
@@ -74,10 +89,59 @@ class FileIngestAPITests(unittest.TestCase):
         })
         self.assertEqual(proposal["end"], "2026-10-01T12:15:00+03:00")
 
+    def test_import_draft_survives_and_tracks_each_action(self):
+        result = {
+            "summary": "Расписание",
+            "tasks": [{
+                "title": "Съёмка интервью",
+                "due_at": "2026-10-01T12:00:00+03:00",
+                "ready": True,
+            }],
+            "events": [{
+                "title": "Планёрка",
+                "start": "2026-10-01T10:00:00+03:00",
+                "end": "2026-10-01T11:00:00+03:00",
+                "ready": True,
+            }],
+        }
+        draft_id = create_file_import_draft(self.user_id, result)
+        drafts = list_file_import_drafts(self.user_id)
+        self.assertEqual(drafts[0]["draft_id"], draft_id)
+        self.assertFalse(drafts[0]["result"]["tasks"][0].get("imported"))
+
+        mark_file_import_item(
+            self.user_id,
+            draft_id,
+            kind="task",
+            index=0,
+            target="task",
+        )
+        mark_file_import_item(
+            self.user_id,
+            draft_id,
+            kind="task",
+            index=0,
+            target="calendar",
+        )
+        mark_file_import_item(
+            self.user_id,
+            draft_id,
+            kind="event",
+            index=0,
+            target="calendar",
+        )
+        restored = list_file_import_drafts(self.user_id)[0]["result"]
+        self.assertTrue(restored["tasks"][0]["imported"]["task"])
+        self.assertTrue(restored["tasks"][0]["imported"]["calendar"])
+        self.assertTrue(restored["events"][0]["imported"]["calendar"])
+
     def test_file_ingest_ui_can_create_tasks_from_analysis(self):
         source = Path("web/file-ingest.js").read_text(encoding="utf-8")
         self.assertIn("result.tasks", source)
-        self.assertIn('"/api/tasks"', source)
+        self.assertIn('"/api/files/task"', source)
+        self.assertIn('"/api/files/drafts"', source)
+        self.assertIn("restoreImportDrafts", source)
+        self.assertIn("draftHasPending", source)
         self.assertIn("Добавить задачу", source)
         self.assertIn("Добавить в календарь", source)
         self.assertIn("applyTaskToCalendar", source)
