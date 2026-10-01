@@ -143,11 +143,7 @@ def _validate_requested_slot(user_id: int, task: dict, start: datetime, end: dat
     if start <= datetime.now(timezone.utc) or end <= start:
         raise ValueError("Предложенное время уже недоступно")
     if local_start.date() != local_end.date():
-        raise ValueError("Гибкая задача должна помещаться в один рабочий день")
-    if local_start.weekday() not in prefs["work_days"]:
-        raise ValueError("Время вне выбранных рабочих дней")
-    if local_start.time() < _parse_hhmm(prefs["work_start"]) or local_end.time() > _parse_hhmm(prefs["work_end"]):
-        raise ValueError("Время вне рабочих часов")
+        raise ValueError("Задача должна помещаться в один календарный день")
     due = _parse_due(task, zone)
     if due and local_end > due:
         raise ValueError("Задача не помещается до дедлайна")
