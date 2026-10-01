@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 import json
 
@@ -9,6 +10,7 @@ from core.db import conn, db_lock
 
 RETENTION_DAYS = 7
 MAX_DETAILS_BYTES = 16_384
+_request_diagnostics: ContextVar[dict] = ContextVar("user_request_diagnostics", default={})
 
 
 def _now() -> str:
@@ -17,6 +19,27 @@ def _now() -> str:
 
 def _cutoff() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
+
+
+def clear_request_diagnostics() -> None:
+    _request_diagnostics.set({})
+
+
+def set_request_diagnostic(**values) -> None:
+    current = dict(_request_diagnostics.get() or {})
+    for key, value in values.items():
+        clean_key = str(key or "").strip()[:80]
+        if not clean_key:
+            continue
+        if isinstance(value, str):
+            current[clean_key] = value[:1000]
+        elif isinstance(value, (int, float, bool)) or value is None:
+            current[clean_key] = value
+    _request_diagnostics.set(current)
+
+
+def request_diagnostics() -> dict:
+    return dict(_request_diagnostics.get() or {})
 
 
 def init_user_activity_store() -> None:
