@@ -13,9 +13,12 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.mobile = Path("web/mobile-ui.js").read_text(encoding="utf-8")
         self.swipes = Path("web/task-swipe.js").read_text(encoding="utf-8")
         self.api = Path("modules/task_api.py").read_text(encoding="utf-8")
+        self.planner = Path("modules/task_planner.py").read_text(encoding="utf-8")
+        self.file_ingest = Path("web/file-ingest.js").read_text(encoding="utf-8")
         self.worker = Path("web/sw.js").read_text(encoding="utf-8")
         self.prebeta = Path("web/prebeta-polish.js").read_text(encoding="utf-8")
         self.ux = Path("web/ux-polish.js").read_text(encoding="utf-8")
+        self.settings_themes = Path("web/settings-themes.js").read_text(encoding="utf-8")
 
     def test_planning_feedback_is_visible_inside_tasks_view(self):
         self.assertIn("plannerTaskFeedback", self.script)
@@ -55,6 +58,20 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("JSON.stringify({proposals: approved})", self.mobile)
         self.assertIn("JSON.stringify({proposals: approved})", self.script)
         self.assertNotIn("if (!(await approvePlan([proposal]))) return;", self.mobile)
+
+    def test_manual_task_time_is_not_blocked_by_work_hours(self):
+        validation = self.planner.split("def _validate_requested_slot", 1)[1].split("def apply_task_slot", 1)[0]
+        self.assertNotIn("Время вне рабочих часов", validation)
+        self.assertNotIn("Время вне выбранных рабочих дней", validation)
+        self.assertIn("Задача должна помещаться в один календарный день", validation)
+
+    def test_imported_task_calendar_action_uses_real_task_planner(self):
+        self.assertIn("/api/tasks/${Number(createdTask.task_id)}/schedule/preview", self.file_ingest)
+        self.assertIn("PlannerTaskEditor.confirmPlan([proposal])", self.file_ingest)
+        self.assertIn('"/api/tasks/schedule/apply"', self.file_ingest)
+        self.assertIn("calendar_event_id", self.file_ingest)
+        task_calendar_block = self.file_ingest.split("async function applyTaskToCalendar", 1)[1].split("function renderTask", 1)[0]
+        self.assertNotIn('"/api/files/calendar"', task_calendar_block)
 
     def test_import_manual_review_uses_real_editors(self):
         self.assertIn("openDraft", self.event_editor)
@@ -141,6 +158,11 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("notesProductToolbarWrap", self.swipes)
         self.assertIn('card.addEventListener("click", openEditor)', self.script)
         self.assertIn('event.target.closest(".planner-reminder-task")', self.unified)
+
+    def test_settings_section_reconciles_late_groups_before_open(self):
+        open_block = self.settings_themes.split("function openTheme", 1)[1].split("function showHome", 1)[0]
+        self.assertIn("organize();", open_block)
+        self.assertIn("navigationAdvancedGroup", self.settings_themes)
 
     def test_prebeta_reliability_and_polish_are_present(self):
         self.assertIn("Нет соединения", self.prebeta)

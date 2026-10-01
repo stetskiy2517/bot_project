@@ -124,7 +124,7 @@ def main() -> None:
             """)
             expect(life_wheel).not_to_have_class(__import__("re").compile(r"\bopen\b"))
 
-            # Chat keeps exactly the latest 14 messages across auto-collapse and page reload.
+            # Live chat keeps all current DOM nodes; only persisted plain-text history is capped at 14.
             page.locator('#mobileBottomNav [data-view="chat"]').click()
             page.evaluate("""
                 () => {
@@ -138,17 +138,17 @@ def main() -> None:
                   }
                 }
             """)
-            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
-            assert page.locator("#chat > .msg").first.inner_text() == "history-3"
+            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 16")
+            assert page.locator("#chat > .msg").first.inner_text() == "history-1"
             assert page.locator("#chat > .msg").last.inner_text() == "history-16"
 
-            # Collapse through the real mobile navigation instead of the hidden desktop control.
+            # Hiding chat must not prune live DOM or destroy interactive cards.
             page.locator('#mobileBottomNav [data-view="home"]').click()
             page.wait_for_function("!document.getElementById('app').classList.contains('chat-active')")
-            assert page.locator("#chat > .msg").count() == 14
+            assert page.locator("#chat > .msg").count() == 16
             page.locator('#mobileBottomNav [data-view="chat"]').click()
-            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 14")
-            assert page.locator("#chat > .msg").first.inner_text() == "history-3"
+            page.wait_for_function("document.querySelectorAll('#chat > .msg').length === 16")
+            assert page.locator("#chat > .msg").first.inner_text() == "history-1"
 
             page.reload()
             page.wait_for_function(

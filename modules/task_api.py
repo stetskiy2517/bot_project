@@ -176,6 +176,19 @@ def tasks_delete(task_id: int):
     return {"ok": True, "detached_subtasks": detached_subtasks}
 
 
+@task_api.get("/api/tasks/<int:task_id>/schedule/preview")
+def task_schedule_one_preview(task_id: int):
+    if not get_planner_task(_user(), task_id):
+        return jsonify(error="task_not_found"), 404
+    try:
+        return preview_flexible_schedule(_user(), task_ids={int(task_id)})
+    except PermissionError:
+        return jsonify(error="calendar_not_connected", message="Для планирования нужен подключённый календарь."), 409
+    except Exception:
+        logger.exception("Task schedule preview failed for user %s task=%s", _user(), task_id)
+        return jsonify(error="task_schedule_failed", message="Не удалось подобрать время для задачи."), 503
+
+
 @task_api.get("/api/tasks/schedule/preview")
 def task_schedule_preview():
     try:

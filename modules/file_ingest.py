@@ -300,6 +300,50 @@ def _normalize_task(item: object, *, user_timezone: str, now: datetime) -> dict 
     }
 
 
+TASK_ACTION_PREFIXES = (
+    "сделать ", "подготовить ", "отправить ", "купить ", "позвонить ", "написать ",
+    "проверить ", "согласовать ", "заполнить ", "посмотреть ", "забрать ", "заказать ",
+    "оплатить ", "доделать ", "обновить ", "найти ", "создать ", "исправить ",
+)
+
+
+def _schedule_task_as_event(task: dict, *, user_timezone: str, now: datetime) -> dict | None:
+    """Recover fixed schedule blocks when the AI returned them in tasks by mistake."""
+    if not task.get("due_at"):
+        return None
+    title = str(task.get("title") or "").strip()
+    lower = title.casefold().replace("ё", "е")
+    if any(lower.startswith(prefix) for prefix in TASK_ACTION_PREFIXES):
+        return None
+    try:
+        start = datetime.fromisoformat(str(task["due_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if start.tzinfo is None:
+        zone = _zone(task.get("due_timezone")) or _zone(user_timezone)
+        if zone is None:
+            return None
+        start = start.replace(tzinfo=zone)
+    minutes = int(task.get("estimate_minutes") or 60)
+    raw = {
+        "title": title,
+        "description": task.get("description") or "",
+        "start": start.isoformat(),
+        "end": (start + timedelta(minutes=minutes)).isoformat(),
+        "start_timezone": task.get("due_timezone") or user_timezone,
+        "end_timezone": task.get("due_timezone") or user_timezone,
+        "category": task.get("category") or "other",
+        "confidence": task.get("confidence"),
+    }
+    event = _normalize_event(raw, document_type="schedule", user_timezone=user_timezone, now=now)
+    if event is not None:
+        event["warnings"] = [
+            *(event.get("warnings") or []),
+            "Строка расписания с конкретным временем распознана как событие календаря.",
+        ]
+    return event
+
+
 def _analysis_prompt(*, user_timezone: str, now: datetime) -> str:
     today = now.astimezone(_zone(user_timezone) or timezone.utc).date().isoformat()
     return f"""
@@ -484,6 +528,25 @@ def analyze_file_bytes(
         )
         if task is not None
     ]
+    if document_type == "schedule":
+        remaining_tasks = []
+        event_keys = {
+            (str(item.get("title") or "").casefold(), str(item.get("start") or ""))
+            for item in events
+        }
+        for task in tasks:
+            recovered_event = _schedule_task_as_event(task, user_timezone=user_timezone, now=now)
+            if recovered_event is None:
+                remaining_tasks.append(task)
+                continue
+            key = (
+                str(recovered_event.get("title") or "").casefold(),
+                str(recovered_event.get("start") or ""),
+            )
+            if key not in event_keys:
+                events.append(recovered_event)
+                event_keys.add(key)
+        tasks = remaining_tasks
     warnings = [str(item).strip()[:300] for item in (parsed.get("warnings") or [])[:10] if str(item).strip()]
     return {
         "document_type": document_type,

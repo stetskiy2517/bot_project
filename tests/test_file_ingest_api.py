@@ -143,6 +143,7 @@ class FileIngestAPITests(unittest.TestCase):
             kind="task",
             index=0,
             target="task",
+            value=77,
         )
         mark_file_import_item(
             self.user_id,
@@ -159,7 +160,7 @@ class FileIngestAPITests(unittest.TestCase):
             target="calendar",
         )
         restored = list_file_import_drafts(self.user_id)[0]["result"]
-        self.assertTrue(restored["tasks"][0]["imported"]["task"])
+        self.assertEqual(restored["tasks"][0]["imported"]["task"], 77)
         self.assertTrue(restored["tasks"][0]["imported"]["calendar"])
         self.assertTrue(restored["events"][0]["imported"]["calendar"])
 

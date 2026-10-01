@@ -196,6 +196,10 @@
   }
 
   function openTheme(key, {focus = true} = {}) {
+    // Late-loaded settings modules (navigation, memory, email) may mount their
+    // groups after the initial organize() pass. Reconcile synchronously before
+    // opening a section so WebKit cannot expose a half-built screen.
+    organize();
     const definition = definitionFor(key);
     if (!definition || !sectionAvailable(definition)) return false;
 

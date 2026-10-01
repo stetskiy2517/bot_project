@@ -221,6 +221,7 @@ def create_task_from_file():
                 kind="task",
                 index=int(index),
                 target="task",
+                value=task["task_id"],
             )
         except (TypeError, ValueError):
             logger.exception("Could not persist imported-task state user=%s draft=%s", user_id, draft_id)
@@ -257,6 +258,7 @@ def mark_file_import_draft_item(draft_id: str):
         kind=str(payload.get("kind") or ""),
         index=int(payload.get("index")),
         target=str(payload.get("target") or ""),
+        value=payload.get("value", True),
     )
     return {"ok": True, "item": item}
 

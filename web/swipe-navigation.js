@@ -390,10 +390,10 @@
   function chatEntriesFromDom() {
     if (!chat) return [];
     const nodes = Array.from(chat.children).filter(node => node.classList?.contains("msg"));
-    if (nodes.length > CHAT_HISTORY_MAX_MESSAGES) {
-      nodes.slice(0, -CHAT_HISTORY_MAX_MESSAGES).forEach(node => node.remove());
-    }
-    return nodes.slice(-CHAT_HISTORY_MAX_MESSAGES).map(node => ({
+    const persistable = nodes.filter(node => !node.querySelector(
+      "button, input, textarea, select, [role='button'], [contenteditable='true']"
+    ));
+    return persistable.slice(-CHAT_HISTORY_MAX_MESSAGES).map(node => ({
       role: node.classList.contains("user") ? "user" : "assistant",
       text: String(node.textContent || "").slice(0, 10000),
     })).filter(item => item.text.trim());
