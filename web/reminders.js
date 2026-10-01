@@ -1,12 +1,10 @@
 (() => {
   const REMINDER_POLL_MS = 15000;
-  const CHAT_CLEAR_DELAY_MS = 400;
   const PUSH_SELF_TEST_KEY = "personal-secretary-push-self-test-v2";
 
   let reminderPollBusy = false;
   let reminderPollController = null;
   let reminderPageActive = true;
-  let chatClearTimer = null;
   let pushConfig = null;
   let pushManager = null;
   let pushSubscription = null;
@@ -26,29 +24,6 @@
   const classicPushSupported = serviceWorkerSupported && "PushManager" in window;
   const pushSupported =
     notificationsSupported && (declarativePushSupported || classicPushSupported);
-
-  function installTransientChatCleanup() {
-    const appNode = document.getElementById("app");
-    const chatNode = document.getElementById("chat");
-    if (!appNode || !chatNode || !window.MutationObserver) return;
-
-    let wasActive = appNode.classList.contains("chat-active");
-    const observer = new MutationObserver(() => {
-      const isActive = appNode.classList.contains("chat-active");
-      if (wasActive && !isActive) {
-        if (chatClearTimer) window.clearTimeout(chatClearTimer);
-        chatClearTimer = window.setTimeout(() => {
-          if (!appNode.classList.contains("chat-active")) chatNode.replaceChildren();
-          chatClearTimer = null;
-        }, CHAT_CLEAR_DELAY_MS);
-      } else if (!wasActive && isActive && chatClearTimer) {
-        window.clearTimeout(chatClearTimer);
-        chatClearTimer = null;
-      }
-      wasActive = isActive;
-    });
-    observer.observe(appNode, { attributes: true, attributeFilter: ["class"] });
-  }
 
   function base64UrlToUint8Array(value) {
     const padding = "=".repeat((4 - (value.length % 4)) % 4);
@@ -567,7 +542,6 @@
     window.setTimeout(pollDueReminders, 0);
   });
 
-  installTransientChatCleanup();
   ensurePushSettingsUi();
   watchReminderCreation();
   wrapLogout();
