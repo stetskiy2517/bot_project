@@ -254,6 +254,8 @@ def main() -> None:
             # Returning Home -> Chat in the same SPA session must restore actions too,
             # without requiring a full app reload.
             page.locator('#mobileBottomNav [data-view="home"]').click()
+            page.wait_for_timeout(650)
+            expect(page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")).to_have_count(1)
             page.locator('#mobileBottomNav [data-view="chat"]').click()
             same_session_card = page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")
             expect(same_session_card).to_be_visible()
