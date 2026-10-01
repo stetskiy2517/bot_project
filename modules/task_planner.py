@@ -44,7 +44,12 @@ def _task_sort_key(task: dict, zone: ZoneInfo) -> tuple:
     )
 
 
-def preview_flexible_schedule(user_id: int, *, now: datetime | None = None) -> dict:
+def preview_flexible_schedule(
+    user_id: int,
+    *,
+    now: datetime | None = None,
+    task_ids: set[int] | None = None,
+) -> dict:
     """Suggest calendar slots without writing anything."""
     zone = _zone(user_id)
     local_now = (now or datetime.now(timezone.utc)).astimezone(zone)
@@ -58,6 +63,8 @@ def preview_flexible_schedule(user_id: int, *, now: datetime | None = None) -> d
     candidates = []
     skipped = []
     for task in list_planner_tasks(user_id, status="open", limit=500):
+        if task_ids is not None and int(task.get("task_id") or 0) not in task_ids:
+            continue
         if not task.get("flexible"):
             skipped.append({"task_id": task["task_id"], "reason": "fixed"})
             continue
