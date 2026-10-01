@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.conversation_context import clear_pending, current_entity, get_pending, set_pending
+from core.user_activity_store import set_request_diagnostic
 from core.conversation_policy import is_declarative_statement, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
@@ -598,12 +599,14 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if not text:
         return False
     if await handle_template(update, context, text):
+        set_request_diagnostic(route="template", intent="template")
         return True
 
     pending = _pending(context)
     if pending:
         if should_resume_pending(pending, text):
             if await _resume_pending(update, context, text):
+                set_request_diagnostic(route="pending", intent=str(pending.get("type") or "pending"))
                 return True
         else:
             logger.info("Router interrupted pending type=%s with a new command", pending.get("type"))
@@ -615,6 +618,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     # can reinterpret generic verbs such as "добавь".
     if CONTEXT_PROPERTY_UPDATE_RE.match(text) and await _route_current_entity_action(update, context, text):
         logger.info("Router updated property of focused entity")
+        set_request_diagnostic(route="context_entity", intent="property_update")
         return True
 
     # Relative reminder follow-ups ("напомни за час") belong to the focused
@@ -622,15 +626,18 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     # standalone reminders.
     if EVENT_RELATIVE_REMINDER_RE.match(text) and await _route_current_entity_action(update, context, text):
         logger.info("Router attached reminder to focused calendar event")
+        set_request_diagnostic(route="context_entity", intent="relative_reminder")
         return True
 
     reminder_intent = detect_reminder_intent(text)
     if reminder_intent:
         logger.info("Router reminder_intent=%s", reminder_intent)
+        set_request_diagnostic(route="reminder", intent=str(reminder_intent))
         return await handle_reminder_text(update, context, text, reminder_intent)
 
     note_intent = detect_note_intent(text)
     if note_intent:
+        set_request_diagnostic(route="note", intent=str(note_intent))
         if user_id is not None and note_intent == NOTE_APPEND:
             resolution = resolve_named_note_append(user_id, text)
             if resolution and resolution.addition and len(resolution.matches) == 1:
@@ -649,6 +656,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     task_intent = detect_task_intent(text)
     if task_intent:
         logger.info("Router task_intent=%s", task_intent)
+        set_request_diagnostic(route="task", intent=str(task_intent))
         return await handle_task_text(update, context, text, task_intent)
 
     if user_id is not None:
@@ -698,10 +706,12 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     if await _route_current_entity_action(update, context, text):
         logger.info("Router resolved action through unified current entity")
+        set_request_diagnostic(route="context_entity", intent="entity_action")
         return True
 
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
+    set_request_diagnostic(route="calendar", intent=str(intent.name), intent_confidence=float(intent.confidence))
     if intent.name == INTENT_CREATE:
         create_text = _creation_text(text)
         if _needs_time(create_text):
