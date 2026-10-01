@@ -56,12 +56,14 @@ class SheetGesturesAndChatHistoryTests(unittest.TestCase):
         self.assertIn("Math.hypot(dx, dy) <= 36", self.script)
         self.assertIn("suppressNextClick(touch)", self.script)
 
-    def test_chat_retains_only_last_fourteen_messages(self):
+    def test_chat_persists_only_recent_plain_messages_without_pruning_live_dom(self):
         self.assertIn("const CHAT_HISTORY_MAX_MESSAGES = 14", self.script)
         self.assertIn('const CHAT_HISTORY_KEY_PREFIX = "personal-secretary-chat-history-v1"', self.script)
         self.assertIn("localStorage.setItem(chatHistoryKey, JSON.stringify(history))", self.script)
         self.assertIn("restoreChatHistory()", self.script)
-        self.assertIn("nodes.slice(0, -CHAT_HISTORY_MAX_MESSAGES).forEach(node => node.remove())", self.script)
+        self.assertIn("persistable.slice(-CHAT_HISTORY_MAX_MESSAGES)", self.script)
+        self.assertIn("button, input, textarea, select", self.script)
+        self.assertNotIn("nodes.slice(0, -CHAT_HISTORY_MAX_MESSAGES).forEach(node => node.remove())", self.script)
 
     def test_empty_dom_cleanup_does_not_erase_retained_history(self):
         self.assertIn("if (!history.length) return;", self.script)
