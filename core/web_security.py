@@ -22,6 +22,12 @@ from core.user_activity_store import record_user_activity
 
 logger = logging.getLogger(__name__)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+DIAGNOSTIC_IGNORED_PATHS = {
+    "/api/status",
+    "/api/health",
+    "/api/reminders/due",
+    "/api/client/activity",
+}
 UNKNOWN_MESSAGE = (
     "Ответ потерялся. Повторное выполнение остановлено, чтобы не создать дубль. "
     "Проверь календарь или сохранённое перед новой командой."
@@ -166,6 +172,8 @@ def _diagnostic_response_details(data: dict) -> dict:
 
 
 def _record_request_activity(response, *, phase: str | None = None, data: dict | None = None) -> None:
+    if request.path in DIAGNOSTIC_IGNORED_PATHS:
+        return
     user_id = session.get("user_id")
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
         return
