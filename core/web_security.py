@@ -172,7 +172,7 @@ def _diagnostic_response_details(data: dict) -> dict:
 
 
 def _record_request_activity(response, *, phase: str | None = None, data: dict | None = None) -> None:
-    if request.path in DIAGNOSTIC_IGNORED_PATHS:
+    if not request.path.startswith("/api/") or request.path in DIAGNOSTIC_IGNORED_PATHS:
         return
     user_id = session.get("user_id")
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
