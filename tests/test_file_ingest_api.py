@@ -8,6 +8,7 @@ from core.file_import_store import (
     create_file_import_draft,
     list_file_import_drafts,
     mark_file_import_item,
+    update_file_import_item,
 )
 from modules.file_ingest_api import (
     MAX_DOCUMENT_BYTES,
@@ -89,6 +90,33 @@ class FileIngestAPITests(unittest.TestCase):
         })
         self.assertEqual(proposal["end"], "2026-10-01T12:15:00+03:00")
 
+    def test_manual_review_updates_persist_in_same_draft(self):
+        draft_id = create_file_import_draft(self.user_id, {
+            "tasks": [{
+                "title": "Черновик",
+                "ready": False,
+                "warnings": ["Проверь время"],
+            }],
+            "events": [],
+        })
+        updated = update_file_import_item(
+            self.user_id,
+            draft_id,
+            kind="task",
+            index=0,
+            item={
+                "title": "Исправленная задача",
+                "due_at": "2026-10-01T12:00:00+03:00",
+                "ready": True,
+                "warnings": [],
+            },
+        )
+        self.assertTrue(updated["ready"])
+        restored = list_file_import_drafts(self.user_id)[0]["result"]["tasks"][0]
+        self.assertEqual(restored["title"], "Исправленная задача")
+        self.assertTrue(restored["ready"])
+        self.assertEqual(restored["warnings"], [])
+
     def test_import_draft_survives_and_tracks_each_action(self):
         result = {
             "summary": "Расписание",
@@ -144,6 +172,10 @@ class FileIngestAPITests(unittest.TestCase):
         self.assertIn("draftHasPending", source)
         self.assertIn("Добавить задачу", source)
         self.assertIn("Добавить в календарь", source)
+        self.assertIn("Проверить и исправить", source)
+        self.assertIn("reviewTask", source)
+        self.assertIn("reviewEvent", source)
+        self.assertIn('method: "PATCH"', source)
         self.assertIn("applyTaskToCalendar", source)
         self.assertIn("task.due_at", source)
         self.assertIn("ищу задачи, даты и события", source)
