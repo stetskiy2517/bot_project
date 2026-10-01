@@ -184,25 +184,68 @@
     chat.scrollTop = chat.scrollHeight;
   }
 
+  async function createImportedTask(task, draftId = null, index = -1) {
+    const existingId = Number(task.imported?.task || 0);
+    if (existingId > 0) return {task_id: existingId, title: task.title};
+
+    if (task.imported?.task === true) {
+      const search = await PlannerRequests.request(`/api/tasks?status=all&q=${encodeURIComponent(task.title || "")}`);
+      const exact = (search.tasks || []).find(item => {
+        if (String(item.title || "").trim() !== String(task.title || "").trim()) return false;
+        const left = task.due_at ? new Date(task.due_at).getTime() : null;
+        const right = item.due_at ? new Date(item.due_at).getTime() : null;
+        return left === right;
+      });
+      if (exact?.task_id) {
+        task.imported = {...(task.imported || {}), task: Number(exact.task_id)};
+        if (draftId) {
+          await PlannerRequests.request(`/api/files/drafts/${encodeURIComponent(draftId)}/mark`, {
+            method: "POST",
+            requestId: PlannerRequests.newId(),
+            body: JSON.stringify({kind: "task", index, target: "task", value: Number(exact.task_id)}),
+          });
+        }
+        return exact;
+      }
+    }
+
+    const result = await PlannerRequests.request("/api/files/task", {
+      method: "POST",
+      requestId: PlannerRequests.newId(),
+      body: JSON.stringify({task, draft_id: draftId, index}),
+    });
+    task.imported = {...(task.imported || {}), task: Number(result.task.task_id)};
+    document.dispatchEvent(new CustomEvent("planner-library-changed", {detail: {type: "task", item: result.task}}));
+    return result.task;
+  }
+
+  async function editTaskForCalendar(task, draftId, index) {
+    if (!window.PlannerTaskEditor?.openTask) throw new Error("Редактор задачи ещё загружается.");
+    const edited = await window.PlannerTaskEditor.openTask({
+      task: {...task, status: "open", flexible: true},
+    });
+    if (!edited) return null;
+    const reviewed = {
+      ...task,
+      ...edited,
+      confidence: 1,
+      ready: true,
+      warnings: [],
+    };
+    const saved = await saveReviewedItem(draftId, "task", index, reviewed);
+    Object.assign(task, saved, {ready: true, warnings: []});
+    return task;
+  }
+
   async function applyTask(task, button, draftId = null, index = -1) {
     if (!task.ready || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
     button.textContent = "Добавляю…";
     try {
-      const result = await PlannerRequests.request("/api/files/task", {
-        method: "POST",
-        requestId: PlannerRequests.newId(),
-        body: JSON.stringify({
-          task,
-          draft_id: draftId,
-          index,
-        }),
-      });
-      task.imported = {...(task.imported || {}), task: true};
+      await createImportedTask(task, draftId, index);
       button.textContent = "Добавлено ✓";
       button.disabled = true;
-      document.dispatchEvent(new CustomEvent("planner-library-changed", {detail: {type: "task", item: result.task}}));
     } catch (error) {
       button.disabled = false;
       button.textContent = oldText;
@@ -210,22 +253,82 @@
     }
   }
 
-  async function applyTaskToCalendar(task, button, draftId = null, index = -1) {
+  function scheduleSkipText(skipped = []) {
+    const reason = skipped?.[0]?.reason;
+    if (reason === "missing_estimate") return "Укажи длительность задачи.";
+    if (reason === "missing_deadline") return "Укажи срок задачи.";
+    if (reason === "overdue") return "Срок задачи уже прошёл.";
+    if (reason === "already_scheduled") return "Для этой задачи уже выделено время в календаре.";
+    if (reason === "fixed") return "Разреши планирование задачи в свободное окно.";
+    if (reason === "no_slot_before_deadline") return "До срока нет свободного окна. Измени время вручную или перенеси срок.";
+    return "Не удалось подобрать свободное окно для задачи.";
+  }
+
+  async function applyTaskToCalendar(task, button, taskButton, draftId = null, index = -1) {
     if (!task.ready || !task.due_at || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
-    button.textContent = "Добавляю…";
+    button.textContent = "Подбираю время…";
     try {
-      const result = await PlannerRequests.request("/api/files/calendar", {
+      if (!task.estimate_minutes) {
+        const edited = await editTaskForCalendar(task, draftId, index);
+        if (!edited) {
+          button.disabled = false;
+          button.textContent = oldText;
+          return;
+        }
+        if (!task.due_at || !task.estimate_minutes) throw new Error("Для календаря нужны срок и длительность.");
+      }
+
+      const createdTask = await createImportedTask(task, draftId, index);
+      if (taskButton) {
+        taskButton.textContent = "Добавлено ✓";
+        taskButton.disabled = true;
+      }
+
+      const preview = await PlannerRequests.request(`/api/tasks/${Number(createdTask.task_id)}/schedule/preview`);
+      const proposal = (preview.proposals || []).find(item => Number(item.task_id) === Number(createdTask.task_id));
+      if (!proposal) throw new Error(scheduleSkipText(preview.skipped || []));
+      if (!window.PlannerTaskEditor?.confirmPlan) throw new Error("Редактор плана ещё загружается.");
+
+      const approved = await window.PlannerTaskEditor.confirmPlan([proposal]);
+      if (!approved) {
+        button.disabled = false;
+        button.textContent = oldText;
+        return;
+      }
+
+      const result = await PlannerRequests.request("/api/tasks/schedule/apply", {
         method: "POST",
         requestId: PlannerRequests.newId(),
-        body: JSON.stringify({task, draft_id: draftId, index}),
+        body: JSON.stringify({proposals: approved}),
       });
-      task.imported = {...(task.imported || {}), calendar: true};
+      if (!result.applied_count) {
+        throw new Error(result.errors?.[0]?.error || "Не удалось записать задачу в календарь.");
+      }
+
+      const applied = result.applied[0];
+      task.imported = {
+        ...(task.imported || {}),
+        task: Number(createdTask.task_id),
+        calendar: applied?.calendar_event_id || true,
+      };
+      if (draftId) {
+        await PlannerRequests.request(`/api/files/drafts/${encodeURIComponent(draftId)}/mark`, {
+          method: "POST",
+          requestId: PlannerRequests.newId(),
+          body: JSON.stringify({
+            kind: "task",
+            index,
+            target: "calendar",
+            value: applied?.calendar_event_id || true,
+          }),
+        });
+      }
       button.textContent = "В календаре ✓";
       button.disabled = true;
       document.dispatchEvent(new CustomEvent("planner-library-changed", {
-        detail: {type: "calendar_event", item: result.event},
+        detail: {type: "task", item: applied},
       }));
     } catch (error) {
       button.disabled = false;
@@ -285,7 +388,7 @@
       const calendarImported = Boolean(task.imported?.calendar);
       calendar.textContent = calendarImported ? "В календаре ✓" : "Добавить в календарь";
       calendar.disabled = calendarImported;
-      calendar.addEventListener("click", () => applyTaskToCalendar(task, calendar, draftId, index));
+      calendar.addEventListener("click", () => applyTaskToCalendar(task, calendar, add, draftId, index));
       actions.appendChild(calendar);
     }
     card.appendChild(actions);
