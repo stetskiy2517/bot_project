@@ -339,6 +339,66 @@ class FileIngestTests(unittest.TestCase):
         self.assertEqual(result["tasks"][0]["title"], "Позвонить Косте")
         self.assertEqual(result["tasks"][0]["due_at"], "2026-09-15T16:30:00+03:00")
 
+    def test_schedule_fixed_time_row_is_recovered_as_calendar_event(self):
+        answer = json.dumps({
+            "document_type": "schedule",
+            "summary": "Расписание",
+            "events": [],
+            "tasks": [{
+                "title": "Съемка интервью",
+                "description": "Ротонда",
+                "due_local": "2026-09-15T15:00",
+                "due_timezone": "Europe/Moscow",
+                "priority": "normal",
+                "category": "work",
+                "estimate_minutes": 120,
+                "confidence": 0.98,
+            }],
+            "warnings": [],
+        }, ensure_ascii=False)
+        with patch("modules.file_ingest.upload_file_bytes", return_value="file-schedule"), \
+             patch("modules.file_ingest.complete_with_file", return_value=answer), \
+             patch("modules.file_ingest.delete_file"), \
+             patch("modules.file_ingest.resolve_location_timezone", return_value=None):
+            result = file_ingest.analyze_file_bytes(
+                b"image", filename="schedule.jpg", mimetype="image/jpeg",
+                user_timezone="Europe/Moscow", now=NOW,
+            )
+        self.assertEqual(result["tasks"], [])
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["events"][0]["title"], "Съемка интервью")
+        self.assertEqual(result["events"][0]["start"], "2026-09-15T15:00:00+03:00")
+        self.assertEqual(result["events"][0]["end"], "2026-09-15T17:00:00+03:00")
+
+    def test_schedule_explicit_action_stays_task_even_with_time(self):
+        answer = json.dumps({
+            "document_type": "schedule",
+            "summary": "Расписание",
+            "events": [],
+            "tasks": [{
+                "title": "Подготовить статистику",
+                "description": "",
+                "due_local": "2026-09-15T10:00",
+                "due_timezone": "Europe/Moscow",
+                "priority": "normal",
+                "category": "work",
+                "estimate_minutes": 60,
+                "confidence": 0.98,
+            }],
+            "warnings": [],
+        }, ensure_ascii=False)
+        with patch("modules.file_ingest.upload_file_bytes", return_value="file-schedule-task"), \
+             patch("modules.file_ingest.complete_with_file", return_value=answer), \
+             patch("modules.file_ingest.delete_file"), \
+             patch("modules.file_ingest.resolve_location_timezone", return_value=None):
+            result = file_ingest.analyze_file_bytes(
+                b"image", filename="schedule.jpg", mimetype="image/jpeg",
+                user_timezone="Europe/Moscow", now=NOW,
+            )
+        self.assertEqual(result["events"], [])
+        self.assertEqual(len(result["tasks"]), 1)
+        self.assertEqual(result["tasks"][0]["title"], "Подготовить статистику")
+
     def test_screenshot_prompts_treat_fixed_time_blocks_as_calendar_events(self):
         prompt = file_ingest._analysis_prompt(user_timezone="Europe/Moscow", now=NOW)
         retry = file_ingest._image_retry_prompt(user_timezone="Europe/Moscow", now=NOW)
