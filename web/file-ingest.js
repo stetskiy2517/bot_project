@@ -126,35 +126,21 @@
     return parts.join("\n");
   }
 
-  async function markImported(draftId, kind, index, target) {
-    if (!draftId) return;
-    await PlannerRequests.request(`/api/files/drafts/${encodeURIComponent(draftId)}/mark`, {
-      method: "POST",
-      requestId: PlannerRequests.newId(),
-      body: JSON.stringify({kind, index, target}),
-    });
-  }
-
   async function applyTask(task, button, draftId = null, index = -1) {
     if (!task.ready || button.disabled) return;
     button.disabled = true;
     const oldText = button.textContent;
     button.textContent = "Добавляю…";
     try {
-      const result = await PlannerRequests.request("/api/tasks", {
+      const result = await PlannerRequests.request("/api/files/task", {
         method: "POST",
         requestId: PlannerRequests.newId(),
         body: JSON.stringify({
-          title: task.title,
-          description: task.description || "",
-          due_at: task.due_at || null,
-          priority: task.priority || "normal",
-          category: task.category || "other",
-          estimate_minutes: task.estimate_minutes || null,
-          flexible: true,
+          task,
+          draft_id: draftId,
+          index,
         }),
       });
-      await markImported(draftId, "task", index, "task");
       task.imported = {...(task.imported || {}), task: true};
       button.textContent = "Добавлено ✓";
       button.disabled = true;
@@ -175,9 +161,8 @@
       const result = await PlannerRequests.request("/api/files/calendar", {
         method: "POST",
         requestId: PlannerRequests.newId(),
-        body: JSON.stringify({task}),
+        body: JSON.stringify({task, draft_id: draftId, index}),
       });
-      await markImported(draftId, "task", index, "calendar");
       task.imported = {...(task.imported || {}), calendar: true};
       button.textContent = "В календаре ✓";
       button.disabled = true;
@@ -256,9 +241,8 @@
       const result = await PlannerRequests.request("/api/files/calendar", {
         method: "POST",
         requestId: PlannerRequests.newId(),
-        body: JSON.stringify({event}),
+        body: JSON.stringify({event, draft_id: draftId, index}),
       });
-      await markImported(draftId, "event", index, "calendar");
       event.imported = {...(event.imported || {}), calendar: true};
       button.textContent = "Добавлено ✓";
       button.disabled = true;
