@@ -126,6 +126,64 @@
     return parts.join("\n");
   }
 
+  async function saveReviewedItem(draftId, kind, index, item) {
+    if (!draftId) return item;
+    const result = await PlannerRequests.request(`/api/files/drafts/${encodeURIComponent(draftId)}/item`, {
+      method: "PATCH",
+      requestId: PlannerRequests.newId(),
+      body: JSON.stringify({kind, index, item}),
+    });
+    return result.item || item;
+  }
+
+  async function reviewTask(task, card, draftId, index) {
+    if (!window.PlannerTaskEditor?.openTask) {
+      addMessage("Редактор задачи ещё загружается. Попробуйте ещё раз.", "assistant");
+      return;
+    }
+    const edited = await window.PlannerTaskEditor.openTask({
+      task: {
+        ...task,
+        status: "open",
+        flexible: true,
+      },
+    });
+    if (!edited) return;
+    const reviewed = {
+      ...task,
+      ...edited,
+      confidence: 1,
+      ready: true,
+      warnings: [],
+    };
+    const saved = await saveReviewedItem(draftId, "task", index, reviewed);
+    Object.assign(task, saved, {ready: true, warnings: []});
+    card.remove();
+    renderTask(task, draftId, index);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  async function reviewEvent(event, card, draftId, index) {
+    if (!window.PlannerEventEditor?.openDraft) {
+      addMessage("Редактор события ещё загружается. Попробуйте ещё раз.", "assistant");
+      return;
+    }
+    const edited = await window.PlannerEventEditor.openDraft(event);
+    if (!edited) return;
+    const reviewed = {
+      ...event,
+      ...edited,
+      confidence: 1,
+      ready: true,
+      warnings: [],
+    };
+    const saved = await saveReviewedItem(draftId, "event", index, reviewed);
+    Object.assign(event, saved, {ready: true, warnings: []});
+    card.remove();
+    renderEvent(event, draftId, index);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
   async function applyTask(task, button, draftId = null, index = -1) {
     if (!task.ready || button.disabled) return;
     button.disabled = true;
@@ -212,9 +270,12 @@
     add.type = "button";
     add.className = "action primary";
     const taskImported = Boolean(task.imported?.task);
-    add.textContent = taskImported ? "Добавлено ✓" : (task.ready ? "Добавить задачу" : "Нужна ручная проверка");
-    add.disabled = taskImported || !task.ready;
-    add.addEventListener("click", () => applyTask(task, add, draftId, index));
+    add.textContent = taskImported ? "Добавлено ✓" : (task.ready ? "Добавить задачу" : "Проверить и исправить");
+    add.disabled = taskImported;
+    add.addEventListener("click", () => {
+      if (!task.ready) return reviewTask(task, card, draftId, index).catch(error => addMessage("Не удалось сохранить исправления: " + (error.message || "ошибка"), "assistant"));
+      return applyTask(task, add, draftId, index);
+    });
     actions.appendChild(add);
 
     if (task.ready && task.due_at) {
@@ -283,9 +344,12 @@
     add.type = "button";
     add.className = "action primary";
     const calendarImported = Boolean(event.imported?.calendar);
-    add.textContent = calendarImported ? "В календаре ✓" : (event.ready ? "Добавить в календарь" : "Нужна ручная проверка");
-    add.disabled = calendarImported || !event.ready;
-    add.addEventListener("click", () => applyEvent(event, add, draftId, index));
+    add.textContent = calendarImported ? "В календаре ✓" : (event.ready ? "Добавить в календарь" : "Проверить и исправить");
+    add.disabled = calendarImported;
+    add.addEventListener("click", () => {
+      if (!event.ready) return reviewEvent(event, card, draftId, index).catch(error => addMessage("Не удалось сохранить исправления: " + (error.message || "ошибка"), "assistant"));
+      return applyEvent(event, add, draftId, index);
+    });
     actions.appendChild(add);
     card.appendChild(actions);
 
@@ -357,11 +421,11 @@
     const tasks = Array.isArray(result?.tasks) ? result.tasks : [];
     const events = Array.isArray(result?.events) ? result.events : [];
     const taskPending = tasks.some(task => {
-      if (!task?.ready) return false;
+      if (!task?.ready) return true;
       if (!task.imported?.task) return true;
       return Boolean(task.due_at) && !task.imported?.calendar;
     });
-    const eventPending = events.some(event => event?.ready && !event.imported?.calendar);
+    const eventPending = events.some(event => !event?.ready || !event.imported?.calendar);
     return taskPending || eventPending;
   }
 
