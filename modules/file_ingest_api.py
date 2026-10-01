@@ -16,6 +16,7 @@ from core.file_import_store import (
     create_file_import_draft,
     list_file_import_drafts,
     mark_file_import_item,
+    update_file_import_item,
 )
 from integrations.ai import AIConfigurationError, AIProviderError
 from modules.calendar import _create_event
@@ -232,6 +233,19 @@ def file_import_drafts():
     return {
         "drafts": list_file_import_drafts(_user(), limit=5),
     }
+
+
+@file_ingest_api.patch("/api/files/drafts/<draft_id>/item")
+def update_file_import_draft_item(draft_id: str):
+    payload = request.get_json(silent=True) or {}
+    item = update_file_import_item(
+        _user(),
+        draft_id,
+        kind=str(payload.get("kind") or ""),
+        index=int(payload.get("index")),
+        item=payload.get("item") or {},
+    )
+    return {"ok": True, "item": item}
 
 
 @file_ingest_api.post("/api/files/drafts/<draft_id>/mark")
