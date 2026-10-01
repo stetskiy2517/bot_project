@@ -37,6 +37,8 @@
     .toggle { border:0; border-radius:10px; padding:8px 10px; cursor:pointer; background:#111; color:#fff; min-width:92px; }
     .toggle.secondary { background:#eee; color:#111; }
     .toggle:disabled { opacity:.45; cursor:default; }
+    .admin-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .activity-details { max-width:560px; white-space:pre-wrap; word-break:break-word; }
     .status { min-height:20px; margin:8px 0 0; color:#6e6e73; font-size:13px; }
     .error { color:#a00; }
     @media (max-width:760px) {
@@ -77,6 +79,22 @@
         <table>
           <thead><tr><th>ID</th><th>Пользователь</th><th>Регистрация</th><th>Роль</th><th>AI</th><th>Управление</th></tr></thead>
           <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="userActivityPanel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2 id="userActivityTitle">Логи пользователя</h2>
+          <div class="status">Хранятся 7 дней. Секреты и токены не записываются.</div>
+        </div>
+        <button id="closeUserActivity" class="toggle secondary" type="button">Закрыть</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Когда</th><th>Запрос</th><th>Статус</th><th>Фаза</th><th>Детали</th></tr></thead>
+          <tbody id="userActivityBody"></tbody>
         </table>
       </div>
     </section>
