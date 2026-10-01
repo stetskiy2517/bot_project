@@ -49,8 +49,8 @@
     .file-analysis-title { font-weight: 680; margin-bottom: 5px; }
     .file-analysis-meta { color: #6f6f6b; font-size: 12px; line-height: 1.45; white-space: pre-line; }
     .file-analysis-warning { margin-top: 7px; color: #8a5d43; font-size: 12px; line-height: 1.4; }
-    .file-analysis-actions { display: flex; gap: 8px; margin-top: 10px; }
-    .file-analysis-actions .action { padding: 9px 12px; font-size: 12px; }
+    .file-analysis-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .file-analysis-actions .action { flex: 1 1 150px; padding: 9px 12px; font-size: 12px; }
   `;
   document.head.appendChild(style);
 
@@ -154,6 +154,28 @@
     }
   }
 
+  async function applyTaskToCalendar(task, button) {
+    if (!task.ready || !task.due_at || button.disabled) return;
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = "Добавляю…";
+    try {
+      const result = await PlannerRequests.request("/api/files/calendar", {
+        method: "POST",
+        requestId: PlannerRequests.newId(),
+        body: JSON.stringify({task}),
+      });
+      button.textContent = "В календаре ✓";
+      document.dispatchEvent(new CustomEvent("planner-library-changed", {
+        detail: {type: "calendar_event", item: result.event},
+      }));
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = oldText;
+      addMessage("Не удалось добавить в календарь: " + (error.message || "ошибка"), "assistant");
+    }
+  }
+
   function renderTask(task) {
     const card = document.createElement("div");
     card.className = "msg assistant file-analysis-card";
@@ -192,6 +214,15 @@
     add.disabled = !task.ready;
     add.addEventListener("click", () => applyTask(task, add));
     actions.appendChild(add);
+
+    if (task.ready && task.due_at) {
+      const calendar = document.createElement("button");
+      calendar.type = "button";
+      calendar.className = "action";
+      calendar.textContent = "Добавить в календарь";
+      calendar.addEventListener("click", () => applyTaskToCalendar(task, calendar));
+      actions.appendChild(calendar);
+    }
     card.appendChild(actions);
 
     chat.appendChild(card);

@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from modules.file_ingest_api import MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, _file_type
+from modules.file_ingest_api import (
+    MAX_DOCUMENT_BYTES,
+    MAX_IMAGE_BYTES,
+    _calendar_proposal,
+    _file_type,
+)
 
 
 class _Upload:
@@ -41,11 +46,42 @@ class FileIngestAPITests(unittest.TestCase):
             _file_type(_Upload("ticket.pdf", "image/png"))
 
 
+    def test_timed_task_can_be_normalized_for_calendar(self):
+        proposal = _calendar_proposal({
+            "task": {
+                "title": "Съёмка интервью",
+                "description": "Ротонда",
+                "due_at": "2026-10-01T12:00:00+03:00",
+                "due_timezone": "Europe/Moscow",
+                "estimate_minutes": 120,
+                "category": "work",
+                "confidence": 1.0,
+                "ready": True,
+            }
+        })
+        self.assertEqual(proposal["start"], "2026-10-01T12:00:00+03:00")
+        self.assertEqual(proposal["end"], "2026-10-01T14:00:00+03:00")
+        self.assertEqual(proposal["start_timezone"], "Europe/Moscow")
+
+    def test_timed_task_defaults_calendar_duration_to_one_hour(self):
+        proposal = _calendar_proposal({
+            "task": {
+                "title": "Обсуждение целей",
+                "due_at": "2026-10-01T11:15:00+03:00",
+                "due_timezone": "Europe/Moscow",
+                "ready": True,
+            }
+        })
+        self.assertEqual(proposal["end"], "2026-10-01T12:15:00+03:00")
+
     def test_file_ingest_ui_can_create_tasks_from_analysis(self):
         source = Path("web/file-ingest.js").read_text(encoding="utf-8")
         self.assertIn("result.tasks", source)
         self.assertIn('"/api/tasks"', source)
         self.assertIn("Добавить задачу", source)
+        self.assertIn("Добавить в календарь", source)
+        self.assertIn("applyTaskToCalendar", source)
+        self.assertIn("task.due_at", source)
         self.assertIn("ищу задачи, даты и события", source)
 
 
