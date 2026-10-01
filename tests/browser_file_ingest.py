@@ -255,7 +255,9 @@ def main() -> None:
             # without requiring a full app reload.
             page.locator('#mobileBottomNav [data-view="home"]').click()
             page.wait_for_timeout(650)
-            expect(page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")).to_have_count(1)
+            hidden_card = page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")
+            expect(hidden_card).to_have_count(1)
+            expect(hidden_card.locator("button")).to_have_count(2)
             page.locator('#mobileBottomNav [data-view="chat"]').click()
             same_session_card = page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")
             expect(same_session_card).to_be_visible()
