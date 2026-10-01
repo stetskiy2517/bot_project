@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,12 +12,19 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.conversation_context import remember_entity_for_user
 from core.db import get_category_colors, get_user_timezone
 from core.feature_access import has_ai_access
+from core.file_import_store import (
+    create_file_import_draft,
+    list_file_import_drafts,
+    mark_file_import_item,
+)
 from integrations.ai import AIConfigurationError, AIProviderError
 from modules.calendar import _create_event
 from modules.file_ingest import ALLOWED_CATEGORIES, analyze_file_bytes
+from core.task_planner_store import create_planner_task
 
 file_ingest_api = Blueprint("file_ingest", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+logger = logging.getLogger(__name__)
 
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
@@ -171,7 +179,72 @@ def analyze_uploaded_file():
     )
     result["ok"] = True
     result["file_kind"] = "image" if mimetype.startswith("image/") else "document"
+    result["source_name"] = Path(str(upload.filename or "")).name[:200]
+    result["draft_id"] = create_file_import_draft(user_id, result)
     return result
+
+
+@file_ingest_api.post("/api/files/task")
+def create_task_from_file():
+    payload = request.get_json(silent=True) or {}
+    proposal = payload.get("task")
+    if not isinstance(proposal, dict):
+        raise ValueError("Нет задачи для добавления")
+    if proposal.get("ready") is False:
+        raise ValueError("Задача требует ручной проверки перед добавлением")
+
+    user_id = _user()
+    try:
+        task = create_planner_task(
+            user_id,
+            proposal.get("title"),
+            description=proposal.get("description") or "",
+            due_at=proposal.get("due_at"),
+            priority=proposal.get("priority") or "normal",
+            category=proposal.get("category") or "other",
+            estimate_minutes=proposal.get("estimate_minutes"),
+            flexible=True,
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_task", message=str(exc)), 400
+
+    remember_entity_for_user(user_id, "task", task["task_id"], task.get("title") or "")
+
+    draft_id = str(payload.get("draft_id") or "").strip()
+    index = payload.get("index")
+    if draft_id and index is not None:
+        try:
+            mark_file_import_item(
+                user_id,
+                draft_id,
+                kind="task",
+                index=int(index),
+                target="task",
+            )
+        except (TypeError, ValueError):
+            logger.exception("Could not persist imported-task state user=%s draft=%s", user_id, draft_id)
+
+    return {"ok": True, "task": task}, 201
+
+
+@file_ingest_api.get("/api/files/drafts")
+def file_import_drafts():
+    return {
+        "drafts": list_file_import_drafts(_user(), limit=5),
+    }
+
+
+@file_ingest_api.post("/api/files/drafts/<draft_id>/mark")
+def mark_file_import_draft_item(draft_id: str):
+    payload = request.get_json(silent=True) or {}
+    item = mark_file_import_item(
+        _user(),
+        draft_id,
+        kind=str(payload.get("kind") or ""),
+        index=int(payload.get("index")),
+        target=str(payload.get("target") or ""),
+    )
+    return {"ok": True, "item": item}
 
 
 @file_ingest_api.post("/api/files/calendar")
@@ -257,6 +330,20 @@ def create_event_from_file():
             error="calendar_not_connected",
             message="Сначала подключи календарь.",
         ), 409
+    draft_id = str(payload.get("draft_id") or "").strip()
+    index = payload.get("index")
+    if draft_id and index is not None:
+        try:
+            mark_file_import_item(
+                user_id,
+                draft_id,
+                kind="task" if isinstance(payload.get("task"), dict) else "event",
+                index=int(index),
+                target="calendar",
+            )
+        except (TypeError, ValueError):
+            logger.exception("Could not persist imported-calendar state user=%s draft=%s", user_id, draft_id)
+
     return {
         "ok": True,
         "event": {
