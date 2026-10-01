@@ -54,7 +54,10 @@
     .task-editor-button{min-height:48px;padding:10px 13px;border-radius:14px;font-size:14px;font-weight:650;cursor:pointer}
     .task-editor-button.primary{background:#171717;color:#fff}.task-editor-button.secondary{background:#ededeb;color:#2e2e2b}.task-editor-button.danger{background:#f3dfdf;color:#8a2f2f}.task-editor-button:disabled{opacity:.52}
     .task-plan-list{display:grid;gap:1px;margin:4px 0 14px;border:1px solid #e8e8e5;border-radius:15px;overflow:hidden;background:#e8e8e5}
-    .task-plan-row{display:grid;gap:4px;padding:11px 13px;background:#fff}.task-plan-name{font-size:14px;font-weight:650}.task-plan-meta{font-size:12px;color:#888883}
+    .task-plan-row{display:grid;gap:8px;padding:11px 13px;background:#fff}.task-plan-name{font-size:14px;font-weight:650}.task-plan-meta{font-size:12px;color:#888883}
+    .task-plan-time{display:grid;gap:5px;color:#6f6f6a;font-size:12px}
+    .task-plan-time input{display:block;width:100%;min-width:0;min-height:44px;padding:10px 11px;border:1px solid #dededb;border-radius:12px;background:#fff;color:#171717;font:inherit;font-size:16px;box-sizing:border-box;outline:0}
+    .task-plan-time input:focus{border-color:#aaa9a5;box-shadow:0 0 0 3px rgba(0,0,0,.04)}
     .task-editor-copy{margin:0 0 14px;color:#555550;font-size:14px;line-height:1.45}
     .task-confirm-sheet{height:auto;min-height:0;max-height:70%;position:relative;padding:16px 16px calc(env(safe-area-inset-bottom) + 18px);border-radius:24px 24px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.12)}
     .task-confirm-sheet .task-editor-head{position:static;display:flex;justify-content:space-between;margin:0 0 14px;padding:0;background:transparent;border:0;backdrop-filter:none}.task-confirm-sheet .task-editor-title{text-align:left}
@@ -100,6 +103,13 @@
     const parsed = new Date(`${dateRaw}T${time}`);
     if (!Number.isFinite(parsed.getTime())) throw new Error("Проверьте дату и время срока.");
     return parsed.toISOString();
+  }
+
+  function dateTimeLocalValue(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    const pad = number => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   function close(result = null) {
@@ -258,17 +268,43 @@
 
   function confirmPlan(proposals = []) {
     return new Promise(resolve => {
-      const rows = proposals.map(item => {
+      const rows = proposals.map((item, index) => {
         const when = new Date(item.start);
         const human = Number.isFinite(when.getTime()) ? when.toLocaleString("ru-RU", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : String(item.start || "");
-        return `<div class="task-plan-row"><div class="task-plan-name">${esc(item.title || "Задача")}</div><div class="task-plan-meta">${esc(human)} · ${Number(item.estimate_minutes || 0)} мин</div></div>`;
+        return `<div class="task-plan-row">
+          <div class="task-plan-name">${esc(item.title || "Задача")}</div>
+          <div class="task-plan-meta">Предложено: ${esc(human)} · ${Number(item.estimate_minutes || 0)} мин</div>
+          <label class="task-plan-time">Начало
+            <input type="datetime-local" data-task-plan-start="${index}" value="${esc(dateTimeLocalValue(item.start))}" />
+          </label>
+        </div>`;
       }).join("");
       show(`
         <div class="task-editor-head"><h2 class="task-editor-title">План задач</h2><button class="task-editor-close" type="button" data-task-editor-cancel aria-label="Закрыть">×</button></div>
-        <p class="task-editor-copy">Нашёл свободные окна. Проверьте план перед добавлением в календарь.</p>
+        <p class="task-editor-copy">Можно оставить предложенное время или выбрать другое. Перед добавлением занятость календаря проверится ещё раз.</p>
         <div class="task-plan-list">${rows}</div>
+        <div id="taskPlanError" class="task-editor-error" aria-live="polite"></div>
         <div class="task-editor-actions"><button class="task-editor-button secondary" type="button" data-task-editor-cancel>Не сейчас</button><button class="task-editor-button primary" type="button" data-task-confirm>Добавить в календарь</button></div>`, "План задач", resolve, {compact: true});
-      backdrop.querySelector("[data-task-confirm]").onclick = () => close(true);
+      backdrop.querySelector("[data-task-confirm]").onclick = () => {
+        const error = backdrop.querySelector("#taskPlanError");
+        try {
+          const edited = proposals.map((item, index) => {
+            const input = backdrop.querySelector(`[data-task-plan-start="${index}"]`);
+            const raw = input?.value || "";
+            const start = new Date(raw);
+            if (!raw || !Number.isFinite(start.getTime())) throw new Error("Проверьте дату и время начала.");
+            const duration = Number(item.estimate_minutes || 0);
+            return {
+              ...item,
+              start: start.toISOString(),
+              end: new Date(start.getTime() + duration * 60000).toISOString(),
+            };
+          });
+          close(edited);
+        } catch (planError) {
+          error.textContent = planError.message || "Проверьте выбранное время.";
+        }
+      };
     });
   }
 
