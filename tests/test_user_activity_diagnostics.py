@@ -61,6 +61,11 @@ class UserActivityDiagnosticsTests(unittest.TestCase):
         self.assertEqual(chat["details"]["replies_count"], 1)
         self.assertNotIn("csrf", str(chat).lower())
 
+    def test_static_passthrough_is_not_touched_by_api_diagnostics(self):
+        response = self.client.get("/manifest.webmanifest")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+
     def test_client_event_is_recorded_as_structured_activity(self):
         response = self.client.post(
             "/api/client/activity",
