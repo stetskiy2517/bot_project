@@ -76,6 +76,56 @@ def list_file_import_drafts(user_id: int, *, limit: int = 5) -> list[dict]:
     return drafts
 
 
+def update_file_import_item(
+    user_id: int,
+    draft_id: str,
+    *,
+    kind: str,
+    index: int,
+    item: dict,
+) -> dict:
+    if kind not in {"task", "event"}:
+        raise ValueError("Некорректный тип элемента")
+    if not isinstance(item, dict):
+        raise ValueError("Некорректные данные элемента")
+    key = "tasks" if kind == "task" else "events"
+
+    with db_lock:
+        row = conn.execute(
+            "SELECT result_json FROM file_import_drafts WHERE user_id=? AND draft_id=?",
+            (int(user_id), str(draft_id)),
+        ).fetchone()
+        if not row:
+            raise ValueError("Черновик импорта не найден")
+        try:
+            result = json.loads(row[0])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Черновик импорта повреждён") from exc
+        items = result.get(key)
+        if not isinstance(items, list) or not (0 <= int(index) < len(items)):
+            raise ValueError("Элемент импорта не найден")
+        previous = items[int(index)]
+        imported = previous.get("imported") if isinstance(previous, dict) else None
+        updated = dict(item)
+        if imported:
+            updated["imported"] = dict(imported)
+        items[int(index)] = updated
+        now = time.time()
+        conn.execute(
+            "UPDATE file_import_drafts SET result_json=?,updated_at=?,expires_at=? "
+            "WHERE user_id=? AND draft_id=?",
+            (
+                json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+                now,
+                now + DRAFT_TTL_SECONDS,
+                int(user_id),
+                str(draft_id),
+            ),
+        )
+        conn.commit()
+    return updated
+
+
 def mark_file_import_item(
     user_id: int,
     draft_id: str,

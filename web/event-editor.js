@@ -42,6 +42,7 @@
 
   let current = null;
   let busy = false;
+  let draftResolve = null;
 
   const style = document.createElement("style");
   style.id = "eventEditorStyles";
@@ -126,11 +127,14 @@
     backdrop.classList.add("open");
   }
 
-  function close() {
+  function close(result = undefined) {
     backdrop.classList.remove("open");
+    const resolve = draftResolve;
+    draftResolve = null;
     setTimeout(() => {
       if (!backdrop.classList.contains("open")) backdrop.replaceChildren();
     }, 180);
+    if (resolve) resolve(result === undefined ? null : result);
   }
 
   function refreshToday() {
@@ -440,6 +444,38 @@
     }
   }
 
+  function openDraft(proposal = {}) {
+    const start = proposal.start ? new Date(proposal.start) : null;
+    const end = proposal.end ? new Date(proposal.end) : null;
+    const local = value => {
+      if (!value || !Number.isFinite(value.getTime())) return "";
+      const pad = number => String(number).padStart(2, "0");
+      return `${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+    };
+    const item = {
+      __draft_mode: true,
+      title: proposal.title || "",
+      location: proposal.location || "",
+      category: proposal.category || "other",
+      all_day: false,
+      start: local(start),
+      end: local(end),
+      start_date: "",
+      end_date: "",
+      recurrence: "none",
+      reminder: "default",
+      attendees: [],
+      editable: true,
+      timezone: proposal.start_timezone || proposal.end_timezone || "",
+    };
+    return new Promise(resolve => {
+      draftResolve = resolve;
+      renderEditor(item);
+      const heading = backdrop.querySelector(".event-detail-title");
+      if (heading) heading.textContent = "Проверить событие";
+    });
+  }
+
   async function open(eventId) {
     if (!eventId) return;
     showSheet('<div class="mobile-loading">Загружаю событие…</div>');
@@ -478,6 +514,33 @@
     }
     if (event.target.closest("[data-event-save]") && current) {
       const draft = collectDraft(current);
+      if (current.__draft_mode) {
+        const error = backdrop.querySelector("#eventEditError");
+        try {
+          if (!draft.title) throw new Error("Введите название события.");
+          if (draft.all_day) throw new Error("Для импорта укажите время начала и окончания.");
+          const start = new Date(draft.start);
+          const end = new Date(draft.end);
+          if (!draft.start || !Number.isFinite(start.getTime())) throw new Error("Проверьте время начала.");
+          if (!draft.end || !Number.isFinite(end.getTime())) throw new Error("Проверьте время окончания.");
+          if (end <= start) throw new Error("Окончание должно быть позже начала.");
+          close({
+            title: draft.title,
+            location: draft.location,
+            category: draft.category || "other",
+            start: start.toISOString(),
+            end: end.toISOString(),
+            start_timezone: null,
+            end_timezone: null,
+            confidence: 1,
+            ready: true,
+            warnings: [],
+          });
+        } catch (draftError) {
+          if (error) error.textContent = draftError.message || "Проверьте данные события.";
+        }
+        return;
+      }
       submitDraft(current, draft, false);
       return;
     }
@@ -490,5 +553,5 @@
     if (event.key === "Escape" && backdrop.classList.contains("open") && current) close();
   });
 
-  window.PlannerEventEditor = {open, close};
+  window.PlannerEventEditor = {open, openDraft, close};
 })();

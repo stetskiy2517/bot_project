@@ -9,6 +9,7 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.editor = Path("web/task-editor.js").read_text(encoding="utf-8")
         self.unified = Path("web/tasks-unified.js").read_text(encoding="utf-8")
         self.reminder_editor = Path("web/reminder-editor.js").read_text(encoding="utf-8")
+        self.event_editor = Path("web/event-editor.js").read_text(encoding="utf-8")
         self.mobile = Path("web/mobile-ui.js").read_text(encoding="utf-8")
         self.swipes = Path("web/task-swipe.js").read_text(encoding="utf-8")
         self.api = Path("modules/task_api.py").read_text(encoding="utf-8")
@@ -54,6 +55,13 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn("JSON.stringify({proposals: approved})", self.mobile)
         self.assertIn("JSON.stringify({proposals: approved})", self.script)
         self.assertNotIn("if (!(await approvePlan([proposal]))) return;", self.mobile)
+
+    def test_import_manual_review_uses_real_editors(self):
+        self.assertIn("openDraft", self.event_editor)
+        self.assertIn("Проверить событие", self.event_editor)
+        self.assertIn("__draft_mode", self.event_editor)
+        self.assertIn("PlannerTaskEditor.openTask", Path("web/file-ingest.js").read_text(encoding="utf-8"))
+        self.assertIn("PlannerEventEditor.openDraft", Path("web/file-ingest.js").read_text(encoding="utf-8"))
 
     def test_notification_tasks_edit_time_in_same_sheet(self):
         self.assertIn('id="reminderEditDate"', self.reminder_editor)
