@@ -92,6 +92,7 @@
 
   function setView(view, {fromObserver = false} = {}) {
     if (!["home", "chat", "today"].includes(view)) view = "home";
+    const previousView = currentView;
     currentView = view;
     app.classList.remove("mobile-view-home", "mobile-view-chat", "mobile-view-today", "mobile-view-more");
     app.classList.add(`mobile-view-${view}`);
@@ -107,6 +108,13 @@
     }
     if (view === "today") loadToday();
     document.dispatchEvent(new CustomEvent("planner-view-changed", {detail: {view}}));
+    if (view !== previousView) {
+      window.PlannerRequests?.track?.("view_change", {
+        from: previousView,
+        view,
+        source: fromObserver ? "observer" : "navigation",
+      });
+    }
   }
 
   function formatDate(value, options = {}) {
