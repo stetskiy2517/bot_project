@@ -18,7 +18,11 @@ from core.command_store import (
     load_conversation, request_effects, save_conversation, set_phase, user_operation,
 )
 from core.db import get_google_account
-from core.user_activity_store import record_user_activity
+from core.user_activity_store import (
+    clear_request_diagnostics,
+    record_user_activity,
+    request_diagnostics,
+)
 
 logger = logging.getLogger(__name__)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -185,6 +189,7 @@ def _record_request_activity(response, *, phase: str | None = None, data: dict |
     if not isinstance(payload, dict):
         payload = {}
     details = dict(getattr(g, "activity_request_details", {}) or {})
+    details.update(request_diagnostics())
     details.update(_diagnostic_response_details(payload))
     try:
         record_user_activity(
@@ -238,6 +243,7 @@ def install_web_security(app) -> None:
     @app.before_request
     def guard_web_request():
         if request.path.startswith("/api/"):
+            clear_request_diagnostics()
             g.activity_started = time.monotonic()
             g.activity_request_details = _diagnostic_request_details()
         if request.path == "/api/google/login":
