@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session
+from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory, session
 
 from config import BASE_URL, WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
 from core.db import (
@@ -53,6 +53,7 @@ from core.push_store import (
 )
 from core.reminder_store import complete_reminder, delete_saved_reminder, reschedule_reminder
 from core.web_security import csrf_token, install_web_security, mark_executing
+from core.user_activity_store import record_user_activity
 from core.web_transport import WebContext, WebPlannerResult, WebUpdate
 from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.google_calendar_service import GoogleAuthRequired
@@ -109,6 +110,54 @@ def _validate_time_range(start: str, end: str) -> None:
         raise ValueError("Время должно быть в формате HH:MM")
     if start >= end:
         raise ValueError("Начало рабочего дня должно быть раньше окончания")
+
+
+ACTIVITY_IGNORED_PATHS = {
+    "/api/health",
+    "/api/status",
+    "/api/reminders/due",
+}
+
+
+def _should_record_activity(path: str, method: str, status: int) -> bool:
+    if path in ACTIVITY_IGNORED_PATHS or path.startswith("/api/admin/"):
+        return False
+    if int(status) >= 400:
+        return True
+    if str(method).upper() not in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    return path.startswith("/api/files/") or "/schedule/preview" in path
+
+
+def _activity_details(path: str, payload: dict | None) -> dict:
+    """Keep diagnostics useful without copying user content into the log."""
+    if not isinstance(payload, dict):
+        return {}
+    if path == "/api/files/analyze":
+        return {
+            "document_type": str(payload.get("document_type") or "")[:60] or None,
+            "events": len(payload.get("events") or []) if isinstance(payload.get("events"), list) else 0,
+            "tasks": len(payload.get("tasks") or []) if isinstance(payload.get("tasks"), list) else 0,
+            "warnings": len(payload.get("warnings") or []) if isinstance(payload.get("warnings"), list) else 0,
+        }
+    if path.endswith("/schedule/apply"):
+        return {
+            "applied_count": int(payload.get("applied_count") or 0),
+            "error_count": len(payload.get("errors") or []) if isinstance(payload.get("errors"), list) else 0,
+        }
+    if "/schedule/preview" in path:
+        skipped = payload.get("skipped") if isinstance(payload.get("skipped"), list) else []
+        return {
+            "proposal_count": len(payload.get("proposals") or []) if isinstance(payload.get("proposals"), list) else 0,
+            "skipped": [str(item.get("reason") or "")[:80] for item in skipped[:10] if isinstance(item, dict)],
+        }
+    if path == "/api/files/task":
+        task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+        return {"task_id": task.get("task_id")}
+    if path == "/api/files/calendar":
+        event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+        return {"event_id": str(event.get("id") or "")[:120] or None}
+    return {}
 
 
 def _status_payload(user_id: int) -> dict:
@@ -246,6 +295,8 @@ def create_web_app() -> Flask:
     @app.before_request
     def protect_api():
         user_id = _current_user_id()
+        if request.path.startswith("/api/") and user_id is not None:
+            g.user_activity_started_at = time.perf_counter()
         if user_id is not None and not session.permanent:
             session.permanent = True
         if not request.path.startswith("/api/") or request.path in {"/api/health", "/api/google/login"}:
@@ -260,6 +311,30 @@ def create_web_app() -> Flask:
     @app.after_request
     def prevent_content_sniffing(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        user_id = _current_user_id()
+        if (
+            user_id is not None
+            and request.path.startswith("/api/")
+            and _should_record_activity(request.path, request.method, response.status_code)
+        ):
+            started = getattr(g, "user_activity_started_at", None)
+            duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000)) if started is not None else None
+            payload = response.get_json(silent=True) if response.is_json else None
+            error_code = str(payload.get("error") or "")[:120] if isinstance(payload, dict) else ""
+            try:
+                record_user_activity(
+                    user_id,
+                    request_id=request.headers.get("X-Request-ID"),
+                    method=request.method,
+                    path=request.path,
+                    endpoint=request.endpoint,
+                    status=response.status_code,
+                    error_code=error_code or None,
+                    duration_ms=duration_ms,
+                    details=_activity_details(request.path, payload),
+                )
+            except Exception:
+                logger.exception("Could not record user activity user=%s path=%s", user_id, request.path)
         return response
 
     @app.errorhandler(GoogleAuthRequired)

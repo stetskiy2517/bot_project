@@ -89,6 +89,8 @@
       row.append(aiCell);
 
       const action = document.createElement("td");
+      const actionRow = document.createElement("div");
+      actionRow.className = "action-row";
       const button = document.createElement("button");
       button.type = "button";
       button.className = feature.enabled ? "toggle secondary" : "toggle";
@@ -110,9 +112,67 @@
           button.disabled = false;
         }
       });
-      action.append(button);
+      const logs = document.createElement("button");
+      logs.type = "button";
+      logs.className = "toggle secondary";
+      logs.textContent = "Логи";
+      logs.addEventListener("click", () => loadUserActivity(user));
+      actionRow.append(button, logs);
+      action.append(actionRow);
       row.append(action);
       usersBody.append(row);
+    }
+  }
+
+  function detailsText(details) {
+    if (!details || typeof details !== "object") return "—";
+    const parts = [];
+    for (const [key, value] of Object.entries(details)) {
+      if (value == null || value === "" || (Array.isArray(value) && !value.length)) continue;
+      parts.push(`${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
+    }
+    return parts.join(" · ") || "—";
+  }
+
+  function renderActivity(events) {
+    const body = byId("activityBody");
+    body.replaceChildren();
+    if (!events.length) {
+      const row = document.createElement("tr");
+      const empty = cell("За период записей нет", "muted");
+      empty.colSpan = 7;
+      row.append(empty);
+      body.append(row);
+      return;
+    }
+    for (const event of events) {
+      const row = document.createElement("tr");
+      row.append(cell(formatDate(event.created_at)));
+      row.append(cell(event.method));
+      row.append(cell(event.path));
+      row.append(cell(String(event.status)));
+      row.append(cell(event.error_code || "—", event.error_code ? "error" : "muted"));
+      row.append(cell(event.duration_ms == null ? "—" : `${event.duration_ms} мс`));
+      row.append(cell(detailsText(event.details), "muted"));
+      body.append(row);
+    }
+  }
+
+  async function loadUserActivity(user) {
+    const panel = byId("activityPanel");
+    const status = byId("activityStatus");
+    byId("activityTitle").textContent = `Диагностика · ${user.name || user.email || "#" + user.id}`;
+    panel.hidden = false;
+    status.textContent = "Загружаю…";
+    status.classList.remove("error");
+    panel.scrollIntoView({behavior: "smooth", block: "start"});
+    try {
+      const payload = await api(`/api/admin/users/${user.id}/activity?limit=300`);
+      renderActivity(payload.events || []);
+      status.textContent = "Последние API-действия за 14 дней. Содержимое сообщений, файлов и писем не журналируется.";
+    } catch (error) {
+      status.textContent = `Ошибка: ${error.message}`;
+      status.classList.add("error");
     }
   }
 
@@ -169,6 +229,10 @@
       userStatus.classList.add("error");
     }
   }
+
+  byId("closeActivity").addEventListener("click", () => {
+    byId("activityPanel").hidden = true;
+  });
 
   byId("userSearch").addEventListener("input", () => {
     clearTimeout(searchTimer);

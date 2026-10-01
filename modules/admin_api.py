@@ -18,6 +18,7 @@ from core.admin_store import (
 from core.db import conn, db_lock, get_google_account
 from core.feature_access import feature_catalog, set_feature_entitlement
 from core.web_security import csrf_token
+from core.user_activity_store import list_user_activity
 
 admin_api = Blueprint("admin", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -90,6 +91,18 @@ def user_details(user_id: int):
     if not user:
         return jsonify(error="user_not_found"), 404
     return {"user": user, "features": feature_catalog()}
+
+
+@admin_api.get("/api/admin/users/<int:user_id>/activity")
+def user_activity(user_id: int):
+    _admin_user_id()
+    if not get_user_for_admin(user_id):
+        return jsonify(error="user_not_found"), 404
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except (TypeError, ValueError):
+        return jsonify(error="invalid_limit"), 400
+    return {"user_id": user_id, "events": list_user_activity(user_id, limit=limit)}
 
 
 @admin_api.patch("/api/admin/users/<int:user_id>/features/<feature>")
