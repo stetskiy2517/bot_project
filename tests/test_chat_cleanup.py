@@ -23,16 +23,15 @@ class ChatCleanupTests(unittest.TestCase):
             session["user_id"] = user_id
         return user_id
 
-    def test_collapsed_chat_history_is_removed_from_dom(self):
+    def test_collapsing_chat_does_not_destroy_interactive_dom(self):
         response = self.client.get("/reminders.js")
         self.assertEqual(response.status_code, 200)
         script = response.get_data(as_text=True)
         response.close()
 
-        self.assertIn("new MutationObserver", script)
-        self.assertIn('attributeFilter: ["class"]', script)
-        self.assertIn("chatNode.replaceChildren()", script)
-        self.assertIn("const CHAT_CLEAR_DELAY_MS = 400", script)
+        self.assertNotIn("chatNode.replaceChildren()", script)
+        self.assertNotIn("CHAT_CLEAR_DELAY_MS", script)
+        self.assertNotIn("installTransientChatCleanup", script)
 
     def test_reminder_delivery_stays_independent_from_chat_cleanup(self):
         user_id = self._login()
