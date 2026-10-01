@@ -106,6 +106,7 @@
       app.classList.remove("chat-active");
     }
     if (view === "today") loadToday();
+    document.dispatchEvent(new CustomEvent("planner-view-changed", {detail: {view}}));
   }
 
   function formatDate(value, options = {}) {

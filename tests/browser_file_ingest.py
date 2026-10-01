@@ -251,6 +251,19 @@ def main() -> None:
             expect(restored_buttons.nth(0)).to_be_enabled()
             expect(restored_buttons.nth(1)).to_be_enabled()
 
+            # Returning Home -> Chat in the same SPA session must restore actions too,
+            # without requiring a full app reload.
+            page.locator('#mobileBottomNav [data-view="home"]').click()
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            same_session_card = page.locator(".file-analysis-card", has_text="Обсуждение целей и концепции")
+            expect(same_session_card).to_be_visible()
+            same_session_buttons = same_session_card.locator("button")
+            expect(same_session_buttons).to_have_count(2)
+            expect(same_session_buttons.nth(0)).to_have_text("Добавить задачу")
+            expect(same_session_buttons.nth(1)).to_have_text("Добавить в календарь")
+            expect(same_session_buttons.nth(0)).to_be_enabled()
+            expect(same_session_buttons.nth(1)).to_be_enabled()
+
             manual_email_action = {
                 "action_type": "calendar_event",
                 "title": "Рейс SU101 Москва — Казань",
