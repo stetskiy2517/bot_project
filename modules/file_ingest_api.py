@@ -11,6 +11,11 @@ from flask import Blueprint, jsonify, request, send_from_directory, session
 from core.conversation_context import remember_entity_for_user
 from core.db import get_category_colors, get_user_timezone
 from core.feature_access import has_ai_access
+from core.file_import_store import (
+    create_file_import_draft,
+    list_file_import_drafts,
+    mark_file_import_item,
+)
 from integrations.ai import AIConfigurationError, AIProviderError
 from modules.calendar import _create_event
 from modules.file_ingest import ALLOWED_CATEGORIES, analyze_file_bytes
@@ -171,7 +176,29 @@ def analyze_uploaded_file():
     )
     result["ok"] = True
     result["file_kind"] = "image" if mimetype.startswith("image/") else "document"
+    result["source_name"] = Path(str(upload.filename or "")).name[:200]
+    result["draft_id"] = create_file_import_draft(user_id, result)
     return result
+
+
+@file_ingest_api.get("/api/files/drafts")
+def file_import_drafts():
+    return {
+        "drafts": list_file_import_drafts(_user(), limit=5),
+    }
+
+
+@file_ingest_api.post("/api/files/drafts/<draft_id>/mark")
+def mark_file_import_draft_item(draft_id: str):
+    payload = request.get_json(silent=True) or {}
+    item = mark_file_import_item(
+        _user(),
+        draft_id,
+        kind=str(payload.get("kind") or ""),
+        index=int(payload.get("index")),
+        target=str(payload.get("target") or ""),
+    )
+    return {"ok": True, "item": item}
 
 
 @file_ingest_api.post("/api/files/calendar")
