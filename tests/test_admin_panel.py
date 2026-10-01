@@ -83,6 +83,25 @@ class AdminPanelTests(unittest.TestCase):
         self.assertNotIn("google_token", target)
         self.assertNotIn("google_sub", target)
 
+    def test_admin_can_read_privacy_safe_user_activity(self):
+        response = self.user.get("/api/files/drafts")
+        self.assertEqual(response.status_code, 200)
+
+        activity = self.admin.get(f"/api/admin/users/{self.user_id}/activity?limit=20")
+        self.assertEqual(activity.status_code, 200)
+        events = activity.get_json()["events"]
+        event = next(item for item in events if item["path"] == "/api/files/drafts")
+        self.assertEqual(event["method"], "GET")
+        self.assertEqual(event["status"], 200)
+        self.assertNotIn("body", event)
+        self.assertNotIn("message", event["details"])
+
+        page = self.admin.get("/admin").get_data(as_text=True)
+        script = self.admin.get("/admin.js").get_data(as_text=True)
+        self.assertIn('id="activityPanel"', page)
+        self.assertIn('logs.textContent = "Логи"', script)
+        self.assertIn("/activity?limit=300", script)
+
     def test_manual_ai_deny_overrides_beta_and_is_audited(self):
         self.assertTrue(has_ai_access(self.user_id))
         response = self.admin.patch(
