@@ -20,7 +20,7 @@ from scripts.backup_state import retention_days, MIN_SNAPSHOTS_TO_KEEP
 
 ERASE_CONFIRMATION = "УДАЛИТЬ МОИ ДАННЫЕ"
 USER_TABLES = (
-    "command_effects", "command_requests", "conversation_state", "undo_actions",
+    "command_effects", "command_requests", "conversation_state", "user_activity_log", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
     "command_templates", "proactive_actions", "proactive_feedback", "attention_items",
     "ai_memory_event_processing", "ai_calendar_sync", "user_memories", "ai_memory_events",
@@ -53,7 +53,7 @@ def privacy_policy() -> dict:
             "Стираются локальная учётная запись, заметки, задачи, напоминания, история, изученная ИИ-память, "
             "журнал и оценки проактивных действий, центр внимания, настройки, пользовательские категории, "
             "оценки жизненного баланса, доступ к ИИ, почтовые подключения и состояние автоматического разбора почты, "
-            "push-подписки, черновики импорта файлов и локальные данные входа. События во внешнем календаре и письма в почтовых ящиках остаются. "
+            "push-подписки, черновики импорта файлов, диагностический журнал и локальные данные входа. События во внешнем календаре и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
             "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
@@ -99,6 +99,7 @@ def export_account(user_id: int) -> dict:
                 "command_templates": "template_id,name,spec_json",
                 "feature_entitlements": "feature,enabled,source,updated_at",
                 "file_import_drafts": "draft_id,result_json,created_at,updated_at,expires_at",
+                "user_activity_log": "activity_id,request_id,method,path,status,phase,error_code,duration_ms,details_json,created_at",
                 "daily_review_ai_cache": "day,kind,source_hash,text,created_at",
                 "email_accounts": "account_id,provider,email,display_name,enabled,created_at,updated_at",
                 "email_auto_preferences": "enabled,updated_at",

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from core.admin_store import list_admin_audit
 from core.db import conn, db_lock, get_or_create_google_user
 from core.feature_access import has_ai_access
+from core.user_activity_store import record_user_activity
 from tests.web_test_support import web_test_app
 
 
@@ -82,6 +83,25 @@ class AdminPanelTests(unittest.TestCase):
         self.assertEqual(target["email"].split("@")[1], "example.test")
         self.assertNotIn("google_token", target)
         self.assertNotIn("google_sub", target)
+
+    def test_admin_can_read_recent_user_activity(self):
+        record_user_activity(
+            self.user_id,
+            method="POST",
+            path="/api/chat",
+            status=200,
+            phase="done",
+            details={"message": "тестовая команда", "handled": True},
+        )
+        response = self.admin.get(f"/api/admin/users/{self.user_id}/activity?limit=20")
+        self.assertEqual(response.status_code, 200)
+        events = response.get_json()["events"]
+        self.assertTrue(events)
+        self.assertEqual(events[0]["path"], "/api/chat")
+        self.assertEqual(events[0]["details"]["message"], "тестовая команда")
+
+        forbidden = self.user.get(f"/api/admin/users/{self.user_id}/activity")
+        self.assertEqual(forbidden.status_code, 403)
 
     def test_manual_ai_deny_overrides_beta_and_is_audited(self):
         self.assertTrue(has_ai_access(self.user_id))

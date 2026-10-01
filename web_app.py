@@ -66,6 +66,7 @@ from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
 from modules.ai_assistant import unhandled_reply_for
 from core.undo_store import init_undo_store
+from core.user_activity_store import record_user_activity
 from modules.router import route_text
 from modules.calendar_availability import slot_choices
 
@@ -821,6 +822,45 @@ def create_web_app() -> Flask:
                 logger.exception("Settings transaction failed for user %s", user_id)
                 return jsonify(error="settings_failed", message="Не удалось сохранить настройки."), 503
         return _status_payload(user_id)
+
+    @app.post("/api/client/activity")
+    def client_activity():
+        user_id = _require_user_id()
+        payload = request.get_json(silent=True) or {}
+        event = str(payload.get("event") or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_.-]{1,80}", event):
+            return jsonify(error="invalid_activity_event"), 400
+        raw_details = payload.get("details")
+        if raw_details is not None and not isinstance(raw_details, dict):
+            return jsonify(error="invalid_activity_details"), 400
+
+        allowed = {
+            "view", "from", "action", "component", "message", "name", "stack",
+            "draft_id", "item_type", "button", "status", "path", "online",
+            "visibility", "source",
+        }
+        details = {}
+        for key, value in (raw_details or {}).items():
+            clean_key = str(key)
+            if clean_key not in allowed:
+                continue
+            if isinstance(value, bool) or value is None:
+                details[clean_key] = value
+            elif isinstance(value, (int, float)):
+                details[clean_key] = value
+            elif isinstance(value, str):
+                details[clean_key] = value[:2000]
+
+        record_user_activity(
+            user_id,
+            request_id=request.headers.get("X-Request-ID") or None,
+            method=request.method,
+            path=request.path,
+            status=204,
+            phase="client",
+            details={"event": event, **details},
+        )
+        return Response(status=204)
 
     app.register_blueprint(assistant_api)
     install_web_security(app)

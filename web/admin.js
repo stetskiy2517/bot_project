@@ -6,6 +6,9 @@
   const usersBody = byId("usersBody");
   const auditBody = byId("auditBody");
   const userStatus = byId("userStatus");
+  const userActivityPanel = byId("userActivityPanel");
+  const userActivityTitle = byId("userActivityTitle");
+  const userActivityBody = byId("userActivityBody");
 
   function requestId() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -46,6 +49,66 @@
       return feature.explicit ? "Включён вручную" : "Включён по beta";
     }
     return feature.explicit?.enabled === false ? "Выключен вручную" : "Недоступен";
+  }
+
+  function activitySummary(event) {
+    const details = event.details || {};
+    if (details.event === "view_change") {
+      return `Экран: ${details.from || "?"} → ${details.view || "?"}`;
+    }
+    if (details.event === "js_error" || details.event === "unhandled_rejection") {
+      return [details.message, details.source].filter(Boolean).join(" · ");
+    }
+    if (details.message) return details.message;
+    if (details.document_type) {
+      const taskCount = Array.isArray(details.tasks) ? details.tasks.length : 0;
+      const eventCount = Array.isArray(details.events) ? details.events.length : 0;
+      return `${details.document_type} · events ${eventCount} · tasks ${taskCount}`;
+    }
+    const safe = {...details};
+    if (safe.stack && String(safe.stack).length > 500) safe.stack = String(safe.stack).slice(0, 500) + "…";
+    return Object.keys(safe).length ? JSON.stringify(safe, null, 2) : "—";
+  }
+
+  function renderUserActivity(events) {
+    userActivityBody.replaceChildren();
+    if (!events.length) {
+      const row = document.createElement("tr");
+      const empty = cell("Логов пока нет", "muted");
+      empty.colSpan = 5;
+      row.append(empty);
+      userActivityBody.append(row);
+      return;
+    }
+    for (const event of events) {
+      const row = document.createElement("tr");
+      row.append(cell(formatDate(event.created_at)));
+      row.append(cell(`${event.method || ""} ${event.path || ""}`.trim()));
+      row.append(cell(event.error_code ? `${event.status || "—"} · ${event.error_code}` : String(event.status ?? "—")));
+      row.append(cell(event.phase || "—"));
+      row.append(cell(activitySummary(event), "muted activity-details"));
+      userActivityBody.append(row);
+    }
+  }
+
+  async function openUserActivity(user) {
+    userActivityPanel.hidden = false;
+    userActivityTitle.textContent = `Логи · ${user.name || user.email || "#" + user.id}`;
+    userActivityBody.replaceChildren();
+    const row = document.createElement("tr");
+    const loading = cell("Загружаю…", "muted");
+    loading.colSpan = 5;
+    row.append(loading);
+    userActivityBody.append(row);
+    try {
+      const payload = await api(`/api/admin/users/${user.id}/activity?limit=200`);
+      renderUserActivity(payload.events || []);
+      userActivityPanel.scrollIntoView({behavior: "smooth", block: "start"});
+    } catch (error) {
+      renderUserActivity([]);
+      userStatus.textContent = `Ошибка логов: ${error.message}`;
+      userStatus.classList.add("error");
+    }
   }
 
   function renderUsers(users) {
@@ -89,6 +152,7 @@
       row.append(aiCell);
 
       const action = document.createElement("td");
+      action.className = "admin-actions";
       const button = document.createElement("button");
       button.type = "button";
       button.className = feature.enabled ? "toggle secondary" : "toggle";
@@ -110,7 +174,12 @@
           button.disabled = false;
         }
       });
-      action.append(button);
+      const logsButton = document.createElement("button");
+      logsButton.type = "button";
+      logsButton.className = "toggle secondary";
+      logsButton.textContent = "Логи";
+      logsButton.addEventListener("click", () => openUserActivity(user));
+      action.append(button, logsButton);
       row.append(action);
       usersBody.append(row);
     }
@@ -169,6 +238,10 @@
       userStatus.classList.add("error");
     }
   }
+
+  byId("closeUserActivity")?.addEventListener("click", () => {
+    userActivityPanel.hidden = true;
+  });
 
   byId("userSearch").addEventListener("input", () => {
     clearTimeout(searchTimer);
