@@ -269,6 +269,30 @@ class NoteConversationRouterTests(unittest.IsolatedAsyncioTestCase):
         task.assert_awaited_once()
         append.assert_not_awaited()
 
+    async def test_add_to_tasks_plural_is_not_captured_as_note(self):
+        update = self._update("Добавь в задачи Постирать белье на сегодня")
+        context = self._context()
+        with (
+            patch("modules.router.handle_task_text", new=AsyncMock(return_value=True)) as task,
+            patch("modules.router.handle_note_text", new=AsyncMock(return_value=True)) as note,
+        ):
+            handled = await route_text(update, context)
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        note.assert_not_awaited()
+
+    async def test_add_to_task_with_date_is_not_calendar(self):
+        update = self._update("Добавь в задачу на сегодня постирать белье")
+        context = self._context()
+        with (
+            patch("modules.router.handle_task_text", new=AsyncMock(return_value=True)) as task,
+            patch("modules.router.create_from_text", new=AsyncMock(return_value=True)) as calendar,
+        ):
+            handled = await route_text(update, context)
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        calendar.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
