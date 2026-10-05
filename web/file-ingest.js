@@ -567,7 +567,10 @@
   attachButton.addEventListener("click", () => fileInput.click());
   restoreImportDrafts();
   document.addEventListener("planner-view-changed", event => {
-    if (event.detail?.view === "chat") restoreImportDrafts({replaceExisting: true});
+    // Existing import cards stay in the chat DOM while switching views.
+    // Re-fetch only to recover drafts that are actually missing; never remove
+    // and append them again, otherwise stale imports jump below newer messages.
+    if (event.detail?.view === "chat") restoreImportDrafts();
   });
   fileInput.addEventListener("change", () => analyzeFile(fileInput.files?.[0]));
 })();
