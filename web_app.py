@@ -64,7 +64,7 @@ from modules.note_conversation import remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
-from modules.ai_assistant import unhandled_reply_for
+from modules.ai_assistant import interpret_unhandled_action, unhandled_reply_for
 from core.undo_store import init_undo_store
 from core.user_activity_store import record_user_activity
 from modules.router import route_text
@@ -215,11 +215,21 @@ def _parse_future_reminder_time(value) -> datetime:
 
 
 async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
-    """Route text from any web input channel through the shared command router."""
+    """Route text through deterministic logic, then use AI only as an intent rewrite fallback."""
     update = WebUpdate(user_id, user_name, text)
     context = WebContext(_state_for(user_id))
     handled = await route_text(update, context, text=text)
     replies = update.message.replies
+
+    if not handled and not replies:
+        rewritten = interpret_unhandled_action(text, user_id=user_id)
+        if rewritten and rewritten.casefold() != text.casefold():
+            logger.info("AI recovered unhandled planner command user=%s", user_id)
+            recovery_update = WebUpdate(user_id, user_name, rewritten)
+            handled = await route_text(recovery_update, context, text=rewritten)
+            if handled:
+                replies.extend(recovery_update.message.replies)
+
     if not handled and not replies:
         replies.append(unhandled_reply_for(text))
     return WebPlannerResult(handled=handled, replies=replies, choices=slot_choices(context))
