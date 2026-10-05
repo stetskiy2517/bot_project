@@ -268,6 +268,32 @@ def main() -> None:
             expect(same_session_buttons.nth(0)).to_be_enabled()
             expect(same_session_buttons.nth(1)).to_be_enabled()
 
+            # A current message must remain after an older restored import when
+            # navigating away and back. Re-rendering the draft used to move the
+            # stale cards to the bottom, making them look like a fresh response.
+            page.evaluate("""
+                () => {
+                    const marker = document.createElement('div');
+                    marker.id = 'current-command-marker';
+                    marker.className = 'msg user';
+                    marker.textContent = 'Текущая команда';
+                    document.getElementById('chat').appendChild(marker);
+                }
+            """)
+            page.locator('#mobileBottomNav [data-view="home"]').click()
+            page.locator('#mobileBottomNav [data-view="chat"]').click()
+            page.wait_for_timeout(250)
+            order = page.evaluate("""
+                () => [...document.querySelectorAll('#chat > *')].map(node =>
+                    node.id === 'current-command-marker' ? 'current' :
+                    node.dataset.importDraftId === 'draft-restored-1' ? 'draft' :
+                    node.dataset.importDraftSummary === 'draft-restored-1' ? 'summary' : 'other'
+                )
+            """)
+            current_index = order.index("current")
+            draft_indexes = [index for index, value in enumerate(order) if value in {"summary", "draft"}]
+            assert draft_indexes and max(draft_indexes) < current_index, order
+
             manual_email_action = {
                 "action_type": "calendar_event",
                 "title": "Рейс SU101 Москва — Казань",
