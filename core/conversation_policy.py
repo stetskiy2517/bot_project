@@ -25,6 +25,18 @@ DECLARATIVE_FACT_RE = re.compile(
     re.IGNORECASE,
 )
 
+EXPLICIT_MODULE_SWITCH_RE = re.compile(
+    r"(?:"
+    r"\b(?:задач\w*|заметк\w*|запис\w*|напоминани\w*|событ\w*|встреч\w*|календар\w*)\b"
+    r"[^.!?]{0,80}\b(?:добавь|добавить|создай|создать|сделай|запиши|записать|поставь|поставить|"
+    r"измени|изменить|удали|удалить|перенеси|перенести)\b|"
+    r"\b(?:добавь|добавить|создай|создать|сделай|запиши|записать|поставь|поставить|"
+    r"измени|изменить|удали|удалить|перенеси|перенести)\b"
+    r"[^.!?]{0,80}\b(?:задач\w*|заметк\w*|запис\w*|напоминани\w*|событ\w*|встреч\w*|календар\w*)\b"
+    r")",
+    re.IGNORECASE,
+)
+
 CLEAR_NEW_COMMAND_RE = re.compile(
     r"^\s*(?:"
     r"покажи\s+(?:календар\w*|расписан\w*|напоминани\w*|заметк\w*|задач\w*)|"
@@ -140,7 +152,9 @@ def should_resume_pending(pending: dict | None, text: str) -> bool:
     # A clear product command wins over date/time words inside that command. For
     # example, «Покажи календарь на завтра» must interrupt «Во сколько поставить?»
     # instead of being consumed as a malformed time answer.
-    if pending_type in INTERRUPTIBLE_PENDING_TYPES and is_clear_new_command(text):
+    if pending_type in INTERRUPTIBLE_PENDING_TYPES and (
+        is_clear_new_command(text) or EXPLICIT_MODULE_SWITCH_RE.search(text)
+    ):
         return False
 
     if pending_type in SCOPE_PENDING_TYPES:
