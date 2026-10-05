@@ -1,4 +1,5 @@
 name: production-diagnostics
+# collector-version: 2
 
 on:
   workflow_dispatch:
