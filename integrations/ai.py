@@ -483,6 +483,42 @@ def complete(
     )
 
 
+def _parse_json_object_response(raw: str) -> dict:
+    text = str(raw or "").strip()
+    if text.startswith("```"):
+        text = text.replace("```json", "", 1).replace("```JSON", "", 1)
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    raise AIProviderError("GigaChat structured response does not contain a valid JSON object")
+
+
+def _structured_fallback_messages(messages: list[dict], schema: dict) -> list[dict]:
+    schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    instruction = (
+        "Верни только один JSON-объект без markdown, комментариев и дополнительного текста. "
+        "JSON должен соответствовать этой схеме: " + schema_text
+    )
+    clean = _validate_messages(messages)
+    if clean and clean[0]["role"] == "system":
+        return [
+            {"role": "system", "content": clean[0]["content"] + "\n\n" + instruction},
+            *clean[1:],
+        ]
+    return [{"role": "system", "content": instruction}, *clean]
+
+
 def complete_structured(
     messages: list[dict],
     schema: dict,
@@ -495,7 +531,14 @@ def complete_structured(
     if not settings.enabled or settings.provider != "gigachat" or not settings.credentials:
         raise AIConfigurationError("AI is not configured")
     if settings.scope == "GIGACHAT_API_PERS":
-        raise AIProviderError("GigaChat structured output unavailable for personal scope: HTTP 400")
+        raw = _gigachat_completion(
+            settings,
+            _structured_fallback_messages(messages, schema),
+            max_tokens=max_tokens,
+            temperature=0.001,
+        )
+        return _parse_json_object_response(raw)
+
     raw = _gigachat_completion(
         settings,
         messages,
@@ -503,13 +546,7 @@ def complete_structured(
         max_tokens=max_tokens,
         temperature=0.001,
     )
-    try:
-        result = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise AIProviderError("GigaChat structured response is not valid JSON") from exc
-    if not isinstance(result, dict):
-        raise AIProviderError("GigaChat structured response is not an object")
-    return result
+    return _parse_json_object_response(raw)
 
 
 def _reset_token_cache_for_tests() -> None:
