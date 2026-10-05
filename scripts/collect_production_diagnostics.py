@@ -25,12 +25,25 @@ SECRET_PATTERNS = (
     (re.compile(r"(?i)(authorization\s*[:=]\s*)(?:bearer|basic)\s+[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key|credentials|cookie|session)(\s*[:=]\s*)[^\s,;]+"), r"\1\2[REDACTED]"),
     (re.compile(r"(?i)(X-CSRF-Token|csrf_token)(\s*[:=]\s*)[^\s,;]+"), r"\1\2[REDACTED]"),
+    (re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"), "[EMAIL_REDACTED]"),
 )
+
+SENSITIVE_DETAIL_KEYS = {
+    "message", "text", "transcript", "title", "body", "content", "query",
+    "email", "name", "description", "location", "address",
+}
 
 
 def redact(value: object) -> object:
     if isinstance(value, dict):
-        return {str(k): redact(v) for k, v in value.items()}
+        result = {}
+        for key, item in value.items():
+            clean_key = str(key)
+            if clean_key.casefold() in SENSITIVE_DETAIL_KEYS:
+                result[clean_key] = "[REDACTED]"
+            else:
+                result[clean_key] = redact(item)
+        return result
     if isinstance(value, list):
         return [redact(v) for v in value]
     if not isinstance(value, str):
