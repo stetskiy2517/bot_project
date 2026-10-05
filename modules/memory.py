@@ -397,14 +397,18 @@ def _parse_json_object(raw: str) -> dict:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("AI memory response does not contain JSON")
-    payload = json.loads(text[start : end + 1])
-    if not isinstance(payload, dict):
-        raise ValueError("AI memory response must be an object")
-    return payload
+
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise ValueError("AI memory response does not contain a valid JSON object")
 
 
 def _normalize_habit_schedule(value: Any) -> dict | None:
