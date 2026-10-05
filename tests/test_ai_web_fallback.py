@@ -25,6 +25,63 @@ class AIWebFallbackTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["user_id"] = self.user_id
 
+    def test_ai_action_rewrite_is_rerouted_through_deterministic_router(self):
+        calls = []
+
+        async def route(update, context, text=None):
+            calls.append(text)
+            if text == "добавь задачу постирать белье сегодня":
+                update.message.replies.append("Задача добавлена · «Постирать белье» · сегодня")
+                return True
+            return False
+
+        with patch("web_app.route_text", side_effect=route), patch(
+            "web_app.interpret_unhandled_action",
+            return_value="добавь задачу постирать белье сегодня",
+        ) as rewrite, patch(
+            "modules.assistant_api.answer_unhandled",
+        ) as answer:
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Закинь в дела постирать белье на сегодня"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(payload["replies"], ["Задача добавлена · «Постирать белье» · сегодня"])
+        self.assertEqual(calls, [
+            "Закинь в дела постирать белье на сегодня",
+            "добавь задачу постирать белье сегодня",
+        ])
+        rewrite.assert_called_once_with(
+            "Закинь в дела постирать белье на сегодня",
+            user_id=self.user_id,
+        )
+        answer.assert_not_called()
+
+    def test_ai_action_rewrite_none_falls_back_to_conversation_ai(self):
+        async def unhandled_route(update, context, text=None):
+            return False
+
+        with patch("web_app.route_text", side_effect=unhandled_route), patch(
+            "web_app.interpret_unhandled_action",
+            return_value=None,
+        ), patch(
+            "modules.assistant_api.answer_unhandled",
+            return_value="Могу помочь разобраться.",
+        ) as answer:
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Почему я всё откладываю?"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(payload["replies"], ["Могу помочь разобраться."])
+        answer.assert_called_once()
+
     def test_unhandled_chat_is_replaced_by_ai_answer(self):
         async def unhandled_route(update, context, text=None):
             return False
