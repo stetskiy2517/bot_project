@@ -136,7 +136,7 @@ class AIIntegrationTests(unittest.TestCase):
              patch("integrations.ai.time.sleep"):
             self.assertEqual(ai.complete([{"role": "user", "content": "Привет"}]), "OK")
 
-    def test_personal_scope_skips_unavailable_structured_output(self):
+    def test_personal_scope_emulates_structured_output_without_response_format(self):
         settings = self._settings()
         schema = {
             "type": "object",
@@ -145,11 +145,15 @@ class AIIntegrationTests(unittest.TestCase):
             "additionalProperties": False,
         }
         with patch("integrations.ai.load_ai_settings", return_value=settings), \
-             patch("integrations.ai._gigachat_completion") as completion:
-            with self.assertRaises(ai.AIProviderError) as error:
-                ai.complete_structured([{"role": "user", "content": "Привет"}], schema)
-        self.assertIn("personal scope", str(error.exception))
-        completion.assert_not_called()
+             patch("integrations.ai._gigachat_completion", return_value='{"intent":"chat"}') as completion:
+            result = ai.complete_structured([{"role": "user", "content": "Привет"}], schema)
+        self.assertEqual(result, {"intent": "chat"})
+        self.assertIsNone(completion.call_args.kwargs.get("response_format"))
+        self.assertIn("JSON", completion.call_args.args[1][0]["content"])
+
+    def test_structured_parser_accepts_first_json_object_and_ignores_trailing_text(self):
+        raw = '{"intent":"task_create"}\n{"extra":"ignored"}'
+        self.assertEqual(ai._parse_json_object_response(raw), {"intent": "task_create"})
 
     def test_structured_completion_returns_object_for_commercial_scope(self):
         settings = self._settings(scope="GIGACHAT_API_CORP")
