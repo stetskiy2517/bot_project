@@ -168,6 +168,64 @@ def _rate_limit_reply(error: AIRateLimitError) -> str:
     )
 
 
+ACTION_REWRITE_PREFIXES = (
+    "добавь задачу ", "создай задачу ", "задача: ",
+    "создай заметку ", "заметка: ",
+    "напомни ", "создай напоминание ",
+    "добавь событие ", "создай событие ", "добавь встречу ", "создай встречу ",
+    "покажи задачи", "покажи заметки", "покажи календарь",
+    "удали задачу ", "удали заметку ", "удали напоминание ", "удали событие ", "удали встречу ",
+    "измени задачу ", "измени напоминание ", "измени событие ", "измени встречу ",
+)
+
+
+def interpret_unhandled_action(text: str, *, user_id: int | None = None) -> str | None:
+    """Translate an unhandled action request into one canonical planner command.
+
+    The AI never executes an action here. It may only rewrite the user's request;
+    the deterministic router validates and executes the rewritten command.
+    """
+    candidate = " ".join(str(text or "").split()).strip()
+    if not candidate or not has_ai_access(user_id) or not is_ai_available():
+        return None
+
+    system = (
+        "Ты классификатор команд персонального планировщика. "
+        "Твоя задача — только переписать понятную команду пользователя в одну каноническую команду "
+        "для существующего детерминированного роутера. Ничего не выполняй и не утверждай, что действие выполнено. "
+        "Поддерживаемые сущности: задача, событие/встреча календаря, напоминание, заметка. "
+        "Сохраняй все явные даты, время, название и смысл. Не выдумывай отсутствующие параметры. "
+        "Если это вопрос, обычный разговор, просьба о совете или команда не относится к этим сущностям — ответь ровно NONE. "
+        "Если это действие, ответь только одной русской канонической командой без кавычек, markdown и пояснений. "
+        "Примеры: "
+        "«закинь в дела постирать белье сегодня» -> «добавь задачу постирать белье сегодня»; "
+        "«завтра в 18 созвон с Иваном» -> «создай встречу созвон с Иваном завтра в 18:00»; "
+        "«черкани заметку купить фильтр» -> «создай заметку купить фильтр»; "
+        "«маякни через час позвонить маме» -> «напомни через час позвонить маме»."
+    )
+    try:
+        raw = complete(
+            [{"role": "system", "content": system}, {"role": "user", "content": candidate[:10000]}],
+            max_tokens=160,
+            temperature=0.001,
+        )
+    except AIError as exc:
+        logger.warning("AI action rewrite failed: %s", exc)
+        return None
+    except Exception:
+        logger.exception("Unexpected AI action rewrite failure")
+        return None
+
+    rewritten = " ".join(str(raw or "").split()).strip().strip("«»\"'")
+    if not rewritten or rewritten.upper() == "NONE":
+        return None
+    lower = rewritten.casefold().replace("ё", "е")
+    if not any(lower.startswith(prefix) for prefix in ACTION_REWRITE_PREFIXES):
+        logger.warning("AI action rewrite rejected unsafe/noncanonical output: %r", rewritten)
+        return None
+    return rewritten
+
+
 def answer_unhandled(
     text: str,
     *,
