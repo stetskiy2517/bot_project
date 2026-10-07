@@ -527,6 +527,10 @@ async def resume_pending_task(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Хорошо, отменил.")
         return True
 
+    if pending_type == "task_plan_date":
+        from modules.ai_task_planner import resume_pending_task_plan
+        return await resume_pending_task_plan(update, context, text, pending)
+
     if pending_type in {"task_select_complete", "task_select_delete"}:
         if not text.strip().isdigit():
             await update.message.reply_text("Напиши номер задачи или «отмена».")
