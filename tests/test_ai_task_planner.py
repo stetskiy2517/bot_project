@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from core.conversation_context import get_pending
+from core.conversation_context import get_pending, set_pending
 from modules.ai_task_planner import (
     execute_task_plan,
     handle_unhandled_task_plan,
@@ -179,7 +179,7 @@ class AITaskPlannerConversationTests(unittest.IsolatedAsyncioTestCase):
             ],
             "unscheduled": [],
         }
-        context.user_data["pending"] = pending
+        set_pending(context, pending)
         with patch("modules.ai_task_planner._date_from_user_text", return_value=date(2026, 10, 7)), \
              patch("modules.ai_task_planner.execute_task_plan", return_value=result), \
              patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"):
