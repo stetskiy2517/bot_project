@@ -100,7 +100,7 @@ SCOPE_PENDING_TYPES = {
     "select_recurring_delete_scope", "select_recurring_update_scope",
 }
 
-TIME_PENDING_TYPES = {"create_time", "reminder_time", "template_when"}
+TIME_PENDING_TYPES = {"create_time", "reminder_time", "template_when", "task_plan_date"}
 
 # These flows intentionally accept normal prose as the requested payload. We still
 # allow an unmistakably new product command to interrupt them.
