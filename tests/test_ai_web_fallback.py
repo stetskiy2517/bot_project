@@ -25,6 +25,38 @@ class AIWebFallbackTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["user_id"] = self.user_id
 
+    def test_task_list_planner_runs_before_conversational_ai(self):
+        async def unhandled_route(update, context, text=None):
+            return False
+
+        async def task_plan(update, context, text, history=None):
+            update.message.replies.append("Вижу 3 дела. На какой день распланировать их по календарю?")
+            return True
+
+        with patch("web_app.route_text", side_effect=unhandled_route), patch(
+            "web_app.handle_unhandled_task_plan",
+            side_effect=task_plan,
+        ) as planner, patch(
+            "web_app.interpret_unhandled_action",
+        ) as rewrite, patch(
+            "modules.assistant_api.answer_unhandled",
+        ) as answer:
+            response = self.client.post(
+                "/api/chat",
+                json={"message": "Отправить паспорт Артему, позвонить Ольхову, сделать домашнее задание"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["handled"])
+        self.assertEqual(
+            payload["replies"],
+            ["Вижу 3 дела. На какой день распланировать их по календарю?"],
+        )
+        planner.assert_called_once()
+        rewrite.assert_not_called()
+        answer.assert_not_called()
+
     def test_ai_action_rewrite_is_rerouted_through_deterministic_router(self):
         calls = []
 
