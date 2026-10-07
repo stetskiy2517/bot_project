@@ -49,11 +49,27 @@ def preview_flexible_schedule(
     *,
     now: datetime | None = None,
     task_ids: set[int] | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
 ) -> dict:
-    """Suggest calendar slots without writing anything."""
+    """Suggest calendar slots without writing anything.
+
+    Optional window bounds keep an explicit "plan this day" request inside that
+    calendar day instead of filling earlier free time before the deadline.
+    """
     zone = _zone(user_id)
     local_now = (now or datetime.now(timezone.utc)).astimezone(zone)
     horizon = local_now + timedelta(days=MAX_AUTO_PLAN_DAYS)
+
+    def local_bound(value: datetime | None, fallback: datetime) -> datetime:
+        if value is None:
+            return fallback
+        return value.astimezone(zone) if value.tzinfo else value.replace(tzinfo=zone)
+
+    planning_start = max(local_now, local_bound(window_start, local_now))
+    planning_end = min(horizon, local_bound(window_end, horizon))
+    if planning_end <= planning_start:
+        return {"proposals": [], "skipped": [], "generated_at": local_now.isoformat()}
     prefs = get_calendar_preferences(user_id)
     work_start = _parse_hhmm(prefs["work_start"])
     work_end = _parse_hhmm(prefs["work_end"])
@@ -90,20 +106,20 @@ def preview_flexible_schedule(
         return {"proposals": [], "skipped": skipped, "generated_at": local_now.isoformat()}
 
     latest_due = min(
-        horizon,
-        max((_parse_due(task, zone) or local_now) for task in candidates),
+        planning_end,
+        max((_parse_due(task, zone) or planning_start) for task in candidates),
     )
-    events = _list_events(user_id, local_now, latest_due)
+    events = _list_events(user_id, planning_start, latest_due)
     simulated_events = list(events)
     proposals = []
 
     for task in candidates:
-        due = min(_parse_due(task, zone) or horizon, horizon)
+        due = min(_parse_due(task, zone) or planning_end, planning_end)
         duration = timedelta(minutes=int(task["estimate_minutes"]))
         slots = find_free_slots(
             simulated_events,
             str(zone),
-            local_now,
+            planning_start,
             due,
             duration,
             work_start=work_start,
