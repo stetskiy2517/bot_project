@@ -31,6 +31,7 @@ from core.db import (
     save_user_appearance_theme,
 )
 from core.assistant_preferences import quiet_until
+from core.chat_context import recent_chat_messages
 from core.conversation_context import (
     clear_current_entity,
     clear_user_state,
@@ -65,6 +66,7 @@ from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
 from modules.ai_assistant import interpret_unhandled_action, unhandled_reply_for
+from modules.ai_task_planner import handle_unhandled_task_plan
 from core.undo_store import init_undo_store
 from core.user_activity_store import record_user_activity
 from modules.router import route_text
@@ -220,6 +222,14 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
     context = WebContext(_state_for(user_id))
     handled = await route_text(update, context, text=text)
     replies = update.message.replies
+
+    if not handled and not replies:
+        handled = await handle_unhandled_task_plan(
+            update,
+            context,
+            text,
+            history=recent_chat_messages(user_id),
+        )
 
     if not handled and not replies:
         rewritten = interpret_unhandled_action(text, user_id=user_id)
