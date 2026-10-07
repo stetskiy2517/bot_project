@@ -123,6 +123,7 @@ def create_reminder(
     *,
     repeat_rule: str | None = None,
     repeat_timezone: str | None = None,
+    commit: bool = True,
 ) -> dict:
     text = " ".join(text.split()).strip()
     if not text:
@@ -167,7 +168,8 @@ def create_reminder(
                 reminder,
                 commit=False,
             )
-            conn.commit()
+            if commit:
+                conn.commit()
         except Exception:
             conn.rollback()
             raise
@@ -243,6 +245,8 @@ def _soft_delete_reminder(user_id: int, reminder_id: int, *, pending_only: bool)
                 conn.rollback()
                 return False
             snapshot = {**reminder, "deleted_at": deleted_at}
+            from core.commitment_links import remove_link
+            remove_link(conn, int(user_id), "reminder", int(reminder_id))
             record_ai_memory_event(
                 user_id,
                 "reminder",
@@ -342,6 +346,8 @@ def complete_reminder(
                     reminder,
                     commit=False,
                 )
+                from core.commitment_links import sync_completion
+                sync_completion(conn, user_id, "reminder", reminder_id, completed)
             conn.commit()
         except Exception:
             conn.rollback()

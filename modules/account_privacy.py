@@ -12,6 +12,8 @@ import time
 from core.attention_store import init_attention_store
 from core.command_store import user_operation
 from core.db import conn, db_lock, get_google_account
+from config import DB_PATH
+from core.erasure_journal import record_erasure
 from core.feature_access import init_feature_access_store
 from core.location_context import clear_current_location
 from core.memory_store import init_memory_store
@@ -20,6 +22,7 @@ from scripts.backup_state import retention_days, MIN_SNAPSHOTS_TO_KEEP
 
 ERASE_CONFIRMATION = "УДАЛИТЬ МОИ ДАННЫЕ"
 USER_TABLES = (
+    "commitment_actions",
     "command_effects", "command_requests", "conversation_state", "user_activity_log", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
     "command_templates", "proactive_actions", "proactive_feedback", "attention_items",
@@ -55,9 +58,10 @@ def privacy_policy() -> dict:
             "оценки жизненного баланса, доступ к ИИ, почтовые подключения и состояние автоматического разбора почты, "
             "push-подписки, черновики импорта файлов, диагностический журнал и локальные данные входа. События во внешнем календаре и письма в почтовых ящиках остаются. "
             "Уже отправленный push нельзя отозвать. Резервные копии не стираются этим действием: "
-            "очистка выполняется при следующих резервных копированиях, последние две копии сохраняются. "
+            f"очистка выполняется при следующих резервных копированиях, последние {MIN_SNAPSHOTS_TO_KEEP} копии сохраняются. "
             "Поэтому срок существования старой копии может превышать настроенный срок хранения. "
-            "После восстановления старой копии оператору необходимо повторно применить подтверждённые удаления."
+            "При восстановлении подтверждённые удаления применяются автоматически из отдельного журнала. "
+            "Без этого журнала восстановление не запускается."
         ),
     }
 
@@ -111,6 +115,7 @@ def export_account(user_id: int) -> dict:
                 "sales_contacts": "contact_id,company_id,full_name,position,phone,email,telegram,notes,status,created_at,updated_at,deleted_at",
                 "sales_interactions": "interaction_id,company_id,contact_id,interaction_type,happened_at,summary,outcome,next_step,source_type,source_id,created_at",
                 "sales_commitments": "commitment_id,company_id,contact_id,title,due_at,status,source_type,source_id,created_at,completed_at,updated_at",
+                "commitment_actions": "commitment_id,kind,target_id,created_at",
                 "ai_memory_events": "entity_type,entity_id,event_type,snapshot_json,created_at",
                 "ai_calendar_sync": "google_event_id,fingerprint,last_seen_at",
                 "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,calendar_event_id,reason,confidence,created_at,updated_at",
@@ -155,6 +160,7 @@ def erase_account(user_id: int, token: str, confirmation: str) -> None:
                 columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
                 if "user_id" in columns and table not in USER_TABLES:
                     raise RuntimeError("Account erasure schema requires an update")
+            record_erasure(conn, DB_PATH, user_id)
             for table in USER_TABLES:
                 if table in existing:
                     conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))

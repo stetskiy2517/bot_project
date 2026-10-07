@@ -24,6 +24,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Run browser feature regression
         run: python tests/browser_features.py --output evidence/browser-features
+      - name: Test search, memory paging and commitment actions
+        run: python tests/browser_approved_changes.py --output evidence/approved-changes
       - name: Test appearance themes
         run: python tests/browser_appearance.py
       - name: Test swipe-first tasks
@@ -49,6 +51,7 @@ jobs:
           path: |
             evidence/browser-features
             evidence/layout-audit
+            evidence/approved-changes
           if-no-files-found: ignore
 
   webkit-ios-smoke:

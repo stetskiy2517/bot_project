@@ -406,6 +406,11 @@ def _clean(value: Any, limit: int, *, required: bool = False) -> str | None:
 
 def _init_relationship_memory_tables() -> None:
     with db_lock:
+        conn.execute("""CREATE TABLE IF NOT EXISTS commitment_actions (
+            user_id INTEGER NOT NULL, commitment_id INTEGER NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('task','reminder')), target_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL, PRIMARY KEY(user_id,commitment_id,kind),
+            UNIQUE(user_id,kind,target_id))""")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS sales_companies (
                 company_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -723,59 +728,85 @@ def list_commitments(user_id: int, *, status: str = "open", limit: int = 100) ->
 
 
 def search_work_memory(user_id: int, query: str, *, limit: int = 30) -> dict:
-    """Search structured work memory without exposing another user's rows."""
-    needle = " ".join(str(query or "").split()).strip().casefold()
-    if not needle:
+    """Match across all user rows before limiting results, including relationships."""
+    from core.search_query import predicate, register, tokens
+    words = tokens(query)
+    stopwords = {"кто", "такой", "такая", "что", "мы", "вы", "они", "обсуждали", "обсудили",
+                 "обещали", "обещал", "расскажи", "покажи", "найди", "про", "по", "с", "со",
+                 "у", "о", "об", "для", "the", "who", "what", "about", "with", "show", "find", "tell", "me", "did", "we"}
+    words = [word for word in words if word not in stopwords] or words
+    if not words:
         return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
-    raw_tokens = [part for part in re.findall(r"[a-zа-яё0-9@.+_-]+", needle, flags=re.IGNORECASE) if len(part) >= 2]
-    stopwords = {
-        "кто","такой","такая","такие","что","мы","вы","они","обсуждали","обсудили","обещали","обещал",
-        "обещала","расскажи","покажи","найди","про","по","с","со","у","о","об","для","the","who","what",
-        "about","with","show","find","tell","me","did","we",
-    }
-    tokens = [part for part in raw_tokens if part not in stopwords] or raw_tokens
-    if not tokens:
-        return {"companies": [], "contacts": [], "interactions": [], "commitments": []}
+    limit = max(1, min(int(limit), 100))
+    company_match, cp = predicate([f"c.{f}" for f in ("name", "industry", "website", "notes")], words)
+    contact_match, ct = predicate([f"t.{f}" for f in ("full_name", "position", "phone", "email", "telegram", "notes")], words)
+    # Relationship expansion is SQL-based as well; matching company/contact IDs
+    # are never truncated to the first response page.
+    direct_companies = f"SELECT c.company_id FROM sales_companies c WHERE c.user_id=? AND c.status='active' AND c.deleted_at IS NULL AND ({company_match})"
+    direct_contacts = f"SELECT t.contact_id FROM sales_contacts t WHERE t.user_id=? AND t.status='active' AND t.deleted_at IS NULL AND ({contact_match})"
+    company_ids = f"{direct_companies} UNION SELECT t.company_id FROM sales_contacts t WHERE t.user_id=? AND t.contact_id IN ({direct_contacts})"
+    company_params = [user_id, *cp, user_id, user_id, *ct]
+    contact_ids = f"SELECT t.contact_id FROM sales_contacts t WHERE t.user_id=? AND t.status='active' AND t.deleted_at IS NULL AND (({contact_match}) OR t.company_id IN ({direct_companies}))"
+    contact_params = [user_id, *ct, user_id, *cp]
+    result = {}
+    with db_lock:
+        register(conn)
+        specs = [
+            ("companies", "sales_companies", f"status='active' AND deleted_at IS NULL AND company_id IN ({company_ids})", company_params, "name COLLATE NOCASE,company_id"),
+            ("contacts", "sales_contacts", f"status='active' AND deleted_at IS NULL AND contact_id IN ({contact_ids})", contact_params, "full_name COLLATE NOCASE,contact_id"),
+        ]
+        for kind, table, fields, condition, order in [
+            ("interactions", "sales_interactions", ["summary", "outcome", "next_step"], "1", "happened_at DESC,interaction_id DESC"),
+            ("commitments", "sales_commitments", ["title"], "status='open'", "due_at,commitment_id"),
+        ]:
+            match, params = predicate(fields, words)
+            clause = f"{condition} AND (({match}) OR company_id IN ({company_ids}) OR contact_id IN ({contact_ids}))"
+            specs.append((kind, table, clause, [*params, *company_params, *contact_params], order))
+        for kind, table, clause, params, order in specs:
+            cursor = conn.execute(f"SELECT * FROM {table} WHERE user_id=? AND {clause} ORDER BY {order} LIMIT ?", [user_id, *params, limit])
+            names = [c[0] for c in cursor.description]
+            result[kind] = [dict(zip(names, row)) for row in cursor.fetchall()]
+    return result
 
-    def matches(*values: Any) -> bool:
-        haystack = " ".join(str(value or "") for value in values).casefold().replace("ё", "е")
-        return all(token.replace("ё", "е") in haystack for token in tokens)
 
-    companies = [
-        item for item in list_companies(user_id, limit=500)
-        if matches(item.get("name"), item.get("industry"), item.get("website"), item.get("notes"))
-    ][:limit]
-    company_ids = {int(item["company_id"]) for item in companies}
-    contacts = [
-        item for item in list_contacts(user_id, limit=500)
-        if matches(item.get("full_name"), item.get("position"), item.get("phone"), item.get("email"), item.get("telegram"), item.get("notes"))
-        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
-    ][:limit]
-    contact_ids = {int(item["contact_id"]) for item in contacts}
-    related_company_ids = {
-        int(item["company_id"]) for item in contacts if item.get("company_id") is not None
-    }
-    if related_company_ids:
-        known_company_ids = {int(item["company_id"]) for item in companies}
-        companies.extend(
-            item for item in list_companies(user_id, limit=500)
-            if int(item["company_id"]) in related_company_ids and int(item["company_id"]) not in known_company_ids
-        )
-        companies = companies[:limit]
-        company_ids = {int(item["company_id"]) for item in companies}
-    interactions = [
-        item for item in list_interactions(user_id, limit=500)
-        if matches(item.get("summary"), item.get("outcome"), item.get("next_step"))
-        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
-        or (item.get("contact_id") is not None and int(item["contact_id"]) in contact_ids)
-    ][:limit]
-    commitments = [
-        item for item in list_commitments(user_id, status="open", limit=500)
-        if matches(item.get("title"))
-        or (item.get("company_id") is not None and int(item["company_id"]) in company_ids)
-        or (item.get("contact_id") is not None and int(item["contact_id"]) in contact_ids)
-    ][:limit]
-    return {"companies": companies, "contacts": contacts, "interactions": interactions, "commitments": commitments}
+def get_memory(user_id: int, memory_id: int) -> dict | None:
+    with db_lock:
+        row = conn.execute(f"SELECT {SELECT_COLUMNS} FROM user_memories WHERE user_id=? AND memory_id=?", (int(user_id), int(memory_id))).fetchone()
+    return _from_row(row) if row else None
+
+
+def memory_page(user_id: int, *, before: int | None = None, limit: int = 100) -> dict:
+    limit = max(1, min(int(limit), 200))
+    with db_lock:
+        rows = conn.execute(f"SELECT {SELECT_COLUMNS} FROM user_memories WHERE user_id=? AND status='active' AND memory_id<? ORDER BY memory_id DESC LIMIT ?", (user_id, before or 9223372036854775807, limit + 1)).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM user_memories WHERE user_id=? AND status='active'", (user_id,)).fetchone()[0]
+    return {"memories": [_from_row(row) for row in rows[:limit]], "total": total,
+            "next_cursor": int(rows[limit-1][0]) if len(rows) > limit else None}
+
+
+def work_memory_page(user_id: int, kind: str, *, before: int | None = None, limit: int = 100) -> dict:
+    specs = {"companies": ("sales_companies", "company_id", "status='active' AND deleted_at IS NULL"),
+             "contacts": ("sales_contacts", "contact_id", "status='active' AND deleted_at IS NULL"),
+             "interactions": ("sales_interactions", "interaction_id", "1"),
+             "commitments": ("sales_commitments", "commitment_id", "status='open'")}
+    table, identifier, condition = specs[kind]
+    limit = max(1, min(int(limit), 200))
+    with db_lock:
+        cursor = conn.execute(f"SELECT * FROM {table} WHERE user_id=? AND {condition} AND {identifier}<? ORDER BY {identifier} DESC LIMIT ?", (user_id, before or 9223372036854775807, limit+1))
+        names = [c[0] for c in cursor.description]
+        rows = cursor.fetchall()
+        items = [dict(zip(names, row)) for row in rows[:limit]]
+        # Relationships can belong to a different page; resolve them by owned ID.
+        for item in items:
+            for related, name_field in (("company", "name"), ("contact", "full_name")):
+                related_id = item.get(related + "_id")
+                if related_id is None or kind == related + "s":
+                    continue
+                related_table = "sales_companies" if related == "company" else "sales_contacts"
+                row = conn.execute(f"SELECT {name_field} FROM {related_table} WHERE user_id=? AND {related}_id=? AND status='active' AND deleted_at IS NULL", (user_id, related_id)).fetchone()
+                item[related + "_name"] = row[0] if row else None
+    return {"items": items,
+            "next_cursor": int(rows[limit-1][names.index(identifier)]) if len(rows)>limit else None}
 
 
 def work_memory_prompt_context(user_id: int, query: str = "", *, limit: int = 20) -> str:

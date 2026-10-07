@@ -255,9 +255,11 @@
       group.querySelector("#diagPush").textContent = pushState(subscription);
       const ai = assistantData?.ai || {};
       const access = assistantData?.access || {};
-      group.querySelector("#diagAi").textContent = ai.configured || ai.enabled
-        ? `${ai.provider || "AI"}${ai.model ? ` · ${ai.model}` : ""}${access.allowed === false ? " · нет доступа" : ""}`
-        : "Не настроен";
+      const aiLabels = {healthy: "Работает", degraded: "Временно ограничен", unknown: "Нет свежих данных", disabled: "Выключен", unconfigured: "Не настроен"};
+      const aiLabel = ai.enabled === false ? "Выключен" : ai.configured === false ? "Не настроен" : (aiLabels[ai.state] || "Нет свежих данных");
+      const retry = ai.retry_after_seconds != null ? ` · повтор через ${Math.ceil(ai.retry_after_seconds)} с` : "";
+      const lastSuccess = ai.last_success_at ? ` · успешно ${new Date(ai.last_success_at * 1000).toLocaleString("ru-RU")}` : "";
+      group.querySelector("#diagAi").textContent = `${aiLabel}${retry}${lastSuccess}${access.allowed === false ? " · нет доступа" : ""}`;
       group.querySelector("#diagLastSync").textContent = formatLastSync();
       statusEl.textContent = statusData ? "Проверка завершена." : "Сервер не ответил. Остальные статусы показаны локально.";
     } catch (error) {

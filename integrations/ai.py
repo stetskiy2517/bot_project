@@ -10,15 +10,14 @@ import os
 from pathlib import Path
 import shutil
 import ssl
+import secrets
 import threading
 import time
 import uuid
-import warnings
 
 import certifi
 import requests
 from dotenv import dotenv_values
-from urllib3.exceptions import InsecureRequestWarning
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +64,7 @@ class AISettings:
     timeout_seconds: int
     max_output_tokens: int
     ca_bundle: str | None
+    root_sha256: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -87,6 +87,8 @@ _provider_state = {
     "last_error": None,
     "retry_after_seconds": None,
     "updated_at": None,
+    "last_success_at": None,
+    "last_error_at": None,
 }
 
 
@@ -118,8 +120,6 @@ def load_ai_settings() -> AISettings:
 
     credentials = value("GIGACHAT_CREDENTIALS") or value("GIGACHAT_AUTH_KEY")
     configured_bundle = value("GIGACHAT_CA_BUNDLE")
-    if not configured_bundle and DEFAULT_GIGACHAT_CA_BUNDLE.is_file():
-        configured_bundle = str(DEFAULT_GIGACHAT_CA_BUNDLE)
 
     return AISettings(
         enabled=_as_bool(value("AI_ENABLED", "1")),
@@ -132,17 +132,23 @@ def load_ai_settings() -> AISettings:
         timeout_seconds=_bounded_int(value("AI_TIMEOUT_SECONDS"), 30, 5, 120),
         max_output_tokens=_bounded_int(value("AI_MAX_OUTPUT_TOKENS"), 700, 64, 4096),
         ca_bundle=configured_bundle,
+        root_sha256=value("GIGACHAT_ROOT_SHA256"),
     )
 
 
 def _set_provider_state(state: str, error: str | None = None, retry_after: float | None = None) -> None:
     with _provider_state_lock:
+        now = time.time()
         _provider_state.update(
             state=state,
             last_error=error,
             retry_after_seconds=(round(max(0.0, retry_after), 3) if retry_after is not None else None),
-            updated_at=time.time(),
+            updated_at=now,
         )
+        if state == "healthy":
+            _provider_state["last_success_at"] = now
+        elif error:
+            _provider_state["last_error_at"] = now
 
 
 def _provider_status_snapshot() -> dict:
@@ -153,6 +159,8 @@ def _provider_status_snapshot() -> dict:
 def get_ai_status() -> dict:
     settings = load_ai_settings()
     runtime = _provider_status_snapshot()
+    if runtime["updated_at"] is not None and time.time() - runtime["updated_at"] > 3600:
+        runtime = {**runtime, "state": "unknown", "retry_after_seconds": None}
     if not settings.enabled:
         runtime = {**runtime, "state": "disabled"}
     elif not settings.configured:
@@ -185,7 +193,28 @@ def _common_name(parts) -> str:
     return ""
 
 
-def _validate_gigachat_root(path: Path) -> None:
+def _validate_gigachat_root(path: Path, expected_sha256: str | None = None) -> bytes:
+    # The pin must come from independent trusted operator configuration, never
+    # from the same HTTP response or an automatically cached certificate.
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    pin = str(expected_sha256 or "").replace(":", "").strip().lower()
+    if len(pin) != 64 or any(c not in "0123456789abcdef" for c in pin):
+        raise AIConfigurationError("Set GIGACHAT_ROOT_SHA256 from an independently verified certificate")
+    try:
+        cert = x509.load_pem_x509_certificate(path.read_bytes())
+        actual = cert.fingerprint(hashes.SHA256()).hex()
+    except ValueError as exc:
+        raise AIProviderError("Invalid GigaChat root certificate") from exc
+    if not secrets.compare_digest(actual, pin):
+        raise AIProviderError("GigaChat root certificate fingerprint mismatch")
+    try:
+        if not cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+            raise AIProviderError("GigaChat certificate is not a CA")
+    except x509.ExtensionNotFound as exc:
+        raise AIProviderError("GigaChat certificate has no CA constraint") from exc
     decoded = _decode_certificate(path)
     subject = _common_name(decoded.get("subject"))
     issuer = _common_name(decoded.get("issuer"))
@@ -200,6 +229,15 @@ def _validate_gigachat_root(path: Path) -> None:
         raise AIProviderError("GigaChat CA certificate expiration is invalid") from exc
     if expires_at <= time.time():
         raise AIProviderError("GigaChat CA certificate has expired")
+    try:
+        starts_at = ssl.cert_time_to_seconds(decoded.get("notBefore"))
+    except (TypeError, ValueError) as exc:
+        raise AIProviderError("GigaChat CA certificate start date is invalid") from exc
+    if starts_at > time.time():
+        raise AIProviderError("GigaChat CA certificate is not valid yet")
+    # Trust only the pinned certificate, never additional PEM certificates or
+    # trusted-certificate directives supplied alongside it.
+    return cert.public_bytes(Encoding.PEM)
 
 
 def _ensure_gigachat_ca_bundle(settings: AISettings) -> str | bool:
@@ -213,7 +251,14 @@ def _ensure_gigachat_ca_bundle(settings: AISettings) -> str | bool:
         DEFAULT_GIGACHAT_CA_BUNDLE.parent.mkdir(parents=True, exist_ok=True)
         if DEFAULT_GIGACHAT_CA_BUNDLE.is_file() and DEFAULT_GIGACHAT_ROOT_CERT.is_file():
             try:
-                _validate_gigachat_root(DEFAULT_GIGACHAT_ROOT_CERT)
+                verified_root = _validate_gigachat_root(DEFAULT_GIGACHAT_ROOT_CERT, settings.root_sha256)
+                # Rebuild the bundle even for a valid cached root: older versions
+                # downloaded without TLS verification and the bundle may differ.
+                rebuilt = DEFAULT_GIGACHAT_CA_BUNDLE.with_suffix(".tmp")
+                with rebuilt.open("wb") as target:
+                    target.write(Path(certifi.where()).read_bytes())
+                    target.write(b"\n" + verified_root + b"\n")
+                rebuilt.replace(DEFAULT_GIGACHAT_CA_BUNDLE)
                 return str(DEFAULT_GIGACHAT_CA_BUNDLE)
             except AIProviderError:
                 logger.warning("Stored GigaChat CA bundle is invalid; rebuilding it")
@@ -223,13 +268,14 @@ def _ensure_gigachat_ca_bundle(settings: AISettings) -> str | bool:
         root_tmp = DEFAULT_GIGACHAT_ROOT_CERT.with_suffix(".tmp")
         bundle_tmp = DEFAULT_GIGACHAT_CA_BUNDLE.with_suffix(".tmp")
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", InsecureRequestWarning)
-                response = requests.get(
-                    DEFAULT_GIGACHAT_CA_URL,
-                    timeout=(5, 20),
-                    verify=False,
-                )
+            # Validate the pin before making a request, even on a fresh machine.
+            pin = str(settings.root_sha256 or "").replace(":", "").strip().lower()
+            if len(pin) != 64 or any(c not in "0123456789abcdef" for c in pin):
+                raise AIConfigurationError("Set GIGACHAT_ROOT_SHA256 or a trusted GIGACHAT_CA_BUNDLE")
+            try:
+                response = requests.get(DEFAULT_GIGACHAT_CA_URL, timeout=(5, 20), verify=True)
+            except requests.RequestException as exc:
+                raise AIProviderError("Could not securely download GigaChat root certificate") from exc
             if response.status_code != 200:
                 raise AIProviderError(
                     f"Could not download GigaChat CA certificate: HTTP {response.status_code}"
@@ -241,7 +287,8 @@ def _ensure_gigachat_ca_bundle(settings: AISettings) -> str | bool:
                 raise AIProviderError("GigaChat CA certificate is not PEM encoded")
 
             root_tmp.write_bytes(content)
-            _validate_gigachat_root(root_tmp)
+            content = _validate_gigachat_root(root_tmp, settings.root_sha256)
+            root_tmp.write_bytes(content)
             shutil.copyfile(certifi.where(), bundle_tmp)
             with bundle_tmp.open("ab") as target:
                 target.write(b"\n")
@@ -352,9 +399,17 @@ def _completion_request(
     max_tokens: int | None,
     temperature: float,
 ) -> str:
-    verify = _ensure_gigachat_ca_bundle(settings)
+    try:
+        verify = _ensure_gigachat_ca_bundle(settings)
+    except AIError:
+        _set_provider_state("degraded", "trust_configuration_error")
+        raise
     clean_messages = _validate_messages(messages)
-    token = _get_access_token(settings, verify)
+    try:
+        token = _get_access_token(settings, verify)
+    except AIError:
+        _set_provider_state("degraded", "authorization_error")
+        raise
     payload = {
         "model": settings.model,
         "messages": clean_messages,
@@ -558,4 +613,6 @@ def _reset_token_cache_for_tests() -> None:
             last_error=None,
             retry_after_seconds=None,
             updated_at=None,
+            last_success_at=None,
+            last_error_at=None,
         )

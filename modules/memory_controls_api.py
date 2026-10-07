@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.memory_store import (
+    get_memory, memory_page, work_memory_page, get_company, get_contact, get_commitment,
     create_commitment,
     create_company,
     create_contact,
@@ -35,11 +36,7 @@ def _user() -> int:
 
 
 def _find_memory(user_id: int, memory_id: int) -> dict | None:
-    for status in ("active", "suppressed"):
-        for item in list_memories(user_id, status=status, limit=500):
-            if int(item["memory_id"]) == int(memory_id):
-                return item
-    return None
+    return get_memory(user_id, memory_id)
 
 
 @memory_controls_api.after_app_request
@@ -86,11 +83,12 @@ def memory_controls_js():
 @memory_controls_api.get("/api/memory/controls")
 def memory_controls():
     user_id = _user()
-    memories = list_memories(user_id, limit=200)
+    page = memory_page(user_id, before=request.args.get("before", type=int))
+    memories = page["memories"]
     actions = list_proactive_actions(user_id, limit=100)
     feedback = feedback_for_actions(user_id, [item["action_id"] for item in actions])
     return {
-        "memories": memories,
+        **page,
         "actions": [{**item, "feedback": feedback.get(int(item["action_id"]))} for item in actions],
         "feedback_summary": feedback_summary(user_id),
     }
@@ -153,12 +151,9 @@ def proactive_feedback(action_id: int):
 @memory_controls_api.get("/api/memory/work-context")
 def memory_work_context():
     user_id = _user()
-    return {
-        "companies": list_companies(user_id, limit=200),
-        "contacts": list_contacts(user_id, limit=300),
-        "interactions": list_interactions(user_id, limit=200),
-        "commitments": list_commitments(user_id, status="open", limit=200),
-    }
+    pages = {kind: work_memory_page(user_id, kind, before=request.args.get("before_"+kind, type=int)) for kind in ("companies", "contacts", "interactions", "commitments")}
+    return {**{kind: page["items"] for kind, page in pages.items()}, "next_cursors": {kind: page["next_cursor"] for kind, page in pages.items()}}
+
 
 
 @memory_controls_api.post("/api/memory/companies")
@@ -285,3 +280,38 @@ def edit_memory_commitment(commitment_id: int):
     if not item:
         return jsonify(error="commitment_not_found"), 404
     return {"commitment": item}
+
+
+@memory_controls_api.get("/api/memory/<int:memory_id>")
+def memory_detail(memory_id):
+    item = get_memory(_user(), memory_id)
+    return {"memory": item} if item else (jsonify(error="memory_not_found"), 404)
+
+
+@memory_controls_api.get("/api/memory/entity/<kind>/<int:item_id>")
+def work_entity(kind, item_id):
+    from core.search_api_store import memory_entity
+    item = memory_entity(_user(), kind, item_id)
+    return {"item": item} if item else (jsonify(error="memory_not_found"), 404)
+
+
+@memory_controls_api.post("/api/memory/commitments/<int:commitment_id>/actions")
+def commitment_next_step(commitment_id):
+    from modules.commitment_actions import create_commitment_action
+    from core.conversation_context import remember_entity_for_user
+    try:
+        result = create_commitment_action(_user(), commitment_id, request.get_json())
+    except LookupError:
+        return jsonify(error="commitment_not_found"), 404
+    except (TypeError, ValueError) as exc:
+        return jsonify(error="invalid_commitment_action", message=str(exc)), 400
+    remember_entity_for_user(_user(), result["kind"], result["target_id"], get_commitment(_user(), commitment_id)["title"])
+    return {"action": result}, (201 if result["created"] else 200)
+
+
+@memory_controls_api.get("/api/memory/action-source/<kind>/<int:target_id>")
+def action_source(kind, target_id):
+    from core.db import conn, db_lock
+    with db_lock:
+        row=conn.execute("SELECT commitment_id FROM commitment_actions WHERE user_id=? AND kind=? AND target_id=?", (_user(),kind,target_id)).fetchone()
+    return {"item": get_commitment(_user(),row[0]) if row else None}

@@ -9,6 +9,7 @@ PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 NAVIGATION_KEY_FILE="${NAVIGATION_KEY_FILE:-}"
 AI_KEY_FILE="${AI_KEY_FILE:-}"
+AI_TRUST_FILE="${AI_TRUST_FILE:-}"
 APP_PYTHON="${APP_PYTHON:-python3.12}"
 PREVIOUS_SHA=""
 PREDEPLOY_BACKUP=""
@@ -23,6 +24,9 @@ cleanup_temp_secrets() {
   fi
   if [ -n "$AI_KEY_FILE" ]; then
     rm -f -- "$AI_KEY_FILE" 2>/dev/null || true
+  fi
+  if [ -n "$AI_TRUST_FILE" ]; then
+    rm -f -- "$AI_TRUST_FILE" 2>/dev/null || true
   fi
 }
 trap cleanup_temp_secrets EXIT
@@ -111,6 +115,10 @@ ai_secret_present() {
   [ -n "$AI_KEY_FILE" ] && [ -s "$AI_KEY_FILE" ]
 }
 
+ai_trust_present() {
+  [ -n "$AI_TRUST_FILE" ] && [ -s "$AI_TRUST_FILE" ]
+}
+
 sync_navigation_config() {
   log "Updating navigation configuration"
   python3 - "$PROJECT_DIR/.env" "$NAVIGATION_KEY_FILE" <<'PY'
@@ -148,13 +156,14 @@ PY
 
 sync_ai_config() {
   log "Updating AI configuration"
-  python3 - "$PROJECT_DIR/.env" "$AI_KEY_FILE" <<'PY'
+  python3 - "$PROJECT_DIR/.env" "$AI_KEY_FILE" "$AI_TRUST_FILE" <<'PY'
 from pathlib import Path
 import os
 import sys
 
 env_path = Path(sys.argv[1])
 key_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+trust_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 updates = {
     "AI_ENABLED": "1",
     "AI_PROVIDER": "gigachat",
@@ -166,6 +175,12 @@ if key_path and key_path.is_file() and key_path.stat().st_size:
     if not key:
         raise SystemExit("GigaChat credential file is empty")
     updates["GIGACHAT_CREDENTIALS"] = key
+
+if trust_path and trust_path.is_file() and trust_path.stat().st_size:
+    pin = trust_path.read_text(encoding="utf-8").strip().lower().replace(":", "")
+    if len(pin) != 64 or any(char not in "0123456789abcdef" for char in pin):
+        raise SystemExit("GIGACHAT_ROOT_SHA256 must contain a verified SHA-256 fingerprint")
+    updates["GIGACHAT_ROOT_SHA256"] = pin
 
 lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
 seen = set()
@@ -233,9 +248,18 @@ git merge-base --is-ancestor "$TARGET_SHA" "origin/$BRANCH" \
 
 PREVIOUS_SHA="$(git rev-parse HEAD)"
 if [ "$PREVIOUS_SHA" = "$TARGET_SHA" ] && venv_matches_app_python; then
-  if navigation_secret_present || ai_secret_present; then
-    sync_navigation_config
-    sync_ai_config
+  if navigation_secret_present || ai_secret_present || ai_trust_present; then
+    ENV_BEFORE_UPDATE="$(mktemp)"
+    chmod 600 "$ENV_BEFORE_UPDATE"
+    if [ -f .env ]; then
+      install -m 600 .env "$ENV_BEFORE_UPDATE"
+    fi
+    if ! (sync_navigation_config && sync_ai_config && .venv/bin/python scripts/preflight_trust.py); then
+      install -m 600 "$ENV_BEFORE_UPDATE" .env
+      rm -f "$ENV_BEFORE_UPDATE"
+      fail "Configuration preflight failed; previous environment restored without service restart"
+    fi
+    rm -f "$ENV_BEFORE_UPDATE"
     log "Restarting $SERVICE_NAME after secret update"
     sudo -n systemctl restart "$SERVICE_NAME"
     wait_for_health 30 || fail "Application health-check failed after secret update"
@@ -322,6 +346,9 @@ fi
 
 log "Application runtime: $(.venv/bin/python -c 'import platform; print(platform.python_version())')"
 
+log "Checking AI certificate trust before restarting the service"
+.venv/bin/python scripts/preflight_trust.py
+
 log "Running server preflight"
 .venv/bin/python -m compileall -q bot.py web_app.py config.py core handlers integrations modules scripts
 
@@ -330,6 +357,9 @@ sudo -n systemctl restart "$SERVICE_NAME"
 
 log "Waiting for application health-check"
 wait_for_health 30 || false
+
+log "Verifying the running application matches the deployed commit"
+.venv/bin/python scripts/production_smoke.py --expected-sha "$TARGET_SHA"
 
 report_ai_status
 

@@ -179,8 +179,10 @@ def create_planner_task(
     flexible: bool = True,
     parent_task_id: int | None = None,
     repeat_rule: str | None = None,
+    commit: bool = True,
 ) -> dict:
-    init_task_planner_store()
+    if commit:
+        init_task_planner_store()
     if not isinstance(flexible, bool):
         raise ValueError("Параметр гибкости должен быть true или false")
     clean_title = _clean_title(title)
@@ -191,9 +193,9 @@ def create_planner_task(
     clean_estimate = _clean_estimate(estimate_minutes)
     clean_repeat = " ".join(str(repeat_rule or "").split()).strip()[:100] or None
     now = _now()
-    if parent_task_id is not None and not get_planner_task(user_id, int(parent_task_id)):
-        raise ValueError("Родительская задача не найдена")
     with db_lock:
+        if parent_task_id is not None and not conn.execute("SELECT 1 FROM tasks WHERE user_id=? AND task_id=?", (user_id, int(parent_task_id))).fetchone():
+            raise ValueError("Родительская задача не найдена")
         cursor = conn.execute(
             "INSERT INTO tasks "
             "(user_id,title,description,due_at,status,priority,created_at,category,estimate_minutes,flexible,parent_task_id,repeat_rule,updated_at) "
@@ -205,9 +207,11 @@ def create_planner_task(
                 clean_repeat, now,
             ),
         )
-        conn.commit()
+        if commit:
+            conn.commit()
         task_id = int(cursor.lastrowid)
-    return get_planner_task(user_id, task_id) or {}
+        row = conn.execute(f"SELECT {SELECT_COLUMNS} FROM tasks WHERE user_id=? AND task_id=?", (user_id, task_id)).fetchone()
+    return _from_row(row)
 
 
 def update_planner_task(user_id: int, task_id: int, changes: dict) -> dict:
@@ -278,6 +282,9 @@ def update_planner_task(user_id: int, task_id: int, changes: dict) -> dict:
             f"UPDATE tasks SET {', '.join(updates)} WHERE user_id=? AND task_id=?",
             values,
         )
+        if "status" in changes:
+            from core.commitment_links import sync_completion
+            sync_completion(conn, user_id, "task", task_id, changes["status"] == "done")
         conn.commit()
     return get_planner_task(user_id, task_id) or {}
 
@@ -307,6 +314,8 @@ def link_task_calendar(
 
 def delete_planner_task(user_id: int, task_id: int) -> bool:
     with db_lock:
+        from core.commitment_links import remove_link
+        remove_link(conn, user_id, "task", task_id)
         cursor = conn.execute("DELETE FROM tasks WHERE user_id=? AND task_id=?", (int(user_id), int(task_id)))
         conn.commit()
     return cursor.rowcount > 0

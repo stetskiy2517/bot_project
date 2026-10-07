@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session
 
 from config import BASE_URL, WEB_HOST, WEB_PORT, WEB_SESSION_SECRET
+from core.runtime_status import monitor_token, runtime_report
 from core.db import (
     conn, db_lock,
     DEFAULT_CATEGORY_COLORS,
@@ -351,6 +352,15 @@ def create_web_app() -> Flask:
     @app.get("/api/health")
     def health():
         return {"status": "ok", "transport": "web"}
+
+    @app.get("/internal/runtime")
+    def internal_runtime():
+        supplied = request.headers.get("X-Monitor-Token", "")
+        if request.remote_addr not in {"127.0.0.1", "::1"} or not supplied or not secrets.compare_digest(supplied, monitor_token()):
+            return jsonify(error="forbidden"), 403
+        response = jsonify(runtime_report())
+        response.headers["Cache-Control"] = "no-store, private"
+        return response
 
     @app.get("/api/google/login")
     def google_login():

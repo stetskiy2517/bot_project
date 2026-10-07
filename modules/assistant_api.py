@@ -37,6 +37,7 @@ from modules.navigation_recurring import start_navigation_recurring_worker
 from modules.note_tools_api import note_tools_api
 from modules.proactive import proactive_status, start_proactive_worker
 from modules.task_api import task_api
+from modules.search_api import search_api
 from modules.yandex_auth import yandex_auth_api
 
 assistant_api = Blueprint("assistant", __name__)
@@ -273,6 +274,7 @@ assistant_api.register_blueprint(admin_metrics_api)
 assistant_api.register_blueprint(email_api)
 assistant_api.register_blueprint(email_actions_api)
 assistant_api.register_blueprint(task_api)
+assistant_api.register_blueprint(search_api)
 assistant_api.register_blueprint(memory_controls_api)
 assistant_api.register_blueprint(life_balance_api)
 assistant_api.register_blueprint(navigation_access_api)

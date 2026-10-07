@@ -13,6 +13,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import os
+from urllib.parse import urlsplit
+import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -20,12 +23,26 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def _git_sha() -> str:
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"],
-        cwd=PROJECT_ROOT,
-        text=True,
-        stderr=subprocess.DEVNULL,
-    ).strip()
+    return _running_status()["sha"]
+
+
+def _running_status() -> dict:
+    from core.runtime_status import monitor_token
+    from config import WEB_PORT
+    url = os.getenv("RUNTIME_STATUS_URL", f"http://127.0.0.1:{WEB_PORT}/internal/runtime")
+    parsed = urlsplit(url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.username or parsed.password or parsed.path != "/internal/runtime" or parsed.query or parsed.fragment:
+        raise ValueError("Runtime status URL must be a loopback internal endpoint")
+    with requests.Session() as client:
+        client.trust_env = False
+        response = client.get(url, headers={"X-Monitor-Token": monitor_token()}, timeout=5, allow_redirects=False)
+        response.raise_for_status()
+        if response.status_code != 200:
+            raise ValueError("Invalid runtime response")
+        payload = response.json()
+    if payload.get("status") != "ok" or not isinstance(payload.get("sha"), str):
+        raise ValueError("Invalid runtime status")
+    return payload
 
 
 def _database_status() -> dict:
@@ -39,9 +56,7 @@ def _database_status() -> dict:
 
 
 def _ai_status() -> dict:
-    from integrations.ai import get_ai_status
-
-    status = get_ai_status()
+    status = _running_status()["ai"]
     allowed = {
         "enabled",
         "provider",
@@ -51,6 +66,8 @@ def _ai_status() -> dict:
         "last_error",
         "retry_after_seconds",
         "updated_at",
+        "last_success_at",
+        "last_error_at",
     }
     return {key: status.get(key) for key in allowed if key in status}
 
@@ -88,7 +105,11 @@ def build_report(
     warn_disk_percent: float = 80.0,
 ) -> tuple[dict, list[str]]:
     failures: list[str] = []
-    actual_sha = _git_sha()
+    try:
+        actual_sha = _git_sha()
+    except Exception:
+        actual_sha = "unknown"
+        failures.append("running application status is unavailable")
     report = {
         "status": "ok",
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -112,6 +133,8 @@ def build_report(
 
     try:
         report["ai"] = _ai_status()
+        if report["ai"].get("state") in {"degraded", "unknown"}:
+            report.setdefault("warnings", []).append("AI is degraded or has no recent observations")
     except Exception as exc:
         report["ai"] = {"state": "unknown", "error": type(exc).__name__}
 
@@ -126,7 +149,7 @@ def build_report(
     if used_percent >= max_disk_percent:
         failures.append(f"disk usage is {disk['used_percent']}%")
     elif used_percent >= warn_disk_percent:
-        report["warnings"] = [f"disk usage is {disk['used_percent']}%"]
+        report.setdefault("warnings", []).append(f"disk usage is {disk['used_percent']}%")
 
     if failures:
         report["status"] = "error"

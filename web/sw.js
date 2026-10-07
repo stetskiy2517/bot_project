@@ -1,9 +1,11 @@
-const CACHE = "personal-secretary-v22-google-reauth";
+const CACHE = "personal-secretary-v23-search-commitments";
 const STATIC = [
   "/",
   "/manifest.webmanifest",
   "/icon.svg",
   "/reliability.js",
+  "/search.js",
+  "/memory-controls.js",
   "/reminders.js",
   "/library.js",
   "/task-editor.js",
@@ -154,7 +156,8 @@ self.addEventListener("fetch", (event) => {
     event.request.method !== "GET" ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/") ||
-    url.pathname === "/oauth2callback"
+    url.pathname === "/oauth2callback" ||
+    url.pathname.startsWith("/internal/")
   ) {
     return;
   }

@@ -52,6 +52,7 @@ jobs:
           node --check web/prebeta-polish.js &&
           node --check web/ux-polish.js &&
           node --check web/memory-controls.js &&
+          node --check web/search.js &&
           node --check web/email-actions.js &&
           node --check web/navigation-extra.js &&
           node --check web/note-tools.js &&

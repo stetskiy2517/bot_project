@@ -133,7 +133,8 @@ class TaskPlanningUiTests(unittest.TestCase):
         self.assertIn('@task_api.get("/task-editor.js")', self.api)
 
     def test_pwa_shell_uses_controlled_prebeta_update(self):
-        self.assertIn("personal-secretary-v22-google-reauth", self.worker)
+        self.assertIn("personal-secretary-v23-search-commitments", self.worker)
+        self.assertIn('"/search.js"', self.worker)
         for asset in ("/task-editor.js", "/tasks.js", "/tasks-unified.js", "/task-swipe.js", "/prebeta-polish.js", "/ux-polish.js"):
             self.assertIn(f'"{asset}"', self.worker)
         install_block = self.worker.split('self.addEventListener("install"', 1)[1].split('self.addEventListener("message"', 1)[0]

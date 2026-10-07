@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config import DB_PATH
+from core.erasure_journal import enforce_erasure_journal, runtime_lock
 
 DEFAULT_TIMEZONE = "Europe/Moscow"
 DEFAULT_WORK_START = "09:00"
@@ -30,7 +31,9 @@ OAUTH_STATE_TTL_MINUTES = 15
 
 _db_dir = os.path.dirname(os.path.abspath(DB_PATH))
 os.makedirs(_db_dir, exist_ok=True)
+_runtime_lock_fd = runtime_lock(DB_PATH)
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+enforce_erasure_journal(conn, DB_PATH)
 db_lock = threading.RLock()
 
 
@@ -489,6 +492,8 @@ def set_task_completed(user_id: int, task_id: int, completed: bool = True) -> di
         )
         if cur.rowcount == 0:
             return None
+        from core.commitment_links import sync_completion
+        sync_completion(conn, int(user_id), "task", int(task_id), completed)
         conn.commit()
     return get_task(user_id, task_id)
 
@@ -499,6 +504,8 @@ def delete_task(user_id: int, task_id: int) -> bool:
             "DELETE FROM tasks WHERE user_id=? AND task_id=?",
             (int(user_id), int(task_id)),
         )
+        from core.commitment_links import remove_link
+        remove_link(conn, int(user_id), "task", int(task_id))
         conn.commit()
     return cur.rowcount > 0
 

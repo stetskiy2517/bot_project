@@ -3,6 +3,11 @@
 
   let installed = false;
   let activeTab = "personal";
+  let personalCursor = null;
+  let personalGeneration = 0;
+  let workGeneration = 0;
+  let workItems = {};
+  let workCursors = {};
   const kindLabels = {
     fact: "Факт", preference: "Предпочтение", habit: "Привычка",
     relationship: "Связь", goal: "Цель", observation: "Наблюдение",
@@ -76,13 +81,17 @@
     });
   }
 
-  async function loadPersonal() {
+  async function loadPersonal(append = false) {
+    const selected = append ? personalGeneration : ++personalGeneration;
     const box = document.getElementById("memoryPersonalList");
     const state = document.getElementById("memoryState");
-    box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
-    const data = await api("/api/memory/controls");
+    if (!append) box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
+    const data = await api('/api/memory/controls' + (append && personalCursor ? '?before='+personalCursor : ''));
+    if (selected !== personalGeneration) return;
+    personalCursor = data.next_cursor;
     const memories = data.memories || [];
-    box.replaceChildren();
+    if (!append) box.replaceChildren();
+    box.querySelector("[data-memory-more-personal]")?.remove();
     if (!memories.length) {
       box.innerHTML = '<p class="memory-empty">Пока нет устойчивых фактов. Память будет наполняться по мере работы с секретарём.</p>';
     }
@@ -99,8 +108,13 @@
         </div>`;
       box.appendChild(card);
     }
+    if (personalCursor) {
+      const more = document.createElement("button"); more.type="button"; more.className="memory-more"; more.dataset.memoryMorePersonal="1"; more.textContent="Показать ещё";
+      more.onclick=async()=>{more.disabled=true; try {await loadPersonal(true);} catch(error) {state.textContent=error.message; more.disabled=false;}};
+      box.appendChild(more);
+    }
     const summary = data.feedback_summary || {};
-    state.textContent = `Фактов в активной памяти: ${memories.length}. Оценено предложений: ${(summary.useful || 0) + (summary.dismiss || 0) + (summary.never || 0)}.`;
+    state.textContent = `Фактов в активной памяти: ${data.total ?? memories.length}. Оценено предложений: ${(summary.useful || 0) + (summary.dismiss || 0) + (summary.never || 0)}.`;
   }
 
   function companyName(companies, id) {
@@ -111,15 +125,25 @@
     return contacts.find(item => Number(item.contact_id) === Number(id))?.full_name || "";
   }
 
-  async function loadWork() {
+  async function loadWork(kind = null) {
+    const selected = kind ? workGeneration : ++workGeneration;
     const box = document.getElementById("memoryWorkContent");
-    box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
-    const data = await api("/api/memory/work-context");
+    if (!kind) box.innerHTML = '<p class="memory-empty">Загружаю…</p>';
+    const data = await api('/api/memory/work-context' + (kind ? '?before_'+kind+'='+workCursors[kind] : ''));
+    if (selected !== workGeneration) return;
+    if (!kind) {workItems={}; workCursors={};}
+    for (const name of ['companies','contacts','interactions','commitments']) {
+      if (kind && kind !== name) continue;
+      workItems[name] = [...(workItems[name] || []), ...(data[name] || [])];
+      workCursors[name] = data.next_cursors?.[name];
+    }
+    Object.assign(data, workItems);
     const companies = data.companies || [];
     const contacts = data.contacts || [];
     const interactions = data.interactions || [];
     const commitments = data.commitments || [];
 
+    const moreWork = name => workCursors[name] ? `<button type="button" class="memory-more" data-memory-more-work="${name}">Показать ещё</button>` : '';
     const companyRows = companies.length ? companies.map(item => `
       <div class="memory-list-row">
         <div><strong>${escapeHtml(item.name)}</strong>${item.industry ? `<span>${escapeHtml(item.industry)}</span>` : ""}</div>
@@ -129,23 +153,28 @@
     const contactRows = contacts.length ? contacts.map(item => `
       <div class="memory-list-row">
         <div><strong>${escapeHtml(item.full_name)}</strong>
-          <span>${escapeHtml([item.position, companyName(companies, item.company_id)].filter(Boolean).join(" · "))}</span>
+          <span>${escapeHtml([item.position, item.company_name || companyName(companies, item.company_id)].filter(Boolean).join(" · "))}</span>
         </div>
         <button type="button" data-memory-edit-contact="${item.contact_id}">Изменить</button>
       </div>`).join("") : '<p class="memory-empty">Контактов пока нет.</p>';
 
     const commitmentRows = commitments.length ? commitments.map(item => `
       <div class="memory-list-row">
-        <div><strong>${escapeHtml(item.title)}</strong>
-          <span>${escapeHtml([companyName(companies, item.company_id), contactName(contacts, item.contact_id), item.due_at ? new Date(item.due_at).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · "))}</span>
+        <div><strong>${escapeHtml(item.title)}</strong>${item.due_at && Date.parse(item.due_at) < Date.now() ? '<span>Просрочено</span>' : ''}
+          <span>${escapeHtml([item.company_name || companyName(companies, item.company_id), item.contact_name || contactName(contacts, item.contact_id), item.due_at ? new Date(item.due_at).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · "))}</span>
         </div>
-        <button type="button" data-memory-done="${item.commitment_id}">Готово</button>
+        <div class="memory-card-actions">
+          <button type="button" data-memory-next="${item.commitment_id}" data-kind="task">Создать задачу</button>
+          <button type="button" data-memory-next="${item.commitment_id}" data-kind="reminder">Напомнить</button>
+          <button type="button" data-memory-entity="commitment" data-id="${item.commitment_id}">Открыть</button>
+          <button type="button" data-memory-done="${item.commitment_id}">Готово</button>
+        </div>
       </div>`).join("") : '<p class="memory-empty">Открытых договорённостей пока нет.</p>';
 
-    const interactionRows = interactions.length ? interactions.slice(0, 30).map(item => `
+    const interactionRows = interactions.length ? interactions.map(item => `
       <div class="memory-list-row">
         <div><strong>${escapeHtml(item.summary)}</strong>
-          <span>${escapeHtml([item.interaction_type, companyName(companies, item.company_id), contactName(contacts, item.contact_id)].filter(Boolean).join(" · "))}</span>
+          <span>${escapeHtml([item.interaction_type, item.company_name || companyName(companies, item.company_id), item.contact_name || contactName(contacts, item.contact_id)].filter(Boolean).join(" · "))}</span>
         </div>
       </div>`).join("") : '<p class="memory-empty">История взаимодействий пока пустая.</p>';
 
@@ -157,19 +186,19 @@
       </section>
       <section class="memory-section">
         <div class="memory-section-head"><h3>Компании</h3><button type="button" data-memory-add="company">Добавить</button></div>
-        <div class="memory-list">${companyRows}</div>
+        <div class="memory-list">${companyRows}</div>${moreWork("companies")}
       </section>
       <section class="memory-section">
         <div class="memory-section-head"><h3>Контакты</h3><button type="button" data-memory-add="contact">Добавить</button></div>
-        <div class="memory-list">${contactRows}</div>
+        <div class="memory-list">${contactRows}</div>${moreWork("contacts")}
       </section>
       <section class="memory-section">
         <div class="memory-section-head"><h3>Договорённости</h3><button type="button" data-memory-add="commitment">Добавить</button></div>
-        <div class="memory-list">${commitmentRows}</div>
+        <div class="memory-list">${commitmentRows}</div>${moreWork("commitments")}
       </section>
       <section class="memory-section">
         <div class="memory-section-head"><h3>История</h3><button type="button" data-memory-add="interaction">Добавить</button></div>
-        <div class="memory-list">${interactionRows}</div>
+        <div class="memory-list">${interactionRows}</div>${moreWork("interactions")}
       </section>`;
   }
 
@@ -185,8 +214,7 @@
   }
 
   async function editMemory(id) {
-    const data = await api("/api/memory/controls");
-    const memory = (data.memories || []).find(item => Number(item.memory_id) === Number(id));
+    const {memory} = await api(`/api/memory/${id}`);
     if (!memory) return;
     const next = prompt("Что секретарь должен помнить вместо этого?", textValue(memory.value));
     if (next == null || !next.trim()) return;
@@ -240,8 +268,7 @@
   }
 
   async function editCompany(id) {
-    const data = await api("/api/memory/work-context");
-    const item = (data.companies || []).find(row => Number(row.company_id) === Number(id));
+    const {item} = await api(`/api/memory/entity/company/${id}`);
     if (!item) return;
     const name = prompt("Название компании", item.name || "");
     if (!name?.trim()) return;
@@ -252,8 +279,7 @@
   }
 
   async function editContact(id) {
-    const data = await api("/api/memory/work-context");
-    const item = (data.contacts || []).find(row => Number(row.contact_id) === Number(id));
+    const {item} = await api(`/api/memory/entity/contact/${id}`);
     if (!item) return;
     const name = prompt("Имя контакта", item.full_name || "");
     if (!name?.trim()) return;
@@ -267,6 +293,98 @@
     await api("/api/memory/commitments/" + id, {method:"PATCH", body:JSON.stringify({status:"done"})});
     await loadWork();
   }
+
+  function recordDialog(id, label) {
+    let dialog = document.getElementById(id);
+    if (!dialog) {dialog=document.createElement('dialog');dialog.id=id;dialog.className='secretary-record-dialog';document.body.appendChild(dialog);}
+    dialog.setAttribute('aria-label',label);dialog.replaceChildren();
+    const close=document.createElement('button');close.type='button';close.textContent='×';close.dataset.recordClose='1';close.setAttribute('aria-label','Закрыть');close.onclick=()=>dialog.close();dialog.appendChild(close);
+    const title=document.createElement('h2');title.textContent=label;dialog.appendChild(title);
+    return dialog;
+  }
+
+  async function nextStep(id, kind) {
+    const [{item},status] = await Promise.all([api(`/api/memory/entity/commitment/${id}`), api('/api/status')]);
+    const existing=(item.actions || []).find(action=>action.kind===kind);
+    if (existing) return openEntity(kind,existing.target_id);
+    const zone=status.timezone || 'Europe/Moscow';
+    const dialog=recordDialog('commitmentActionDialog',kind==='task'?'Создать задачу':'Напомнить');
+    const summary=document.createElement('p');summary.textContent=item.title;dialog.appendChild(summary);
+    const form=document.createElement('form');
+    const label=document.createElement('label');label.textContent=`Срок (${zone})`;
+    const due=document.createElement('input');due.id='commitmentActionDue';due.type='datetime-local';due.required=kind==='reminder';
+    if (item.due_at && Number.isFinite(Date.parse(item.due_at))) {
+      const parts=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(item.due_at));
+      const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));due.value=`${value.year}-${value.month}-${value.day}T${value.hour}:${value.minute}`;
+    }
+    label.appendChild(due);form.appendChild(label);
+    const submit=document.createElement('button');submit.type='submit';submit.id='commitmentActionConfirm';submit.textContent=kind==='task'?'Создать задачу':'Создать напоминание';form.appendChild(submit);
+    const feedback=document.createElement('p');feedback.setAttribute('role','status');form.appendChild(feedback);
+    form.onsubmit=async event=>{
+      event.preventDefault();submit.disabled=true;
+      try {
+        const data=await api(`/api/memory/commitments/${id}/actions`,{method:'POST',body:JSON.stringify({kind,due_at:due.value || null,confirmed:true})});
+        feedback.textContent=data.action.created?'Создано':'Уже создано';dialog.close();
+        document.dispatchEvent(new Event('planner-library-changed'));
+        await openEntity('commitment',id);
+        if (screen()?.classList.contains('open') && activeTab==='work') await loadWork();
+      } catch(error) {feedback.textContent=error.message;submit.disabled=false;}
+    };
+    dialog.appendChild(form);if (!dialog.open) dialog.showModal();due.focus();
+  }
+
+  async function openEntity(kind,id) {
+    const {item}=await api(`/api/memory/entity/${kind}/${id}`);
+    const heading=item.title || item.name || item.full_name || item.summary || item.memory_key || 'Запись';
+    const dialog=recordDialog('memoryEntityDialog',heading);
+    const content=document.createElement('pre');
+    const detail=item.text || item.description || item.value_json || item.notes || item.summary || '';
+    content.textContent=detail;dialog.appendChild(content);
+    for (const [key,label] of Object.entries({industry:'Отрасль',website:'Сайт',position:'Должность',phone:'Телефон',email:'Почта',telegram:'Telegram',outcome:'Итог',next_step:'Следующий шаг'})) {
+      if (item[key]) {const field=document.createElement('p');field.textContent=label+': '+item[key];dialog.appendChild(field);}
+    }
+    const metadata=document.createElement('p');
+    const state={open:'Открыто',done:'Выполнено',pending:'Ожидает',completed:'Выполнено',delivered:'Уведомление отправлено'};
+    metadata.textContent=[item.company_name,item.contact_name,item.due_at || item.remind_at ? new Date(item.due_at || item.remind_at).toLocaleString('ru-RU') : '',state[item.status] || '',item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : ''].filter(Boolean).join(' · ');
+    dialog.appendChild(metadata);
+    const feedback=document.createElement('p');feedback.setAttribute('role','status');dialog.appendChild(feedback);
+    function action(label,callback) {const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=async()=>{button.disabled=true;try {await callback();}catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}};dialog.appendChild(button);return button;}
+    if (kind==='commitment') {
+      for (const type of ['task','reminder']) {
+        const link=(item.actions || []).find(value=>value.kind===type);
+        if (link) action(type==='task'?'Открыть задачу':'Открыть напоминание',()=>openEntity(type,link.target_id));
+        else if (item.status==='open') action(type==='task'?'Создать задачу':'Напомнить',()=>nextStep(id,type));
+      }
+      if (item.status==='open') action('Готово',async()=>{await api(`/api/memory/commitments/${id}`,{method:'PATCH',body:JSON.stringify({status:'done'})});await openEntity(kind,id);});
+    }
+    if (kind==='task') {
+      action('Изменить',async()=>{dialog.close();const changes=await window.PlannerTaskEditor.openTask({task:item});if(changes){await api(`/api/tasks/${id}`,{method:'PATCH',body:JSON.stringify(changes)});document.dispatchEvent(new Event('planner-library-changed'));}await openEntity(kind,id);});
+      action(item.status==='done'?'Вернуть':'Выполнить',async()=>{await api(`/api/tasks/${id}`,{method:'PATCH',body:JSON.stringify({status:item.status==='done'?'open':'done'})});document.dispatchEvent(new Event('planner-library-changed'));await openEntity(kind,id);});
+      const commitment=await api(`/api/memory/action-source/task/${id}`);
+      if (commitment.item) action('Исходная договорённость',()=>openEntity('commitment',commitment.item.commitment_id));
+    }
+    if (kind==='reminder') {
+      action(item.status==='completed'?'Вернуть':'Выполнить',async()=>{await api(`/api/library/reminders/${id}/complete`,{method:'POST',body:JSON.stringify({completed:item.status!=='completed'})});await openEntity(kind,id);});
+      const commitment=await api(`/api/memory/action-source/reminder/${id}`);
+      if (commitment.item) action('Исходная договорённость',()=>openEntity('commitment',commitment.item.commitment_id));
+    }
+    if (kind==='memory') action('Исправить',async()=>{await editMemory(id);await openEntity(kind,id);});
+    if (item.source_type && item.source_id && ['note','reminder','task','company','contact','interaction','commitment'].includes(item.source_type) && /^\d+$/.test(String(item.source_id))) {
+      action('Первоисточник',async()=>{
+        const source={kind:item.source_type,id:Number(item.source_id)};
+        if (source.kind==='note') {await window.PlannerRequests.request('/api/search/open',{method:'POST',body:JSON.stringify(source)});dialog.close();return window.PlannerNotes.open(source.id);}
+        return openEntity(source.kind,source.id);
+      });
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+  window.PlannerMemory={open:openScreen,openEntity};
+  function openHash() {
+    const match=/^#memory=(company|contact|interaction|commitment|memory|task|reminder):(\d+)$/.exec(location.hash);
+    if (match) openEntity(match[1],Number(match[2])).catch(error=>{document.getElementById('memoryScreenStatus').textContent=error.message;});
+  }
+  window.addEventListener('hashchange',openHash);
+  document.addEventListener('planner-ready',openHash);
 
   function placeSettingsEntry() {
     const settingsRoot = document.querySelector("#settingsPanel .sheet");
@@ -343,6 +461,12 @@
       if (company) return editCompany(company.dataset.memoryEditCompany).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
       const contact = event.target.closest("[data-memory-edit-contact]");
       if (contact) return editContact(contact.dataset.memoryEditContact).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
+      const more = event.target.closest("[data-memory-more-work]");
+      if (more) {more.disabled=true; return loadWork(more.dataset.memoryMoreWork).catch(error=>{more.disabled=false;document.getElementById("memoryScreenStatus").textContent=error.message;});}
+      const next = event.target.closest("[data-memory-next]");
+      if (next) return nextStep(next.dataset.memoryNext,next.dataset.kind).catch(error=>document.getElementById("memoryScreenStatus").textContent=error.message);
+      const detail = event.target.closest("[data-memory-entity]");
+      if (detail) return openEntity(detail.dataset.memoryEntity,detail.dataset.id).catch(error=>document.getElementById("memoryScreenStatus").textContent=error.message);
       const done = event.target.closest("[data-memory-done]");
       if (done) return completeCommitment(done.dataset.memoryDone).catch(error => document.getElementById("memoryScreenStatus").textContent = error.message);
     });
