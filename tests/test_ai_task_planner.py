@@ -170,6 +170,46 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
         self.assertEqual([item["role"] for item in messages], ["system", "user"])
         self.assertNotIn("дачу", str(messages).casefold())
 
+    def test_reference_detector_accepts_imperative_before_pronoun(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": False,
+            "day": "",
+            "items": [
+                {
+                    "title": "Позвонить Ольхову",
+                    "estimate_minutes": 15,
+                    "category": "work",
+                    "priority": "normal",
+                    "source_text": "позвонить Ольхову",
+                },
+                {
+                    "title": "Убрать ванную",
+                    "estimate_minutes": 30,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "убрать ванную",
+                },
+            ],
+        }
+        history = [
+            {"role": "user", "content": "позвонить Ольхову, убрать ванную"},
+            {"role": "assistant", "content": "Вижу два дела."},
+        ]
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload):
+            result = interpret_task_plan(
+                "распланируй их",
+                user_id=42,
+                history=history,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result["items"]), 2)
+
     def test_explicit_reference_uses_only_nearest_prior_task_list(self):
         payload = {
             "intent": "task_list",
