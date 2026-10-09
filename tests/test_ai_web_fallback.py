@@ -29,16 +29,14 @@ class AIWebFallbackTests(unittest.TestCase):
         async def unhandled_route(update, context, text=None):
             return False
 
-        async def task_plan(update, context, text, history=None):
+        async def recover(update, context, text, **_kwargs):
             update.message.replies.append("Вижу 3 дела. На какой день распланировать их по календарю?")
             return True
 
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "web_app.handle_unhandled_task_plan",
-            side_effect=task_plan,
+            "web_app.recover_unhandled_action",
+            new=AsyncMock(side_effect=recover),
         ) as planner, patch(
-            "web_app.interpret_unhandled_action",
-        ) as rewrite, patch(
             "web_app.answer_unhandled",
         ) as answer:
             response = self.client.post(
@@ -54,7 +52,6 @@ class AIWebFallbackTests(unittest.TestCase):
             ["Вижу 3 дела. На какой день распланировать их по календарю?"],
         )
         planner.assert_called_once()
-        rewrite.assert_not_called()
         answer.assert_not_called()
 
     def test_ai_action_rewrite_is_rerouted_through_deterministic_router(self):
@@ -68,7 +65,10 @@ class AIWebFallbackTests(unittest.TestCase):
             return False
 
         with patch("web_app.route_text", side_effect=route), patch(
-            "web_app.interpret_unhandled_action",
+            "modules.assistant_flow.handle_unhandled_task_plan",
+            new=AsyncMock(return_value=False),
+        ), patch(
+            "modules.assistant_flow.interpret_unhandled_action",
             return_value="добавь задачу постирать белье сегодня",
         ) as rewrite, patch(
             "web_app.answer_unhandled",
@@ -97,8 +97,8 @@ class AIWebFallbackTests(unittest.TestCase):
             return False
 
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "web_app.interpret_unhandled_action",
-            return_value=None,
+            "web_app.recover_unhandled_action",
+            new=AsyncMock(return_value=False),
         ), patch(
             "web_app.answer_unhandled",
             return_value="Могу помочь разобраться.",
@@ -236,11 +236,8 @@ class AIWebFallbackTests(unittest.TestCase):
             "X-Request-ID": request_id,
         }
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "web_app.handle_unhandled_task_plan",
+            "web_app.recover_unhandled_action",
             new=AsyncMock(return_value=False),
-        ), patch(
-            "web_app.interpret_unhandled_action",
-            return_value=None,
         ), patch(
             "web_app.answer_unhandled",
             return_value="Сначала выбери одну небольшую задачу.",
