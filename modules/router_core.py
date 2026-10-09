@@ -660,12 +660,14 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     if user_id is not None and await open_note_selection(update, context, text):
         logger.info("Router ordinal note selection")
+        set_request_diagnostic(route="note", intent="note_selection")
         return True
 
     if user_id is not None:
         resolution = resolve_named_note_append(user_id, text)
         if resolution:
             logger.info("Router named note append query=%s", resolution.query)
+            set_request_diagnostic(route="note", intent="contextual_append")
             if resolution.addition and len(resolution.matches) == 1:
                 return await append_to_note(update, context, resolution.matches[0], resolution.addition)
             canonical = f"добавь в заметку {resolution.query}"
@@ -679,7 +681,9 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
                 active_note = get_active_note(context, user_id)
                 if active_note:
                     logger.info("Router active note append note_id=%s", active_note.get("note_id"))
+                    set_request_diagnostic(route="note", intent="active_append")
                     return await append_to_note(update, context, active_note, addition)
+                set_request_diagnostic(route="note", intent="append_needs_target")
                 await update.message.reply_text(
                     "Куда добавить? Назови заметку, например: «добавь воду в список покупок»."
                 )
@@ -689,6 +693,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
             delete_query = resolve_named_note_delete(user_id, text)
             if delete_query:
                 logger.info("Router named note delete query=%s", delete_query)
+                set_request_diagnostic(route="note", intent="contextual_delete")
                 handled = await handle_note_text(update, context, f"удали заметку {delete_query}", NOTE_DELETE)
                 if handled:
                     clear_active_note(context)
@@ -701,6 +706,7 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         )
         if note_query:
             logger.info("Router contextual note_query=%s", note_query)
+            set_request_diagnostic(route="note", intent="contextual_search")
             note_search_text = f"найди заметки про {note_query}"
             handled = await handle_note_text(update, context, note_search_text, NOTE_SEARCH)
             if handled and not _pending(context):
@@ -714,7 +720,19 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     intent = detect_intent(text)
     logger.info("Router intent=%s confidence=%.2f", intent.name, intent.confidence)
-    set_request_diagnostic(route="calendar", intent=str(intent.name), intent_confidence=float(intent.confidence))
+    if intent.name == INTENT_UNKNOWN:
+        set_request_diagnostic(
+            route="unhandled",
+            intent=INTENT_UNKNOWN,
+            intent_confidence=float(intent.confidence),
+        )
+        return False
+
+    set_request_diagnostic(
+        route="calendar",
+        intent=str(intent.name),
+        intent_confidence=float(intent.confidence),
+    )
     if intent.name == INTENT_CREATE:
         create_text = _creation_text(text)
         if _needs_time(create_text):
