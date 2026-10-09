@@ -4,7 +4,13 @@ import unittest
 from unittest.mock import patch
 
 from integrations.ai import AIRateLimitError, AIProviderError
-from modules.ai_assistant import UNHANDLED_WEB_MESSAGE, UNHANDLED_WEB_MESSAGE_EN, answer_unhandled, replace_unhandled_reply
+from modules.ai_assistant import (
+    UNHANDLED_WEB_MESSAGE,
+    UNHANDLED_WEB_MESSAGE_EN,
+    answer_unhandled,
+    interpret_unhandled_action,
+    replace_unhandled_reply,
+)
 
 
 class AIAssistantTests(unittest.TestCase):
@@ -139,6 +145,36 @@ class AIAssistantTests(unittest.TestCase):
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_provider_failure_falls_back_safely(self, _available, _complete):
         self.assertIsNone(answer_unhandled("Привет"))
+
+    @patch("modules.ai_assistant.complete", return_value="добавь задачу постирать белье сегодня")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_action_rewrite_accepts_grounded_canonicalization(self, _available, _complete):
+        self.assertEqual(
+            interpret_unhandled_action("Закинь в дела постирать белье сегодня"),
+            "добавь задачу постирать белье сегодня",
+        )
+
+    @patch("modules.ai_assistant.complete", return_value="добавь задачу поездка на дачу завтра")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_action_rewrite_rejects_invented_task_content(self, _available, _complete):
+        self.assertIsNone(
+            interpret_unhandled_action("Запланируй выходные и почини шкаф")
+        )
+
+    @patch("modules.ai_assistant.complete", return_value="создай встречу созвон с Иваном завтра в 10:00")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_action_rewrite_rejects_invented_time(self, _available, _complete):
+        self.assertIsNone(
+            interpret_unhandled_action("Завтра созвон с Иваном")
+        )
+
+    @patch("modules.ai_assistant.complete", return_value="создай встречу созвон с Иваном завтра в 18:00")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_action_rewrite_allows_time_format_normalization(self, _available, _complete):
+        self.assertEqual(
+            interpret_unhandled_action("Завтра в 18 созвон с Иваном"),
+            "создай встречу созвон с Иваном завтра в 18:00",
+        )
 
     def test_english_router_fallback_is_replaced_too(self):
         replies = [UNHANDLED_WEB_MESSAGE_EN]
