@@ -748,7 +748,7 @@ def create_web_app() -> Flask:
                     text,
                     user_id,
                     account.get("name") or account["email"],
-                    channel="voice",
+                    channel="chat",
                 )
             )
         except GoogleAuthRequired:
@@ -785,7 +785,12 @@ def create_web_app() -> Flask:
                 return jsonify({"error": "message_too_long", "message": "Голосовое сообщение слишком длинное."}), 400
             mark_executing()
             result = asyncio.run(
-                process_web_message(text, user_id, account.get("name") or account["email"])
+                process_web_message(
+                    text,
+                    user_id,
+                    account.get("name") or account["email"],
+                    channel="voice",
+                )
             )
         except GoogleAuthRequired:
             return jsonify(
