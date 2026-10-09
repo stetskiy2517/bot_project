@@ -68,8 +68,8 @@ from modules.note_conversation import remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
-from modules.ai_assistant import answer_unhandled, interpret_unhandled_action, unhandled_reply_for
-from modules.ai_task_planner import handle_unhandled_task_plan
+from modules.ai_assistant import answer_unhandled, unhandled_reply_for
+from modules.assistant_flow import recover_unhandled_action
 from core.undo_store import init_undo_store
 from core.user_activity_store import record_user_activity, set_request_diagnostic
 from modules.router import route_text
@@ -247,24 +247,14 @@ async def process_web_message(
     replies = update.message.replies
 
     if not handled and not replies:
-        handled = await handle_unhandled_task_plan(
+        handled = await recover_unhandled_action(
             update,
             context,
             text,
+            user_id=user_id,
             history=recent_chat_messages(user_id),
+            route_func=route_text,
         )
-        if handled:
-            set_request_diagnostic(ai_fallback="task_plan")
-
-    if not handled and not replies:
-        rewritten = interpret_unhandled_action(text, user_id=user_id)
-        if rewritten and rewritten.casefold() != text.casefold():
-            logger.info("AI recovered unhandled planner command user=%s", user_id)
-            recovery_update = WebUpdate(user_id, user_name, rewritten)
-            handled = await route_text(recovery_update, context, text=rewritten)
-            if handled:
-                set_request_diagnostic(ai_fallback="action_rewrite")
-                replies.extend(recovery_update.message.replies)
 
     # Conversational AI belongs inside the command pipeline, before Flask
     # finalizes the response/request receipt. Keeping it out of after_request
