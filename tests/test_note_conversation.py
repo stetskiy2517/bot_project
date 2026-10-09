@@ -269,6 +269,20 @@ class NoteConversationRouterTests(unittest.IsolatedAsyncioTestCase):
         task.assert_awaited_once()
         append.assert_not_awaited()
 
+    async def test_explicit_task_wins_even_if_note_detector_also_matches(self):
+        update = self._update("Добавь в задачи купить воду")
+        context = self._context()
+        with (
+            patch("modules.router.detect_task_intent", return_value="task_create"),
+            patch("modules.router.detect_note_intent", return_value="note_append"),
+            patch("modules.router.handle_task_text", new=AsyncMock(return_value=True)) as task,
+            patch("modules.router.handle_note_text", new=AsyncMock(return_value=True)) as note,
+        ):
+            handled = await route_text(update, context)
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        note.assert_not_awaited()
+
     async def test_add_to_tasks_plural_is_not_captured_as_note(self):
         update = self._update("Добавь в задачи Постирать белье на сегодня")
         context = self._context()
