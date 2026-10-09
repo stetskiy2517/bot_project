@@ -146,6 +146,21 @@ class AIAssistantTests(unittest.TestCase):
     def test_provider_failure_falls_back_safely(self, _available, _complete):
         self.assertIsNone(answer_unhandled("Привет"))
 
+    @patch("modules.ai_assistant.complete", return_value="создай задачу купить молоко завтра")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_declarative_future_statement_never_becomes_action(self, _available, complete):
+        self.assertIsNone(
+            interpret_unhandled_action("Я куплю молоко завтра")
+        )
+        complete.assert_not_called()
+
+    @patch("modules.ai_assistant.complete", return_value="remind me tomorrow at 9 AM to call mom")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_polite_english_request_is_allowed_into_action_interpreter(self, _available, complete):
+        result = interpret_unhandled_action("Could you remind me tomorrow at 9 AM to call mom?")
+        self.assertEqual(result, "remind me tomorrow at 9 AM to call mom")
+        complete.assert_called_once()
+
     @patch("modules.ai_assistant.complete", return_value="добавь задачу постирать белье сегодня")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_action_rewrite_accepts_grounded_canonicalization(self, _available, _complete):
