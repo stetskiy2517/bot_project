@@ -13,7 +13,7 @@ from core.assistant_preferences import get_assistant_preferences
 from core.db import get_user_timezone
 from core.feature_access import has_ai_access
 from core.memory_store import memory_prompt_context, work_memory_prompt_context
-from modules.language_support import detect_input_language
+from modules.language_support import canonicalize_english, detect_input_language
 from core.reminder_recurrence import repeat_label
 from core.reminder_store import list_active_reminders
 from integrations.ai import AIRateLimitError, AIError, complete, get_ai_status, is_ai_available
@@ -177,6 +177,11 @@ ACTION_GROUNDING_IGNORE = {
     "заметка", "заметку", "заметки", "напоминание", "напоминания",
     "событие", "события", "встреча", "встречу", "встречи", "календарь",
     "дело", "дела", "мне", "мой", "моя", "мою", "пожалуйста",
+    "create", "add", "make", "save", "write", "schedule", "plan", "book",
+    "show", "list", "delete", "remove", "cancel", "change", "update", "edit",
+    "reschedule", "remind", "task", "tasks", "note", "notes", "reminder",
+    "reminders", "event", "events", "meeting", "meetings", "calendar",
+    "please", "could", "would", "my", "the", "me",
 }
 NUMERIC_DATE_RE = re.compile(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b")
 
@@ -209,12 +214,14 @@ def _rewrite_is_grounded(original: str, rewritten: str) -> bool:
     # invented clock time or relative delay is rejected.
     try:
         from modules.calendar import _extract_time, _relative_offset
-        original_time = _extract_time(original)
-        rewritten_time = _extract_time(rewritten)
+        original_for_time = canonicalize_english(original) if detect_input_language(original) == "en" else original
+        rewritten_for_time = canonicalize_english(rewritten) if detect_input_language(rewritten) == "en" else rewritten
+        original_time = _extract_time(original_for_time)
+        rewritten_time = _extract_time(rewritten_for_time)
         if rewritten_time is not None and rewritten_time != original_time:
             return False
-        original_offset = _relative_offset(original)
-        rewritten_offset = _relative_offset(rewritten)
+        original_offset = _relative_offset(original_for_time)
+        rewritten_offset = _relative_offset(rewritten_for_time)
         if rewritten_offset is not None and rewritten_offset != original_offset:
             return False
     except Exception:
@@ -231,6 +238,10 @@ ACTION_REWRITE_PREFIXES = (
     "покажи задачи", "покажи заметки", "покажи календарь",
     "удали задачу ", "удали заметку ", "удали напоминание ", "удали событие ", "удали встречу ",
     "измени задачу ", "измени напоминание ", "измени событие ", "измени встречу ",
+    "create task ", "create note ", "note: ", "remind me ", "create reminder ",
+    "schedule ", "show my tasks", "show my notes", "show my calendar",
+    "delete task ", "delete note ", "delete reminder ", "delete event ", "delete meeting ",
+    "update task ", "update reminder ", "update event ", "update meeting ",
 )
 
 
@@ -244,20 +255,37 @@ def interpret_unhandled_action(text: str, *, user_id: int | None = None) -> str 
     if not candidate or not has_ai_access(user_id) or not is_ai_available():
         return None
 
-    system = (
-        "Ты классификатор команд персонального планировщика. "
-        "Твоя задача — только переписать понятную команду пользователя в одну каноническую команду "
-        "для существующего детерминированного роутера. Ничего не выполняй и не утверждай, что действие выполнено. "
-        "Поддерживаемые сущности: задача, событие/встреча календаря, напоминание, заметка. "
-        "Сохраняй все явные даты, время, название и смысл. Не выдумывай отсутствующие параметры. "
-        "Если это вопрос, обычный разговор, просьба о совете или команда не относится к этим сущностям — ответь ровно NONE. "
-        "Если это действие, ответь только одной русской канонической командой без кавычек, markdown и пояснений. "
-        "Примеры: "
-        "«закинь в дела постирать белье сегодня» -> «добавь задачу постирать белье сегодня»; "
-        "«завтра в 18 созвон с Иваном» -> «создай встречу созвон с Иваном завтра в 18:00»; "
-        "«черкани заметку купить фильтр» -> «создай заметку купить фильтр»; "
-        "«маякни через час позвонить маме» -> «напомни через час позвонить маме»."
-    )
+    language = detect_input_language(candidate)
+    if language == "en":
+        system = (
+            "You classify commands for a personal planner. Only rewrite a clear user action into one canonical "
+            "English command for the existing deterministic router. Never execute anything and never claim an action "
+            "was completed. Supported entities: task, calendar event/meeting, reminder, note. Preserve every explicit "
+            "date, time and user-supplied subject. Never invent missing facts. If this is a question, normal chat, advice, "
+            "or not an app action, reply exactly NONE. Return only one command, no markdown or explanation. "
+            "Use these canonical forms: 'create task ...', 'create note ...', 'remind me ...', 'schedule ...', "
+            "'show my tasks', 'show my notes', 'show my calendar', 'delete task ...', 'delete note ...', "
+            "'delete reminder ...', 'delete event ...', 'update task ...', 'update reminder ...', 'update event ...'. "
+            "Examples: 'put laundry on my todo list today' -> 'create task laundry today'; "
+            "'tomorrow at 6 call with Ivan' -> 'schedule call with Ivan tomorrow at 6 PM'; "
+            "'jot down buy filters' -> 'create note buy filters'; "
+            "'ping me in an hour to call mom' -> 'remind me in an hour to call mom'."
+        )
+    else:
+        system = (
+            "Ты классификатор команд персонального планировщика. "
+            "Твоя задача — только переписать понятную команду пользователя в одну каноническую команду "
+            "для существующего детерминированного роутера. Ничего не выполняй и не утверждай, что действие выполнено. "
+            "Поддерживаемые сущности: задача, событие/встреча календаря, напоминание, заметка. "
+            "Сохраняй все явные даты, время, название и смысл. Не выдумывай отсутствующие параметры. "
+            "Если это вопрос, обычный разговор, просьба о совете или команда не относится к этим сущностям — ответь ровно NONE. "
+            "Если это действие, ответь только одной русской канонической командой без кавычек, markdown и пояснений. "
+            "Примеры: "
+            "«закинь в дела постирать белье сегодня» -> «добавь задачу постирать белье сегодня»; "
+            "«завтра в 18 созвон с Иваном» -> «создай встречу созвон с Иваном завтра в 18:00»; "
+            "«черкани заметку купить фильтр» -> «создай заметку купить фильтр»; "
+            "«маякни через час позвонить маме» -> «напомни через час позвонить маме»."
+        )
     try:
         raw = complete(
             [{"role": "system", "content": system}, {"role": "user", "content": candidate[:10000]}],
