@@ -3,6 +3,7 @@ import unittest
 from core.conversation_policy import (
     is_clear_new_command,
     is_declarative_statement,
+    pending_retarget_target,
     should_resume_pending,
 )
 
@@ -51,6 +52,20 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertTrue(should_resume_pending(pending, "в 19:30"))
         self.assertFalse(should_resume_pending(pending, "Покажи календарь на завтра"))
         self.assertFalse(should_resume_pending(pending, "Когда завтра свободно?"))
+
+    def test_pending_retarget_extracts_only_entity_corrections(self):
+        cases = {
+            "Не событие, а задача": "task",
+            "Причем тут событие? В задачу добавь": "task",
+            "Сделай это напоминанием": "reminder",
+            "Не задача, а заметка": "note",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(pending_retarget_target(text), expected)
+
+        self.assertIsNone(pending_retarget_target("Создай задачу купить молоко"))
+        self.assertIsNone(pending_retarget_target("Добавь встречу завтра в 15:00"))
 
     def test_entity_correction_interrupts_stale_pending(self):
         for text in (
