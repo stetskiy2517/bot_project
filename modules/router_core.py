@@ -635,6 +635,15 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
         set_request_diagnostic(route="reminder", intent=str(reminder_intent))
         return await handle_reminder_text(update, context, text, reminder_intent)
 
+    # Explicit task commands outrank notes. This is a structural precedence rule:
+    # a phrase that names the task module must never be consumed by note
+    # heuristics (the source of the "Не нашёл заметку" regression).
+    task_intent = detect_task_intent(text)
+    if task_intent:
+        logger.info("Router task_intent=%s", task_intent)
+        set_request_diagnostic(route="task", intent=str(task_intent))
+        return await handle_task_text(update, context, text, task_intent)
+
     note_intent = detect_note_intent(text)
     if note_intent:
         set_request_diagnostic(route="note", intent=str(note_intent))
@@ -652,12 +661,6 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
     if user_id is not None and await open_note_selection(update, context, text):
         logger.info("Router ordinal note selection")
         return True
-
-    task_intent = detect_task_intent(text)
-    if task_intent:
-        logger.info("Router task_intent=%s", task_intent)
-        set_request_diagnostic(route="task", intent=str(task_intent))
-        return await handle_task_text(update, context, text, task_intent)
 
     if user_id is not None:
         resolution = resolve_named_note_append(user_id, text)
