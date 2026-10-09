@@ -73,6 +73,44 @@ class TelegramAssistantTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(update.message.sent[-1][0], "Заметка сохранена")
 
+    async def test_unhandled_task_list_uses_shared_action_recovery_before_chat(self):
+        update = self._update("отправить паспорт, позвонить Ольхову, сделать домашку")
+        context = _Context()
+
+        async def recover(proxy, _context, text, **kwargs):
+            self.assertEqual(text, update.message.text)
+            self.assertEqual(kwargs["user_id"], 42)
+            await proxy.message.reply_text("Вижу 3 дела. На какой день распланировать?")
+            return True
+
+        with (
+            patch("handlers.text.route_text", new=AsyncMock(return_value=False)),
+            patch("handlers.text.recover_unhandled_action", new=AsyncMock(side_effect=recover)) as action,
+            patch("handlers.text.answer_unhandled") as chat,
+        ):
+            handled = await handle_message_text(update, context, update.message.text)
+
+        self.assertTrue(handled)
+        action.assert_awaited_once()
+        chat.assert_not_called()
+        self.assertEqual(update.message.sent[-1][0], "Вижу 3 дела. На какой день распланировать?")
+        self.assertEqual(recent_chat_messages(42)[-1]["content"], "Вижу 3 дела. На какой день распланировать?")
+
+    async def test_unhandled_action_rewrite_executes_through_shared_recovery_before_chat(self):
+        update = self._update("Закинь в дела купить воду сегодня")
+        context = _Context()
+
+        with (
+            patch("handlers.text.route_text", new=AsyncMock(return_value=False)),
+            patch("handlers.text.recover_unhandled_action", new=AsyncMock(return_value=True)) as action,
+            patch("handlers.text.answer_unhandled") as chat,
+        ):
+            handled = await handle_message_text(update, context, update.message.text)
+
+        self.assertTrue(handled)
+        action.assert_awaited_once()
+        chat.assert_not_called()
+
     async def test_unhandled_text_uses_ai_with_existing_shared_history(self):
         update = self._update("А что после неё?")
         context = _Context()
