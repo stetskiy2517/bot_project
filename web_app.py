@@ -69,7 +69,7 @@ from modules.assistant_api import assistant_api
 from modules.ai_assistant import interpret_unhandled_action, unhandled_reply_for
 from modules.ai_task_planner import handle_unhandled_task_plan
 from core.undo_store import init_undo_store
-from core.user_activity_store import record_user_activity
+from core.user_activity_store import record_user_activity, set_request_diagnostic
 from modules.router import route_text
 from modules.calendar_availability import slot_choices
 
@@ -239,6 +239,7 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
             recovery_update = WebUpdate(user_id, user_name, rewritten)
             handled = await route_text(recovery_update, context, text=rewritten)
             if handled:
+                set_request_diagnostic(ai_fallback="action_rewrite")
                 replies.extend(recovery_update.message.replies)
 
     if not handled and not replies:
