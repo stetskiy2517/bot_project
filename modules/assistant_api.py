@@ -8,10 +8,8 @@ from pathlib import Path
 import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
-from core.ai_memory_store import record_ai_memory_event
-from core.user_activity_store import set_request_diagnostic
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
-from core.chat_context import append_chat_exchange, clear_chat_context, recent_chat_messages
+from core.chat_context import clear_chat_context
 from core.conversation_context import reset_user_context
 from core.feature_access import ai_access_status, has_ai_access
 from core.memory_store import list_memories, memory_status, suppress_memory
@@ -21,10 +19,9 @@ from core.undo_store import last_note_action, undo_note_action
 from modules.account_privacy import create_erase_challenge, erase_account, export_account, privacy_policy
 from modules.admin_api import admin_api
 from modules.admin_metrics_api import admin_metrics_api
-from modules.ai_assistant import ai_status, answer_unhandled, is_unhandled_reply, replace_unhandled_reply
+from modules.ai_assistant import ai_status
 from modules.command_templates import list_templates, save_template, delete_template
 from modules.daily_review import build_day_review
-from modules.email import detect_email_intent
 from modules.email_actions_api import email_actions_api
 from modules.email_api import email_api
 from modules.life_balance_api import life_balance_api
@@ -54,85 +51,6 @@ def _user():
 def _recent_login():
     stamp = session.get("auth_time")
     return isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and 0 <= time.time() - stamp <= 600
-
-
-def _journal_user_utterance(user_id: int, text: str, channel: str) -> None:
-    clean = str(text or "").strip()
-    if not clean:
-        return
-    entity_id = time.time_ns() & ((1 << 63) - 1)
-    record_ai_memory_event(
-        user_id,
-        "voice_transcript",
-        entity_id or 1,
-        "recognized" if channel == "voice" else "created",
-        {"text": clean, "channel": channel},
-    )
-
-
-@assistant_api.after_app_request
-def load_assistant_ui(response):
-    if request.path != "/" or response.status_code != 200 or response.mimetype != "text/html":
-        return response
-    html = response.get_data(as_text=True)
-    scripts = (
-        '<script src="/life-wheel.js"></script>',
-        '<script src="/proactive.js"></script>',
-    )
-    if "</body>" in html:
-        for script in scripts:
-            if script not in html:
-                html = html.replace("</body>", f"    {script}\n  </body>", 1)
-        response.set_data(html)
-    return response
-
-
-@assistant_api.after_app_request
-def use_ai_for_unhandled_chat(response):
-    if (
-        request.path not in {"/api/chat", "/api/voice"}
-        or response.status_code != 200
-        or response.mimetype != "application/json"
-    ):
-        return response
-    try:
-        user_id = _user()
-        if not has_ai_access(user_id):
-            return response
-        payload = response.get_json(silent=True)
-        if not isinstance(payload, dict) or payload.get("handled") is not False:
-            return response
-        replies = payload.get("replies")
-        if not isinstance(replies, list) or not any(is_unhandled_reply(item) for item in replies):
-            return response
-        if request.path == "/api/chat":
-            request_payload = request.get_json(silent=True) or {}
-            text = request_payload.get("message") if isinstance(request_payload, dict) else None
-            channel = "chat"
-        else:
-            text = payload.get("transcript")
-            channel = "voice"
-        if not isinstance(text, str) or not text.strip():
-            return response
-        if detect_email_intent(text):
-            return response
-        try:
-            _journal_user_utterance(user_id, text, channel)
-        except Exception:
-            logger.exception("Failed to journal user utterance for AI memory")
-        history = recent_chat_messages(user_id)
-        answer = answer_unhandled(text, user_id=user_id, history=history)
-        if not answer:
-            return response
-        append_chat_exchange(user_id, text, answer)
-        set_request_diagnostic(ai_fallback="chat")
-        payload["handled"] = True
-        payload["replies"] = replace_unhandled_reply(replies, answer)
-        response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-        return response
-    except Exception:
-        logger.exception("Failed to apply AI fallback response")
-        return response
 
 
 @assistant_api.get("/life-wheel.js")
