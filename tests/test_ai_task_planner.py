@@ -92,6 +92,42 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_dacha_cannot_be_invented_from_partially_matching_trip_phrase(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": False,
+            "day": "",
+            "items": [
+                {
+                    "title": "Поездка на дачу",
+                    "estimate_minutes": 60,
+                    "category": "travel",
+                    "priority": "normal",
+                    "source_text": "поездка на выходные",
+                },
+                {
+                    "title": "Починить шкаф",
+                    "estimate_minutes": 45,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "починить шкаф",
+                },
+            ],
+        }
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload):
+            result = interpret_task_plan(
+                "поездка на выходные, починить шкаф",
+                user_id=42,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        # The invented destination must be rejected. With only one grounded item
+        # left, the multi-task planner must not start at all.
+        self.assertIsNone(result)
+
     def test_history_is_not_sent_without_explicit_reference(self):
         payload = {
             "intent": "task_list",
