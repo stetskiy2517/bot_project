@@ -3,6 +3,7 @@ import unittest
 from core.conversation_policy import (
     is_clear_new_command,
     is_declarative_statement,
+    pending_retarget_fresh_payload,
     pending_retarget_target,
     should_resume_pending,
 )
@@ -68,6 +69,19 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertIsNone(pending_retarget_target("Добавь встречу завтра в 15:00"))
         self.assertIsNone(pending_retarget_target("Это задача: купить молоко"))
         self.assertIsNone(pending_retarget_target("Не событие, а задача купить молоко"))
+
+    def test_fresh_entity_correction_keeps_new_payload_not_stale_payload(self):
+        cases = {
+            "Это задача: купить молоко": ("task", "купить молоко"),
+            "Не событие, а задача купить молоко": ("task", "купить молоко"),
+            "Пусть будет заметка позвонить врачу": ("note", "позвонить врачу"),
+            "В задачу добавь забрать паспорт": ("task", "забрать паспорт"),
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(pending_retarget_fresh_payload(text), expected)
+
+        self.assertIsNone(pending_retarget_fresh_payload("Не событие, а задача"))
 
     def test_entity_correction_interrupts_stale_pending(self):
         for text in (
