@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import logging
+import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.ai_prompts import chat_system_prompt
