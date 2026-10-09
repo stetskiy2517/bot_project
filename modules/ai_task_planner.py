@@ -55,8 +55,9 @@ TASK_PLAN_SCHEMA = {
                         "type": "string",
                         "enum": sorted(TASK_PRIORITIES),
                     },
+                    "source_text": {"type": "string"},
                 },
-                "required": ["title", "estimate_minutes", "category", "priority"],
+                "required": ["title", "estimate_minutes", "category", "priority", "source_text"],
                 "additionalProperties": False,
             },
         },
@@ -71,6 +72,17 @@ PLAN_KEYWORDS = (
     "запланировать все", "раскидай по дню",
 )
 AFFIRMATIVE = {"да", "ага", "ок", "окей", "давай", "распланируй", "планируй", "запланируй"}
+REFERENCE_TO_PRIOR_LIST_RE = re.compile(
+    r"\b(?:эт(?:от|и)\s+(?:список|дела|задачи)|предыдущ(?:ий|ие)\s+(?:список|дела|задачи)|"
+    r"их\s+(?:распланируй|запланируй|расставь)|все\s+это|из\s+списка\s+выше)\b",
+    re.IGNORECASE,
+)
+WORD_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+SOURCE_STOPWORDS = {
+    "это", "этот", "эти", "дело", "дела", "задача", "задачи", "список",
+    "сегодня", "завтра", "послезавтра", "выходные", "выходной",
+    "запланируй", "распланируй", "планируй", "сделай", "нужно", "надо",
+}
 
 
 def looks_like_task_plan_candidate(text: str) -> bool:
@@ -101,17 +113,46 @@ def _clean_estimate(value: object) -> int:
     return max(5, int(round(minutes / 5.0) * 5))
 
 
-def _clean_items(raw_items: object) -> list[dict]:
+def _normalise_source(value: object) -> str:
+    return " ".join(str(value or "").casefold().replace("ё", "е").split()).strip(" .,:;!?-—")
+
+
+def _content_roots(value: object) -> set[str]:
+    roots = set()
+    for token in WORD_RE.findall(_normalise_source(value)):
+        if token in SOURCE_STOPWORDS or len(token) < 4 or token.isdigit():
+            continue
+        roots.add(token[:5])
+    return roots
+
+
+def _source_is_grounded(title: str, source_text: str, allowed_sources: list[str]) -> bool:
+    source = _normalise_source(source_text)
+    if not source:
+        return False
+    if not any(source in _normalise_source(candidate) for candidate in allowed_sources):
+        return False
+    title_roots = _content_roots(title)
+    source_roots = _content_roots(source_text)
+    return bool(title_roots and source_roots and title_roots.intersection(source_roots))
+
+
+def _clean_items(raw_items: object, *, allowed_sources: list[str] | None = None) -> list[dict]:
     if not isinstance(raw_items, list):
         return []
+    sources = [str(item) for item in (allowed_sources or []) if str(item).strip()]
     result = []
     seen = set()
     for raw in raw_items[:MAX_PLAN_ITEMS]:
         if not isinstance(raw, dict):
             continue
         title = _clean_title(raw.get("title"))
+        source_text = " ".join(str(raw.get("source_text") or "").split()).strip()
         key = title.casefold()
         if not title or key in seen:
+            continue
+        if sources and not _source_is_grounded(title, source_text, sources):
+            logger.warning("Rejected ungrounded AI task title=%r source=%r", title, source_text)
             continue
         seen.add(key)
         category = str(raw.get("category") or "other").strip().lower()
@@ -125,6 +166,26 @@ def _clean_items(raw_items: object) -> list[dict]:
             }
         )
     return result
+
+
+def _planning_sources(candidate: str, history: list[dict] | None) -> tuple[list[str], list[dict]]:
+    sources = [candidate]
+    if not REFERENCE_TO_PRIOR_LIST_RE.search(candidate):
+        return sources, []
+
+    prior_user_messages = []
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or str(item.get("role") or "") != "user":
+            continue
+        content = " ".join(str(item.get("content") or "").split()).strip()
+        if not content:
+            continue
+        prior_user_messages.append(content[:3000])
+        if len(prior_user_messages) >= 2:
+            break
+    prior_user_messages.reverse()
+    sources.extend(prior_user_messages)
+    return sources, [{"role": "user", "content": item} for item in prior_user_messages]
 
 
 def _history_messages(history: list[dict] | None) -> list[dict]:
@@ -152,12 +213,8 @@ def _date_from_user_text(user_id: int, text: str, now: datetime | None = None) -
 
 
 def _normalize_day(user_id: int, value: object, text: str, now: datetime | None = None) -> str:
-    raw = str(value or "").strip()
-    if raw:
-        try:
-            return date.fromisoformat(raw).isoformat()
-        except ValueError:
-            pass
+    # Never trust an AI-generated date unless the deterministic parser can find
+    # that date in the user's own message.
     parsed = _date_from_user_text(user_id, text, now)
     return parsed.isoformat() if parsed else ""
 
@@ -180,6 +237,7 @@ def interpret_task_plan(
         return None
 
     local = _local_now(user_id, now)
+    allowed_sources, reference_history = _planning_sources(candidate, history)
     system = (
         "Ты классификатор и оценщик списка дел для персонального планировщика. "
         "Ничего не выполняй сам. Верни только структуру по заданной JSON-схеме. "
@@ -187,8 +245,8 @@ def interpret_task_plan(
         "или явно просит распланировать ранее перечисленный список. Иначе intent=none. "
         "schedule=true только если пользователь прямо просит распланировать, разложить по времени, "
         "запланировать все дела или внести их в календарь. "
-        "Поле day: дата YYYY-MM-DD, только если день понятен из текущего запроса или контекста; "
-        "иначе пустая строка. "
+        "Поле day не выдумывай: дата допустима только если она явно названа пользователем. "
+        "Если даты нет — пустая строка. "
         f"Локальные дата и время пользователя: {local.isoformat()}. "
         "Разбивай список на отдельные короткие действия, не объединяй несколько дел в одно. "
         "estimate_minutes — реалистичный активный блок времени и всегда кратен 5. "
@@ -198,10 +256,14 @@ def interpret_task_plan(
         "Не раздувай длительность из-за важности задачи. Если не уверен — 30 минут. "
         "Используй только категории work, health, rest, travel, family, personal, other "
         "и приоритеты low, normal, high. "
-        "Историю используй только для разрешения ссылок вроде «этот список»; не добавляй из неё новые дела."
+        "Для каждого дела source_text — точная короткая цитата из сообщения пользователя, "
+        "которая прямо называет это действие. Нельзя придумывать действие по ассоциации. "
+        "Например, из слова «выходные» нельзя делать «поездка на дачу». "
+        "Слова «сегодня», «завтра», «выходные» сами по себе — время или контекст, а не отдельное дело. "
+        "Историю используй только когда текущий запрос явно ссылается на предыдущий список."
     )
     messages = [{"role": "system", "content": system}]
-    messages.extend(_history_messages(history))
+    messages.extend(reference_history)
     messages.append({"role": "user", "content": candidate[:10000]})
 
     try:
@@ -215,7 +277,7 @@ def interpret_task_plan(
 
     if not isinstance(payload, dict) or str(payload.get("intent") or "") != "task_list":
         return None
-    items = _clean_items(payload.get("items"))
+    items = _clean_items(payload.get("items"), allowed_sources=allowed_sources)
     if len(items) < 2:
         return None
     return {
