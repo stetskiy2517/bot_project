@@ -66,6 +66,8 @@ class ConversationPolicyTests(unittest.TestCase):
 
         self.assertIsNone(pending_retarget_target("Создай задачу купить молоко"))
         self.assertIsNone(pending_retarget_target("Добавь встречу завтра в 15:00"))
+        self.assertIsNone(pending_retarget_target("Это задача: купить молоко"))
+        self.assertIsNone(pending_retarget_target("Не событие, а задача купить молоко"))
 
     def test_entity_correction_interrupts_stale_pending(self):
         for text in (
