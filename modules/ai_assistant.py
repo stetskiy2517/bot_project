@@ -168,6 +168,60 @@ def _rate_limit_reply(error: AIRateLimitError) -> str:
     )
 
 
+ACTION_GROUNDING_TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+ACTION_GROUNDING_IGNORE = {
+    "добавь", "добавить", "создай", "создать", "поставь", "поставить",
+    "запиши", "записать", "измени", "изменить", "удали", "удалить",
+    "покажи", "напомни", "напомнить", "задача", "задачу", "задачи",
+    "заметка", "заметку", "заметки", "напоминание", "напоминания",
+    "событие", "события", "встреча", "встречу", "встречи", "календарь",
+    "дело", "дела", "мне", "мой", "моя", "мою", "пожалуйста",
+}
+NUMERIC_DATE_RE = re.compile(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b")
+
+
+def _grounding_roots(value: str) -> set[str]:
+    roots = set()
+    for token in ACTION_GROUNDING_TOKEN_RE.findall(
+        str(value or "").casefold().replace("ё", "е")
+    ):
+        if token in ACTION_GROUNDING_IGNORE or token.isdigit() or len(token) < 4:
+            continue
+        roots.add(token[:4])
+    return roots
+
+
+def _rewrite_is_grounded(original: str, rewritten: str) -> bool:
+    """Reject an AI rewrite that introduces facts absent from the user message."""
+    original_roots = _grounding_roots(original)
+    rewritten_roots = _grounding_roots(rewritten)
+    if rewritten_roots - original_roots:
+        return False
+
+    original_dates = set(NUMERIC_DATE_RE.findall(original))
+    rewritten_dates = set(NUMERIC_DATE_RE.findall(rewritten))
+    if rewritten_dates - original_dates:
+        return False
+
+    # Calendar parsers already understand colloquial time. Compare their parsed
+    # semantics so normalisation like "в 18" -> "18:00" is allowed, while an
+    # invented clock time or relative delay is rejected.
+    try:
+        from modules.calendar import _extract_time, _relative_offset
+        original_time = _extract_time(original)
+        rewritten_time = _extract_time(rewritten)
+        if rewritten_time is not None and rewritten_time != original_time:
+            return False
+        original_offset = _relative_offset(original)
+        rewritten_offset = _relative_offset(rewritten)
+        if rewritten_offset is not None and rewritten_offset != original_offset:
+            return False
+    except Exception:
+        logger.exception("Could not validate AI rewrite time grounding")
+        return False
+    return True
+
+
 ACTION_REWRITE_PREFIXES = (
     "добавь задачу ", "создай задачу ", "задача: ",
     "создай заметку ", "заметка: ",
@@ -222,6 +276,9 @@ def interpret_unhandled_action(text: str, *, user_id: int | None = None) -> str 
     lower = rewritten.casefold().replace("ё", "е")
     if not any(lower.startswith(prefix) for prefix in ACTION_REWRITE_PREFIXES):
         logger.warning("AI action rewrite rejected unsafe/noncanonical output: %r", rewritten)
+        return None
+    if not _rewrite_is_grounded(candidate, rewritten):
+        logger.warning("AI action rewrite rejected ungrounded output")
         return None
     return rewritten
 
