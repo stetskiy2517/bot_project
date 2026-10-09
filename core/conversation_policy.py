@@ -47,6 +47,57 @@ ENTITY_CORRECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+RETARGET_CLAUSE_RE = re.compile(
+    r"(?:^|[.!?;]\s*)"
+    r"(?:(?:не\s+)?(?:событ\w*|встреч\w*|задач\w*|заметк\w*|напоминани\w*)"
+    r"[^.!?;]{0,40})?"
+    r"(?:в\s+)?(?P<entity>событ\w*|встреч\w*|задач\w*|заметк\w*|напоминани\w*)"
+    r"\s+(?:сделай|добавь|добавить|создай|создать|запиши|записать|поставь|поставить)"
+    r"\s*[.!?]*$|"
+    r"(?:^|[.!?;]\s*)"
+    r"(?:сделай|создай|запиши|поставь)\s+(?:это\s+)?"
+    r"(?P<entity_after>событ\w*|встреч\w*|задач\w*|заметк\w*|напоминани\w*)"
+    r"\s*[.!?]*$",
+    re.IGNORECASE,
+)
+ENTITY_TOKEN_RE = re.compile(
+    r"\b(?:событ\w*|встреч\w*|задач\w*|заметк\w*|напоминани\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def _entity_kind(token: str) -> str | None:
+    value = _normalise(token)
+    if value.startswith(("событ", "встреч")):
+        return "calendar_event"
+    if value.startswith("задач"):
+        return "task"
+    if value.startswith("замет"):
+        return "note"
+    if value.startswith("напомин"):
+        return "reminder"
+    return None
+
+
+def pending_retarget_target(text: str) -> str | None:
+    """Return a new entity kind only for a correction of the active pending item.
+
+    Full new commands with their own payload are deliberately excluded; they must
+    interrupt the pending flow and route normally instead of reusing stale text.
+    """
+    raw = str(text or "")
+    correction = ENTITY_CORRECTION_RE.search(raw)
+    if correction:
+        tokens = ENTITY_TOKEN_RE.findall(raw)
+        return _entity_kind(tokens[-1]) if tokens else None
+
+    clause = RETARGET_CLAUSE_RE.search(raw)
+    if not clause:
+        return None
+    token = clause.group("entity") or clause.group("entity_after")
+    return _entity_kind(token)
+
+
 CLEAR_NEW_COMMAND_RE = re.compile(
     r"^\s*(?:"
     r"покажи\s+(?:календар\w*|расписан\w*|напоминани\w*|заметк\w*|задач\w*)|"
