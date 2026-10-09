@@ -195,9 +195,14 @@ def _planning_sources(candidate: str, history: list[dict] | None) -> tuple[list[
         content = " ".join(str(item.get("content") or "").split()).strip()
         if not content:
             continue
+        # A follow-up such as "распланируй их" may reuse only the nearest
+        # previous message that itself looks like a task list. Pulling arbitrary
+        # earlier user prose into the allowed source set can resurrect unrelated
+        # places or actions (for example an old mention of a dacha).
+        if not looks_like_task_plan_candidate(content):
+            continue
         prior_user_messages.append(content[:3000])
-        if len(prior_user_messages) >= 2:
-            break
+        break
     prior_user_messages.reverse()
     sources.extend(prior_user_messages)
     return sources, [{"role": "user", "content": item} for item in prior_user_messages]
