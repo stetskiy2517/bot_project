@@ -481,6 +481,7 @@ def canonicalize_english(text: str) -> str:
         (r"^\s*(?:create|add|make)\s+(?:a\s+|new\s+)?task\b", "создай задачу"),
         (r"^\s*(?:show|list)\s+(?:me\s+)?(?:my\s+)?tasks\b", "покажи мои задачи"),
         (r"^\s*(?:delete|remove)\s+(?:my\s+|the\s+)?task\b", "удали задачу"),
+        (r"^\s*(?:change|update|edit|reschedule)\s+(?:my\s+|the\s+)?task\b", "измени задачу"),
         (r"^\s*(?:complete|finish|close|mark)\s+(?:my\s+|the\s+)?task\b", "заверши задачу"),
         (r"^\s*what\s+do\s+i\s+(?:need|have)\s+to\s+do\b", "что мне нужно сделать"),
     )
