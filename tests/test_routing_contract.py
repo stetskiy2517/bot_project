@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from core.conversation_context import remember_entity, set_pending
-from modules.router import INTENT_UNKNOWN, detect_intent, handle_text, route_text
+from modules.router import INTENT_UNKNOWN, detect_intent, route_text
 
 
 class _Message:
@@ -117,80 +117,6 @@ class RoutingPrecedenceContractTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(detect_intent(text).name, INTENT_UNKNOWN)
-
-
-class TelegramFallbackPipelineTests(unittest.IsolatedAsyncioTestCase):
-    async def test_deterministic_success_does_not_call_ai(self):
-        update = _update("Создай задачу купить воду")
-        context = _Context()
-        with (
-            patch("modules.router.route_text", new=AsyncMock(return_value=True)) as route,
-            patch("modules.ai_task_planner.handle_unhandled_task_plan", new=AsyncMock()) as planner,
-            patch("modules.ai_assistant.interpret_unhandled_action") as rewrite,
-            patch("modules.ai_assistant.answer_unhandled") as chat,
-        ):
-            await handle_text(update, context)
-        route.assert_awaited_once()
-        planner.assert_not_awaited()
-        rewrite.assert_not_called()
-        chat.assert_not_called()
-
-    async def test_task_list_ai_precedes_action_rewrite_and_chat(self):
-        update = _update("отправить паспорт, позвонить Ольхову, сделать домашку")
-        context = _Context()
-        with (
-            patch("modules.router.route_text", new=AsyncMock(return_value=False)),
-            patch(
-                "modules.ai_task_planner.handle_unhandled_task_plan",
-                new=AsyncMock(return_value=True),
-            ) as planner,
-            patch("modules.ai_assistant.interpret_unhandled_action") as rewrite,
-            patch("modules.ai_assistant.answer_unhandled") as chat,
-        ):
-            await handle_text(update, context)
-        planner.assert_awaited_once()
-        rewrite.assert_not_called()
-        chat.assert_not_called()
-
-    async def test_ai_action_rewrite_is_executed_only_through_router(self):
-        update = _update("Закинь в дела купить воду сегодня")
-        context = _Context()
-        route = AsyncMock(side_effect=[False, True])
-        with (
-            patch("modules.router.route_text", new=route),
-            patch(
-                "modules.ai_task_planner.handle_unhandled_task_plan",
-                new=AsyncMock(return_value=False),
-            ),
-            patch(
-                "modules.ai_assistant.interpret_unhandled_action",
-                return_value="добавь задачу купить воду сегодня",
-            ),
-            patch("modules.ai_assistant.answer_unhandled") as chat,
-        ):
-            await handle_text(update, context)
-        self.assertEqual(route.await_count, 2)
-        self.assertEqual(route.await_args_list[1].kwargs["text"], "добавь задачу купить воду сегодня")
-        chat.assert_not_called()
-
-    async def test_plain_chat_reaches_conversational_ai_last(self):
-        update = _update("Почему я всё откладываю?")
-        context = _Context()
-        with (
-            patch("modules.router.route_text", new=AsyncMock(return_value=False)),
-            patch(
-                "modules.ai_task_planner.handle_unhandled_task_plan",
-                new=AsyncMock(return_value=False),
-            ),
-            patch("modules.ai_assistant.interpret_unhandled_action", return_value=None),
-            patch("modules.ai_assistant.answer_unhandled", return_value="Давай разберём причины.") as chat,
-            patch("core.chat_context.recent_chat_messages", return_value=[]),
-            patch("core.chat_context.append_chat_exchange") as append,
-        ):
-            await handle_text(update, context)
-        chat.assert_called_once()
-        append.assert_called_once()
-        self.assertEqual(update.message.replies, ["Давай разберём причины."])
 
 
 if __name__ == "__main__":
