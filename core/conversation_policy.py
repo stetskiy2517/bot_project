@@ -204,6 +204,40 @@ def is_clear_new_command(text: str) -> bool:
     return bool(CLEAR_NEW_COMMAND_RE.match(str(text or "")))
 
 
+FRESH_ENTITY_CORRECTION_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:не\s+(?:событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)\b"
+    r"[^.!?]{0,40}\b(?:а\s+)?)|"
+    r"(?:это\s+)|(?:пусть\s+будет\s+)|(?:считай\s+это\s+)"
+    r")"
+    r"(?P<entity>событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)"
+    r"\s*[:,-]?\s+(?P<payload>.+?)\s*$",
+    re.IGNORECASE,
+)
+FRESH_ENTITY_AFTER_VERB_RE = re.compile(
+    r"^\s*(?:в\s+)?(?P<entity>событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)"
+    r"\s+(?:сделай|добавь|добавить|создай|создать|запиши|записать|поставь|поставить)"
+    r"\s+(?P<payload>.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def pending_retarget_fresh_payload(text: str) -> tuple[str, str] | None:
+    """Extract a new entity and its new payload from a correction.
+
+    Unlike pending_retarget_target(), this never reuses stale pending text.
+    """
+    raw = str(text or "").strip()
+    match = FRESH_ENTITY_CORRECTION_RE.match(raw) or FRESH_ENTITY_AFTER_VERB_RE.match(raw)
+    if not match:
+        return None
+    target = _entity_kind(match.group("entity"))
+    payload = " ".join(str(match.group("payload") or "").split()).strip(" .,!?:;«»\"'")
+    if not target or not payload:
+        return None
+    return target, payload
+
+
 def should_resume_pending(pending: dict | None, text: str) -> bool:
     """Decide whether ``text`` belongs to the active pending interaction.
 
