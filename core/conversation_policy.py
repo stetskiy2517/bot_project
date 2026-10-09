@@ -235,6 +235,12 @@ def pending_retarget_fresh_payload(text: str) -> tuple[str, str] | None:
     payload = " ".join(str(match.group("payload") or "").split()).strip(" .,!?:;«»\"'")
     if not target or not payload:
         return None
+    if re.fullmatch(
+        r"(?:сделай|добавь|добавить|создай|создать|запиши|записать|поставь|поставить)",
+        payload,
+        flags=re.IGNORECASE,
+    ):
+        return None
     return target, payload
 
 
