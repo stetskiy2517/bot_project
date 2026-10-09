@@ -8,6 +8,7 @@ from typing import Any
 
 from core.chat_context import append_chat_exchange, recent_chat_messages
 from modules.ai_assistant import answer_unhandled, unhandled_reply_for
+from modules.assistant_flow import recover_unhandled_action
 from modules.language_support import detect_input_language
 from modules.router import route_text
 
@@ -82,6 +83,25 @@ async def handle_message_text(update: Any, context: Any, text: str) -> bool:
         return True
 
     history = recent_chat_messages(user_id)
+    try:
+        recovered = await recover_unhandled_action(
+            proxy,
+            context,
+            candidate,
+            user_id=user_id,
+            history=history,
+            route_func=route_text,
+        )
+    except Exception:
+        logger.exception("Telegram AI action recovery failed for user %s", user_id)
+        recovered = False
+
+    if recovered:
+        recorded = _context_reply(proxy.message.replies)
+        if recorded:
+            append_chat_exchange(user_id, candidate, recorded)
+        return True
+
     try:
         answer = await asyncio.to_thread(
             answer_unhandled,
