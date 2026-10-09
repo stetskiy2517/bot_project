@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import logging
 from pathlib import Path
 import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
@@ -40,7 +38,6 @@ from modules.yandex_auth import yandex_auth_api
 
 assistant_api = Blueprint("assistant", __name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-logger = logging.getLogger(__name__)
 PROACTIVE_AI_SETTINGS = {"proactive_reminders_enabled", "proactive_calendar_events_enabled"}
 
 
