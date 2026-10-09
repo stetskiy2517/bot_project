@@ -222,6 +222,47 @@ class AIWebFallbackTests(unittest.TestCase):
         self.assertTrue(payload["handled"])
         self.assertEqual(payload["replies"], ["Понял: таблетки в 23:00."])
 
+    def test_ai_chat_answer_is_persisted_in_idempotent_request_receipt(self):
+        async def unhandled_route(update, context, text=None):
+            return False
+
+        request_id = "1791530000000-0123456789abcdef0123456789abcdef"
+        with self.client.session_transaction() as stored:
+            stored.setdefault("csrf_token", "test-csrf-token")
+            csrf = stored["csrf_token"]
+
+        headers = {
+            "X-CSRF-Token": csrf,
+            "X-Request-ID": request_id,
+        }
+        with patch("web_app.route_text", side_effect=unhandled_route), patch(
+            "web_app.handle_unhandled_task_plan",
+            new=__import__("unittest.mock", fromlist=["AsyncMock"]).AsyncMock(return_value=False),
+        ), patch(
+            "web_app.interpret_unhandled_action",
+            return_value=None,
+        ), patch(
+            "web_app.answer_unhandled",
+            return_value="Сначала выбери одну небольшую задачу.",
+        ) as answer:
+            first = self.client.post(
+                "/api/chat",
+                json={"message": "Почему я всё откладываю?"},
+                headers=headers,
+            )
+            second = self.client.post(
+                "/api/chat",
+                json={"message": "Почему я всё откладываю?"},
+                headers=headers,
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.get_json()["replies"], ["Сначала выбери одну небольшую задачу."])
+        self.assertEqual(second.get_json()["replies"], ["Сначала выбери одну небольшую задачу."])
+        self.assertEqual(answer.call_count, 1)
+        self.assertEqual(second.headers.get("X-Request-Replayed"), "true")
+
     def test_unavailable_ai_keeps_safe_router_fallback(self):
         async def unhandled_route(update, context, text=None):
             return False
