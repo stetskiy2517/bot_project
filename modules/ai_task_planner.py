@@ -146,7 +146,10 @@ def _source_is_grounded(title: str, source_text: str, allowed_sources: list[str]
         return False
     title_roots = _content_roots(title)
     source_roots = _content_roots(source_text)
-    return bool(title_roots and source_roots and title_roots.intersection(source_roots))
+    # Every meaningful word in the model's title must already be present in the
+    # quoted user source. A single overlapping word is not enough: that allowed
+    # hallucinations such as "поездка на дачу" from "поездка на выходные".
+    return bool(title_roots and source_roots and title_roots.issubset(source_roots))
 
 
 def _clean_items(raw_items: object, *, allowed_sources: list[str] | None = None) -> list[dict]:
