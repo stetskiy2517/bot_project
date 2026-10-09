@@ -7,6 +7,7 @@ Smart Planner scheduling/validation layer.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, time, timedelta, timezone
 import logging
 import re
@@ -439,7 +440,12 @@ async def handle_unhandled_task_plan(
     history: list[dict] | None = None,
 ) -> bool:
     user_id = int(update.effective_user.id)
-    plan = interpret_task_plan(text, user_id=user_id, history=history)
+    plan = await asyncio.to_thread(
+        interpret_task_plan,
+        text,
+        user_id=user_id,
+        history=history,
+    )
     if not plan:
         return False
 
