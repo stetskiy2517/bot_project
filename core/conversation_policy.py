@@ -37,6 +37,16 @@ EXPLICIT_MODULE_SWITCH_RE = re.compile(
     re.IGNORECASE,
 )
 
+ENTITY_CORRECTION_RE = re.compile(
+    r"(?:"
+    r"\bне\s+(?:событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)\b"
+    r"[^.!?]{0,50}\b(?:а\s+)?(?:событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)\b|"
+    r"\b(?:это|пусть\s+будет|считай\s+это)\s+"
+    r"(?:событ\w*|встреч\w*|напоминани\w*|задач\w*|заметк\w*)\b"
+    r")",
+    re.IGNORECASE,
+)
+
 CLEAR_NEW_COMMAND_RE = re.compile(
     r"^\s*(?:"
     r"покажи\s+(?:календар\w*|расписан\w*|напоминани\w*|заметк\w*|задач\w*)|"
@@ -153,7 +163,9 @@ def should_resume_pending(pending: dict | None, text: str) -> bool:
     # example, «Покажи календарь на завтра» must interrupt «Во сколько поставить?»
     # instead of being consumed as a malformed time answer.
     if pending_type in INTERRUPTIBLE_PENDING_TYPES and (
-        is_clear_new_command(text) or EXPLICIT_MODULE_SWITCH_RE.search(text)
+        is_clear_new_command(text)
+        or EXPLICIT_MODULE_SWITCH_RE.search(text)
+        or ENTITY_CORRECTION_RE.search(text)
     ):
         return False
 
