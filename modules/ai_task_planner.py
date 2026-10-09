@@ -83,6 +83,17 @@ SOURCE_STOPWORDS = {
     "сегодня", "завтра", "послезавтра", "выходные", "выходной",
     "запланируй", "распланируй", "планируй", "сделай", "нужно", "надо",
 }
+EXPLICIT_SCHEDULE_RE = re.compile(
+    r"(?:^|[.!?;:]\s*)(?:распланируй|распланировать|запланируй|запланировать|"
+    r"разложи\s+по\s+времени|расставь\s+по\s+времени|раскидай\s+по\s+дню|"
+    r"внеси\s+(?:это|их|дела|задачи|список)?\s*в\s+календар)\b",
+    re.IGNORECASE,
+)
+
+
+def _schedule_requested(text: str) -> bool:
+    """Only explicit imperative/infinitive planning commands authorize calendar writes."""
+    return bool(EXPLICIT_SCHEDULE_RE.search(str(text or "")))
 
 
 def looks_like_task_plan_candidate(text: str) -> bool:
@@ -282,7 +293,7 @@ def interpret_task_plan(
         return None
     return {
         "items": items,
-        "schedule": bool(payload.get("schedule")),
+        "schedule": _schedule_requested(candidate),
         "day": _normalize_day(user_id, payload.get("day"), candidate, now),
     }
 
