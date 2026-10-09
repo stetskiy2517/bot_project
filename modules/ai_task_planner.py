@@ -122,7 +122,7 @@ def _content_roots(value: object) -> set[str]:
     for token in WORD_RE.findall(_normalise_source(value)):
         if token in SOURCE_STOPWORDS or len(token) < 4 or token.isdigit():
             continue
-        roots.add(token[:5])
+        roots.add(token[:4])
     return roots
 
 
