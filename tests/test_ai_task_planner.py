@@ -204,6 +204,46 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertFalse(result["schedule"])
 
+    def test_execute_plan_rolls_back_created_tasks_if_preview_fails(self):
+        items = [
+            {
+                "title": "Отправить паспорт Артему",
+                "estimate_minutes": 5,
+                "category": "personal",
+                "priority": "normal",
+            },
+            {
+                "title": "Позвонить Ольхову",
+                "estimate_minutes": 15,
+                "category": "work",
+                "priority": "normal",
+            },
+        ]
+        created = [
+            {"task_id": 21, **items[0]},
+            {"task_id": 22, **items[1]},
+        ]
+        with patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner._list_events", return_value=[]), \
+             patch("modules.ai_task_planner.create_planner_task", side_effect=created), \
+             patch(
+                 "modules.ai_task_planner.preview_flexible_schedule",
+                 side_effect=RuntimeError("calendar temporarily unavailable"),
+             ), \
+             patch("modules.ai_task_planner.delete_planner_task", return_value=True) as delete:
+            with self.assertRaises(RuntimeError):
+                execute_task_plan(
+                    42,
+                    items,
+                    date(2026, 10, 9),
+                    now=datetime(2026, 10, 9, 5, 48, tzinfo=timezone.utc),
+                )
+
+        self.assertEqual(
+            [call.args for call in delete.call_args_list],
+            [(42, 22), (42, 21)],
+        )
+
     def test_execute_plan_uses_requested_day_window(self):
         items = [
             {
