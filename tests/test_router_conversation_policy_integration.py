@@ -148,6 +148,32 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.await_args.args[2], "создай задачу купить молоко")
         self.assertIsNone(get_pending(context))
 
+    async def test_fresh_task_payload_correction_does_not_reuse_stale_event_text(self):
+        update = SimpleNamespace(
+            message=_Message("Это задача: купить молоко"),
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = _Context({
+            "smart_planner_context": {
+                "version": 1,
+                "current_entity": None,
+                "recent_entities": [],
+                "pending": {"type": "create_time", "text": "старая встреча"},
+            }
+        })
+
+        with patch(
+            "modules.router.handle_task_text",
+            new=AsyncMock(return_value=True),
+        ) as task:
+            handled = await route_text(update, context)
+
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        self.assertEqual(task.await_args.args[2], "создай задачу купить молоко")
+        self.assertNotIn("старая встреча", task.await_args.args[2])
+        self.assertIsNone(get_pending(context))
+
     async def test_plain_new_task_command_does_not_reuse_stale_pending_payload(self):
         update = SimpleNamespace(
             message=_Message("Создай задачу купить молоко"),
