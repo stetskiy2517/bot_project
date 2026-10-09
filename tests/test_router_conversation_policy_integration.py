@@ -90,6 +90,59 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
         free_slots.assert_awaited_once_with(update, context, "Когда завтра свободно?")
         self.assertNotIn("smart_planner_pending", context.user_data)
 
+    async def test_entity_correction_reuses_pending_payload_as_task(self):
+        update = SimpleNamespace(
+            message=_Message("Не событие, задачу сделай"),
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = _Context({
+            "smart_planner_context": {
+                "version": 1,
+                "current_entity": None,
+                "recent_entities": [],
+                "pending": {"type": "create_time", "text": "постирать белье на сегодня"},
+            }
+        })
+
+        with patch(
+            "modules.router.handle_task_text",
+            new=AsyncMock(return_value=True),
+        ) as task:
+            handled = await route_text(update, context)
+
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        self.assertEqual(
+            task.await_args.args[2],
+            "создай задачу постирать белье на сегодня",
+        )
+        self.assertIsNone(get_pending(context))
+
+    async def test_plain_new_task_command_does_not_reuse_stale_pending_payload(self):
+        update = SimpleNamespace(
+            message=_Message("Создай задачу купить молоко"),
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = _Context({
+            "smart_planner_context": {
+                "version": 1,
+                "current_entity": None,
+                "recent_entities": [],
+                "pending": {"type": "create_time", "text": "старая встреча"},
+            }
+        })
+
+        with patch(
+            "modules.router.handle_task_text",
+            new=AsyncMock(return_value=True),
+        ) as task:
+            handled = await route_text(update, context)
+
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        self.assertEqual(task.await_args.args[2], "Создай задачу купить молоко")
+        self.assertIsNone(get_pending(context))
+
     async def test_time_reply_stays_inside_time_prompt(self):
         update = SimpleNamespace(
             message=_Message("завтра в 15"),
