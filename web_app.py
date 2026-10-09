@@ -31,8 +31,9 @@ from core.db import (
     save_user_timezone,
     save_user_appearance_theme,
 )
+from core.ai_memory_store import record_ai_memory_event
 from core.assistant_preferences import quiet_until
-from core.chat_context import recent_chat_messages
+from core.chat_context import append_chat_exchange, recent_chat_messages
 from core.conversation_context import (
     clear_current_entity,
     clear_user_state,
@@ -60,13 +61,14 @@ from integrations.speech import normalize_time_format, transcribe_audio
 from integrations.google_calendar_service import GoogleAuthRequired
 from integrations.web_push import get_vapid_public_key
 from modules.auth import build_web_signin_url, complete_web_signin
+from modules.email import detect_email_intent
 from modules.navigation import estimate_route, navigation_configured, navigation_provider
 from modules.navigation_monitor import request_navigation_recalculation, start_navigation_monitor_worker
 from modules.note_conversation import remember_active_note
 from modules.reminder_dispatcher import send_test_push_for_user, start_reminder_push_worker
 from modules.reminders import claim_due_for_user
 from modules.assistant_api import assistant_api
-from modules.ai_assistant import interpret_unhandled_action, unhandled_reply_for
+from modules.ai_assistant import answer_unhandled, interpret_unhandled_action, unhandled_reply_for
 from modules.ai_task_planner import handle_unhandled_task_plan
 from core.undo_store import init_undo_store
 from core.user_activity_store import record_user_activity, set_request_diagnostic
@@ -217,8 +219,28 @@ def _parse_future_reminder_time(value) -> datetime:
     return parsed
 
 
-async def process_web_message(text: str, user_id: int, user_name: str) -> WebPlannerResult:
-    """Route text through deterministic logic, then use AI only as an intent rewrite fallback."""
+def _journal_ai_user_utterance(user_id: int, text: str, channel: str) -> None:
+    clean = str(text or "").strip()
+    if not clean:
+        return
+    entity_id = time.time_ns() & ((1 << 63) - 1)
+    record_ai_memory_event(
+        user_id,
+        "voice_transcript",
+        entity_id or 1,
+        "recognized" if channel == "voice" else "created",
+        {"text": clean, "channel": channel},
+    )
+
+
+async def process_web_message(
+    text: str,
+    user_id: int,
+    user_name: str,
+    *,
+    channel: str = "chat",
+) -> WebPlannerResult:
+    """Run one ordered message -> intent -> validated action -> chat pipeline."""
     update = WebUpdate(user_id, user_name, text)
     context = WebContext(_state_for(user_id))
     handled = await route_text(update, context, text=text)
@@ -231,6 +253,8 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
             text,
             history=recent_chat_messages(user_id),
         )
+        if handled:
+            set_request_diagnostic(ai_fallback="task_plan")
 
     if not handled and not replies:
         rewritten = interpret_unhandled_action(text, user_id=user_id)
@@ -241,6 +265,23 @@ async def process_web_message(text: str, user_id: int, user_name: str) -> WebPla
             if handled:
                 set_request_diagnostic(ai_fallback="action_rewrite")
                 replies.extend(recovery_update.message.replies)
+
+    # Conversational AI belongs inside the command pipeline, before Flask
+    # finalizes the response/request receipt. Keeping it out of after_request
+    # guarantees that idempotent replays return the same answer and diagnostics
+    # describe what the user actually received.
+    if not handled and not replies and not detect_email_intent(text):
+        history = recent_chat_messages(user_id)
+        answer = answer_unhandled(text, user_id=user_id, history=history)
+        if answer:
+            try:
+                _journal_ai_user_utterance(user_id, text, channel)
+            except Exception:
+                logger.exception("Failed to journal user utterance for AI memory")
+            append_chat_exchange(user_id, text, answer)
+            set_request_diagnostic(ai_fallback="chat")
+            replies.append(answer)
+            handled = True
 
     if not handled and not replies:
         replies.append(unhandled_reply_for(text))
@@ -703,7 +744,12 @@ def create_web_app() -> Flask:
         try:
             mark_executing()
             result = asyncio.run(
-                process_web_message(text, user_id, account.get("name") or account["email"])
+                process_web_message(
+                    text,
+                    user_id,
+                    account.get("name") or account["email"],
+                    channel="voice",
+                )
             )
         except GoogleAuthRequired:
             return jsonify(
