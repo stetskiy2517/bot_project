@@ -118,6 +118,36 @@ class RouterPendingInterruptionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(get_pending(context))
 
+    async def test_reminder_time_can_be_retargeted_to_task_without_losing_payload(self):
+        update = SimpleNamespace(
+            message=_Message("Не напоминание, а задача"),
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = _Context({
+            "smart_planner_context": {
+                "version": 1,
+                "current_entity": None,
+                "recent_entities": [],
+                "pending": {
+                    "type": "reminder_time",
+                    "text": "напомни купить молоко",
+                    "title": "Купить молоко",
+                    "timezone": "Europe/Moscow",
+                },
+            }
+        })
+
+        with patch(
+            "modules.router.handle_task_text",
+            new=AsyncMock(return_value=True),
+        ) as task:
+            handled = await route_text(update, context)
+
+        self.assertTrue(handled)
+        task.assert_awaited_once()
+        self.assertEqual(task.await_args.args[2], "создай задачу купить молоко")
+        self.assertIsNone(get_pending(context))
+
     async def test_plain_new_task_command_does_not_reuse_stale_pending_payload(self):
         update = SimpleNamespace(
             message=_Message("Создай задачу купить молоко"),
