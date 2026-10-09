@@ -180,14 +180,14 @@ class AIAssistantTests(unittest.TestCase):
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_action_rewrite_rejects_invented_time(self, _available, _complete):
         self.assertIsNone(
-            interpret_unhandled_action("Завтра созвон с Иваном")
+            interpret_unhandled_action("Закинь созвон с Иваном на завтра")
         )
 
     @patch("modules.ai_assistant.complete", return_value="создай встречу созвон с Иваном завтра в 18:00")
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_action_rewrite_allows_time_format_normalization(self, _available, _complete):
         self.assertEqual(
-            interpret_unhandled_action("Завтра в 18 созвон с Иваном"),
+            interpret_unhandled_action("Закинь созвон с Иваном на завтра в 18"),
             "создай встречу созвон с Иваном завтра в 18:00",
         )
 
@@ -210,7 +210,7 @@ class AIAssistantTests(unittest.TestCase):
     @patch("modules.ai_assistant.is_ai_available", return_value=True)
     def test_english_action_rewrite_allows_same_explicit_time(self, _available, _complete):
         self.assertEqual(
-            interpret_unhandled_action("Tomorrow at 6 PM, call with Ivan"),
+            interpret_unhandled_action("Book a call with Ivan tomorrow at 6 PM"),
             "schedule call with Ivan tomorrow at 6 PM",
         )
 
