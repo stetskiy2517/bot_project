@@ -82,6 +82,7 @@ class ConversationPolicyTests(unittest.TestCase):
                 self.assertEqual(pending_retarget_fresh_payload(text), expected)
 
         self.assertIsNone(pending_retarget_fresh_payload("Не событие, а задача"))
+        self.assertIsNone(pending_retarget_fresh_payload("Не событие, задачу сделай"))
 
     def test_entity_correction_interrupts_stale_pending(self):
         for text in (
