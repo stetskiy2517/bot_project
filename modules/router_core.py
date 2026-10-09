@@ -596,8 +596,23 @@ def _pending_creation_payload(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
-    # Strip only an explicit old calendar-create wrapper. Bare nouns remain part
-    # of the user's content because they may be meaningful task/note titles.
+
+    # Strip only the old entity wrapper. Keep dates, times and the user's actual
+    # action/title so the new module receives the same payload.
+    text = re.sub(
+        r"^\s*(?:напомни|напомнить|не\s+забудь)\s+(?:мне\s+)?",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"^\s*(?:создай|создать|добавь|добавить|поставь|поставить)\s+напоминани\w*\s*",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
     text = re.sub(
         r"^\s*(?:добавь|добавить|создай|создать|поставь|поставить|запланируй|запланировать|назначь|назначить)\s+"
         r"(?:(?:в|на)\s+календар\w*\s+)?"
@@ -606,33 +621,35 @@ def _pending_creation_payload(value: object) -> str:
         text,
         count=1,
         flags=re.IGNORECASE,
-    ).strip(" ,.-")
-    return text
+    )
+    return text.strip(" ,.-")
 
 
 async def _retarget_pending_creation(update, context, pending: dict, target: str) -> bool:
     """Reuse the pending payload when the user corrects only its entity type."""
-    if str(pending.get("type") or "") != "create_time":
+    pending_type = str(pending.get("type") or "")
+    if pending_type not in {"create_time", "reminder_time"}:
         return False
+
     payload = _pending_creation_payload(pending.get("text"))
     if not payload:
         return False
+    source_kind = "calendar_event" if pending_type == "create_time" else "reminder"
 
-    if target == "calendar_event":
-        # The user confirmed the same entity type but still did not provide the
-        # missing time. Preserve the pending payload instead of discarding it.
+    if target == source_kind:
         set_pending(context, pending)
-        await update.message.reply_text("Во сколько поставить событие?")
-        set_request_diagnostic(route="pending", intent="create_time_reconfirmed")
+        prompt = "Во сколько поставить событие?" if source_kind == "calendar_event" else "Когда напомнить?"
+        await update.message.reply_text(prompt)
+        set_request_diagnostic(route="pending", intent=f"{pending_type}_reconfirmed")
         return True
 
-    _clear_pending(context)
     if target == "task":
         canonical = f"создай задачу {payload}"
         intent = detect_task_intent(canonical)
         if not intent:
             return False
-        set_request_diagnostic(route="task", intent="retarget_from_calendar")
+        _clear_pending(context)
+        set_request_diagnostic(route="task", intent=f"retarget_from_{source_kind}")
         return await handle_task_text(update, context, canonical, intent)
 
     if target == "note":
@@ -640,7 +657,8 @@ async def _retarget_pending_creation(update, context, pending: dict, target: str
         intent = detect_note_intent(canonical)
         if not intent:
             return False
-        set_request_diagnostic(route="note", intent="retarget_from_calendar")
+        _clear_pending(context)
+        set_request_diagnostic(route="note", intent=f"retarget_from_{source_kind}")
         return await handle_note_text(update, context, canonical, intent)
 
     if target == "reminder":
@@ -648,8 +666,28 @@ async def _retarget_pending_creation(update, context, pending: dict, target: str
         intent = detect_reminder_intent(canonical)
         if not intent:
             return False
-        set_request_diagnostic(route="reminder", intent="retarget_from_calendar")
+        _clear_pending(context)
+        set_request_diagnostic(route="reminder", intent=f"retarget_from_{source_kind}")
         return await handle_reminder_text(update, context, canonical, intent)
+
+    if target == "calendar_event":
+        canonical = f"создай событие {payload}"
+        intent = detect_intent(canonical)
+        if intent.name != INTENT_CREATE:
+            return False
+        _clear_pending(context)
+        if _needs_time(canonical):
+            set_pending(context, {"type": "create_time", "text": canonical})
+            prompt = (
+                "Во сколько поставить событие?"
+                if DATE_HINT_RE.search(_normalise(canonical))
+                else "Когда поставить событие? Напиши, например: «22:00» или «завтра в 19»."
+            )
+            await update.message.reply_text(prompt)
+            set_request_diagnostic(route="calendar", intent="retarget_needs_time")
+            return True
+        set_request_diagnostic(route="calendar", intent="retarget_create")
+        return await create_from_text(update, context, canonical)
 
     return False
 
