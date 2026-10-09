@@ -88,8 +88,20 @@ def pending_retarget_target(text: str) -> str | None:
     raw = str(text or "")
     correction = ENTITY_CORRECTION_RE.search(raw)
     if correction:
-        tokens = ENTITY_TOKEN_RE.findall(raw)
-        return _entity_kind(tokens[-1]) if tokens else None
+        matches = list(ENTITY_TOKEN_RE.finditer(raw))
+        if not matches:
+            return None
+        tail = raw[matches[-1].end():].strip(" \t\r\n.,!?;:—–-")
+        # Reuse stale pending content only when the user is correcting the type
+        # itself. If they supplied fresh payload after the new entity ("это
+        # задача: купить молоко"), route that new command normally.
+        if tail and not re.fullmatch(
+            r"(?:сделай|добавь|добавить|создай|создать|запиши|записать|поставь|поставить)",
+            tail,
+            flags=re.IGNORECASE,
+        ):
+            return None
+        return _entity_kind(matches[-1].group(0))
 
     clause = RETARGET_CLAUSE_RE.search(raw)
     if not clause:
