@@ -125,21 +125,58 @@ async def route_text(update, context, text: str | None = None) -> bool:
 
 
 async def handle_text(update, context) -> None:
-    """Telegram text entrypoint with the same error boundary as the old router."""
+    """Telegram entrypoint with the same deterministic -> AI fallback pipeline as web."""
     try:
-        handled = await route_text(update, context)
+        if not getattr(update, "message", None):
+            return
+        raw = (getattr(update.message, "text", "") or "").strip()
+        if not raw:
+            return
+
+        handled = await route_text(update, context, text=raw)
         if handled:
             return
-        if getattr(update, "message", None):
-            language = detect_input_language(getattr(update.message, "text", "") or "")
-            await update.message.reply_text(
-                "I didn't understand the command. Try rephrasing it or add a date/time."
-                if language == "en"
-                else (
-                    "Не понял команду. Например: «врач завтра в 19:00» "
-                    "или «напомни через 30 минут позвонить»."
-                )
+
+        # Local imports avoid coupling the deterministic router core to the LLM
+        # layer while keeping Telegram and web behavior aligned.
+        from core.chat_context import append_chat_exchange, recent_chat_messages
+        from modules.ai_assistant import answer_unhandled, interpret_unhandled_action
+        from modules.ai_task_planner import handle_unhandled_task_plan
+
+        user_id = getattr(getattr(update, "effective_user", None), "id", None)
+        history = recent_chat_messages(user_id) if user_id is not None else []
+
+        handled = await handle_unhandled_task_plan(
+            update,
+            context,
+            raw,
+            history=history,
+        )
+        if handled:
+            return
+
+        rewritten = interpret_unhandled_action(raw, user_id=user_id)
+        if rewritten and rewritten.casefold() != raw.casefold():
+            handled = await route_text(update, context, text=rewritten)
+            if handled:
+                return
+
+        answer = answer_unhandled(raw, user_id=user_id, history=history)
+        if answer:
+            if user_id is not None:
+                append_chat_exchange(user_id, raw, answer)
+            await update.message.reply_text(answer)
+            return
+
+        language = detect_input_language(raw)
+        await update.message.reply_text(
+            "I didn't understand the command. Try rephrasing it or add a date/time."
+            if language == "en"
+            else (
+                "Не понял команду. Например: «врач завтра в 19:00» "
+                "или «напомни через 30 минут позвонить»."
             )
+        )
     except Exception:
         logger.exception("Unhandled error in text router")
         if getattr(update, "message", None):
