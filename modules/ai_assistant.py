@@ -169,6 +169,33 @@ def _rate_limit_reply(error: AIRateLimitError) -> str:
     )
 
 
+ACTION_REQUEST_RE = re.compile(
+    r"(?:^|\b)(?:"
+    r"добавь|добавить|добавишь|создай|создать|создашь|поставь|поставить|поставишь|"
+    r"запиши|записать|запишешь|внеси|внести|закинь|закинуть|черкани|черкануть|"
+    r"маякни|маякнуть|напомни|напомнить|покажи|показать|удали|удалить|убери|убрать|"
+    r"измени|изменить|поменяй|поменять|перенеси|перенести|сдвинь|сдвинуть|"
+    r"запланируй|запланировать|распланируй|распланировать|назначь|назначить|"
+    r"create|add|make|save|write|schedule|plan|book|show|list|delete|remove|cancel|"
+    r"change|update|edit|reschedule|remind|jot|put|ping"
+    r")\b",
+    re.IGNORECASE,
+)
+POLITE_ACTION_RE = re.compile(
+    r"^\s*(?:(?:можешь|можно|пожалуйста)\b[^.!?]{0,40}\b"
+    r"(?:добавить|создать|поставить|записать|внести|напомнить|показать|удалить|"
+    r"изменить|перенести|запланировать)|"
+    r"(?:could|can|would)\s+you\b[^.!?]{0,40}\b"
+    r"(?:add|create|schedule|save|write|remind|show|delete|remove|change|update|reschedule))",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_action_request(text: str) -> bool:
+    candidate = str(text or "").strip()
+    return bool(candidate and (ACTION_REQUEST_RE.search(candidate) or POLITE_ACTION_RE.search(candidate)))
+
+
 ACTION_GROUNDING_TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 ACTION_GROUNDING_IGNORE = {
     "добавь", "добавить", "создай", "создать", "поставь", "поставить",
@@ -252,7 +279,12 @@ def interpret_unhandled_action(text: str, *, user_id: int | None = None) -> str 
     the deterministic router validates and executes the rewritten command.
     """
     candidate = " ".join(str(text or "").split()).strip()
-    if not candidate or not has_ai_access(user_id) or not is_ai_available():
+    if (
+        not candidate
+        or not _looks_like_action_request(candidate)
+        or not has_ai_access(user_id)
+        or not is_ai_available()
+    ):
         return None
 
     language = detect_input_language(candidate)
