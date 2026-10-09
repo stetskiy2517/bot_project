@@ -52,6 +52,17 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertFalse(should_resume_pending(pending, "Покажи календарь на завтра"))
         self.assertFalse(should_resume_pending(pending, "Когда завтра свободно?"))
 
+    def test_entity_correction_interrupts_stale_pending(self):
+        for text in (
+            "Не событие, а задача",
+            "Это задача: купить молоко",
+            "Пусть будет напоминание",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(
+                    should_resume_pending({"type": "create_time"}, text)
+                )
+
     def test_freeform_prompt_keeps_normal_payload(self):
         pending = {"type": "free_slot_title"}
         self.assertTrue(should_resume_pending(pending, "встреча с Иваном"))
