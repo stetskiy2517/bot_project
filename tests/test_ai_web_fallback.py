@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import web_app
 from core.conversation_context import clear_user_state
@@ -237,7 +237,7 @@ class AIWebFallbackTests(unittest.TestCase):
         }
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
             "web_app.handle_unhandled_task_plan",
-            new=__import__("unittest.mock", fromlist=["AsyncMock"]).AsyncMock(return_value=False),
+            new=AsyncMock(return_value=False),
         ), patch(
             "web_app.interpret_unhandled_action",
             return_value=None,
