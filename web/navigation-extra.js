@@ -481,20 +481,27 @@
     });
   }
 
+  function installFromDocumentReady() {
+    install();
+    const control = document.getElementById("navigationEnabled");
+    if (control) {
+      applyNavigationUiState(control.value === "true");
+      if (document.documentElement.dataset.navigationEnabled === "true") {
+        setNavigationActive(true, {notify: false});
+      }
+    }
+  }
+
   document.addEventListener("planner-ready", () => {
     install();
     syncMasterFromSavedSettings();
   });
-  if (document.readyState !== "loading") {
-    setTimeout(() => {
-      install();
-      const control = document.getElementById("navigationEnabled");
-      if (control) {
-        applyNavigationUiState(control.value === "true");
-        if (document.documentElement.dataset.navigationEnabled === "true") {
-          setNavigationActive(true, {notify: false});
-        }
-      }
-    }, 0);
+
+  // The main app may emit planner-ready before this late script is evaluated,
+  // especially on fast WebKit loads. DOMContentLoaded is the durable fallback.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installFromDocumentReady, {once: true});
+  } else {
+    setTimeout(installFromDocumentReady, 0);
   }
 })();
