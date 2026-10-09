@@ -169,6 +169,41 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["day"], "")
 
+    def test_first_person_future_does_not_authorize_calendar_write(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": True,
+            "day": "2026-10-16",
+            "items": [
+                {
+                    "title": "Починить шкаф",
+                    "estimate_minutes": 60,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "починить шкаф",
+                },
+                {
+                    "title": "Убрать ванную",
+                    "estimate_minutes": 30,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "убрать ванную",
+                },
+            ],
+        }
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload):
+            result = interpret_task_plan(
+                "Я запланирую на пятницу: починить шкаф, убрать ванную",
+                user_id=42,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNotNone(result)
+        self.assertFalse(result["schedule"])
+
     def test_execute_plan_uses_requested_day_window(self):
         items = [
             {
