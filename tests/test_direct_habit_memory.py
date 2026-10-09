@@ -65,7 +65,7 @@ class DirectHabitMemoryTests(unittest.TestCase):
 
     def test_plain_habit_message_goes_to_memory_without_creating_note(self):
         text = "Я каждый день в 19:00 гуляю с собакой"
-        with patch("modules.assistant_api.answer_unhandled", return_value="Понял твою привычку."):
+        with patch("web_app.answer_unhandled", return_value="Понял твою привычку."):
             response = self.client.post("/api/chat", json={"message": text})
 
         self.assertEqual(response.status_code, 200)
