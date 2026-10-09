@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from core.conversation_context import clear_pending, current_entity, get_pending, set_pending
 from core.user_activity_store import set_request_diagnostic
-from core.conversation_policy import is_declarative_statement, should_resume_pending
+from core.conversation_policy import is_declarative_statement, pending_retarget_target, should_resume_pending
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
 from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
@@ -592,6 +592,68 @@ async def _route_current_entity_action(
     return False
 
 
+def _pending_creation_payload(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    # Strip only an explicit old calendar-create wrapper. Bare nouns remain part
+    # of the user's content because they may be meaningful task/note titles.
+    text = re.sub(
+        r"^\s*(?:добавь|добавить|создай|создать|поставь|поставить|запланируй|запланировать|назначь|назначить)\s+"
+        r"(?:(?:в|на)\s+календар\w*\s+)?"
+        r"(?:(?:встреч\w*|событ\w*|созвон\w*)\s+)?",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip(" ,.-")
+    return text
+
+
+async def _retarget_pending_creation(update, context, pending: dict, target: str) -> bool:
+    """Reuse the pending payload when the user corrects only its entity type."""
+    if str(pending.get("type") or "") != "create_time":
+        return False
+    payload = _pending_creation_payload(pending.get("text"))
+    if not payload:
+        return False
+
+    if target == "calendar_event":
+        # The user confirmed the same entity type but still did not provide the
+        # missing time. Preserve the pending payload instead of discarding it.
+        set_pending(context, pending)
+        await update.message.reply_text("Во сколько поставить событие?")
+        set_request_diagnostic(route="pending", intent="create_time_reconfirmed")
+        return True
+
+    _clear_pending(context)
+    if target == "task":
+        canonical = f"создай задачу {payload}"
+        intent = detect_task_intent(canonical)
+        if not intent:
+            return False
+        set_request_diagnostic(route="task", intent="retarget_from_calendar")
+        return await handle_task_text(update, context, canonical, intent)
+
+    if target == "note":
+        canonical = f"создай заметку {payload}"
+        intent = detect_note_intent(canonical)
+        if not intent:
+            return False
+        set_request_diagnostic(route="note", intent="retarget_from_calendar")
+        return await handle_note_text(update, context, canonical, intent)
+
+    if target == "reminder":
+        canonical = f"напомни {payload}"
+        intent = detect_reminder_intent(canonical)
+        if not intent:
+            return False
+        set_request_diagnostic(route="reminder", intent="retarget_from_calendar")
+        return await handle_reminder_text(update, context, canonical, intent)
+
+    return False
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -604,6 +666,14 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     pending = _pending(context)
     if pending:
+        retarget = pending_retarget_target(text)
+        if retarget and await _retarget_pending_creation(update, context, pending, retarget):
+            logger.info(
+                "Router retargeted pending type=%s to entity=%s",
+                pending.get("type"),
+                retarget,
+            )
+            return True
         if should_resume_pending(pending, text):
             if await _resume_pending(update, context, text):
                 set_request_diagnostic(route="pending", intent=str(pending.get("type") or "pending"))
