@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from core.conversation_context import clear_pending, set_pending
 from core.db import get_user_timezone
 from core.feature_access import has_ai_access
-from core.task_planner_store import create_planner_task
+from core.task_planner_store import create_planner_task, delete_planner_task
 from core.user_activity_store import set_request_diagnostic
 from integrations.ai import AIError, complete_structured, is_ai_available
 from modules.calendar import _date_from_text
@@ -328,27 +328,42 @@ def execute_task_plan(
 
     due_at = (day_end - timedelta(minutes=1)).isoformat()
     created = []
-    for item in clean_items:
-        created.append(
-            create_planner_task(
-                user_id,
-                item["title"],
-                due_at=due_at,
-                priority=item["priority"],
-                category=item["category"],
-                estimate_minutes=item["estimate_minutes"],
-                flexible=True,
+    try:
+        for item in clean_items:
+            created.append(
+                create_planner_task(
+                    user_id,
+                    item["title"],
+                    due_at=due_at,
+                    priority=item["priority"],
+                    category=item["category"],
+                    estimate_minutes=item["estimate_minutes"],
+                    flexible=True,
+                )
             )
-        )
 
-    task_ids = {int(task["task_id"]) for task in created if task.get("task_id") is not None}
-    preview = preview_flexible_schedule(
-        user_id,
-        now=now,
-        task_ids=task_ids,
-        window_start=day_start,
-        window_end=day_end,
-    )
+        task_ids = {int(task["task_id"]) for task in created if task.get("task_id") is not None}
+        preview = preview_flexible_schedule(
+            user_id,
+            now=now,
+            task_ids=task_ids,
+            window_start=day_start,
+            window_end=day_end,
+        )
+    except Exception:
+        # No calendar write has happened yet. Roll back locally created tasks so
+        # a transient planning/provider failure cannot leave invisible duplicates
+        # that are created again when the user retries.
+        for task in reversed(created):
+            try:
+                delete_planner_task(user_id, int(task["task_id"]))
+            except Exception:
+                logger.exception(
+                    "Could not roll back task-plan task user=%s task=%s",
+                    user_id,
+                    task.get("task_id"),
+                )
+        raise
 
     applied = []
     errors = []
