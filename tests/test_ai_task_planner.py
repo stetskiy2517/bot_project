@@ -170,6 +170,50 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
         self.assertEqual([item["role"] for item in messages], ["system", "user"])
         self.assertNotIn("дачу", str(messages).casefold())
 
+    def test_explicit_reference_uses_only_nearest_prior_task_list(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": True,
+            "day": "2026-10-10",
+            "items": [
+                {
+                    "title": "Позвонить Ольхову",
+                    "estimate_minutes": 15,
+                    "category": "work",
+                    "priority": "normal",
+                    "source_text": "позвонить Ольхову",
+                },
+                {
+                    "title": "Убрать ванную",
+                    "estimate_minutes": 30,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "убрать ванную",
+                },
+            ],
+        }
+        history = [
+            {"role": "user", "content": "Поездка на дачу в субботу"},
+            {"role": "assistant", "content": "Понял."},
+            {"role": "user", "content": "позвонить Ольхову, убрать ванную"},
+            {"role": "assistant", "content": "Вижу два дела."},
+        ]
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload) as complete:
+            result = interpret_task_plan(
+                "распланируй их на завтра",
+                user_id=42,
+                history=history,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNotNone(result)
+        sent = str(complete.call_args.args[0]).casefold()
+        self.assertIn("позвонить ольхову, убрать ванную", sent)
+        self.assertNotIn("поездка на дачу", sent)
+
     def test_model_cannot_invent_day_without_date_in_user_text(self):
         payload = {
             "intent": "task_list",
