@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 
 from core.conversation_context import clear_pending, current_entity, get_pending, set_pending
 from core.user_activity_store import set_request_diagnostic
-from core.conversation_policy import is_declarative_statement, pending_retarget_target, should_resume_pending
+from core.conversation_policy import (is_declarative_statement, pending_retarget_fresh_payload, pending_retarget_target, should_resume_pending)
 from modules.calendar import _extract_time, _relative_offset
 from modules.command_templates import handle_template
 from modules.calendar_actions import create_from_text, delete_from_text, resume_pending_action, update_from_text
@@ -692,6 +692,21 @@ async def _retarget_pending_creation(update, context, pending: dict, target: str
     return False
 
 
+def _canonical_retarget_command(target: str, payload: str) -> str | None:
+    clean = " ".join(str(payload or "").split()).strip(" .,!?:;«»\"'")
+    if not clean:
+        return None
+    if target == "task":
+        return f"создай задачу {clean}"
+    if target == "note":
+        return f"создай заметку {clean}"
+    if target == "reminder":
+        return f"напомни {clean}"
+    if target == "calendar_event":
+        return f"создай событие {clean}"
+    return None
+
+
 async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str | None = None) -> bool:
     if not update.message:
         return False
@@ -704,19 +719,34 @@ async def route_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: s
 
     pending = _pending(context)
     if pending:
-        retarget = pending_retarget_target(text)
-        if retarget and await _retarget_pending_creation(update, context, pending, retarget):
-            logger.info(
-                "Router retargeted pending type=%s to entity=%s",
-                pending.get("type"),
-                retarget,
-            )
-            return True
-        if should_resume_pending(pending, text):
+        fresh_retarget = pending_retarget_fresh_payload(text)
+        if fresh_retarget:
+            target, payload = fresh_retarget
+            canonical = _canonical_retarget_command(target, payload)
+            if canonical:
+                logger.info(
+                    "Router replaced pending type=%s with fresh entity=%s payload",
+                    pending.get("type"),
+                    target,
+                )
+                _clear_pending(context)
+                text = canonical
+                pending = None
+
+        if pending:
+            retarget = pending_retarget_target(text)
+            if retarget and await _retarget_pending_creation(update, context, pending, retarget):
+                logger.info(
+                    "Router retargeted pending type=%s to entity=%s",
+                    pending.get("type"),
+                    retarget,
+                )
+                return True
+        if pending and should_resume_pending(pending, text):
             if await _resume_pending(update, context, text):
                 set_request_diagnostic(route="pending", intent=str(pending.get("type") or "pending"))
                 return True
-        else:
+        elif pending:
             logger.info("Router interrupted pending type=%s with a new command", pending.get("type"))
             _clear_pending(context)
 
