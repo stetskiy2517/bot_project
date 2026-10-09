@@ -176,6 +176,29 @@ class AIAssistantTests(unittest.TestCase):
             "создай встречу созвон с Иваном завтра в 18:00",
         )
 
+    @patch("modules.ai_assistant.complete", return_value="create task laundry today")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_english_action_rewrite_stays_grounded_in_english(self, _available, _complete):
+        self.assertEqual(
+            interpret_unhandled_action("Put laundry on my todo list today"),
+            "create task laundry today",
+        )
+
+    @patch("modules.ai_assistant.complete", return_value="create task buy milk tomorrow")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_english_action_rewrite_rejects_invented_content(self, _available, _complete):
+        self.assertIsNone(
+            interpret_unhandled_action("Put laundry on my todo list tomorrow")
+        )
+
+    @patch("modules.ai_assistant.complete", return_value="schedule call with Ivan tomorrow at 6 PM")
+    @patch("modules.ai_assistant.is_ai_available", return_value=True)
+    def test_english_action_rewrite_allows_same_explicit_time(self, _available, _complete):
+        self.assertEqual(
+            interpret_unhandled_action("Tomorrow at 6 PM, call with Ivan"),
+            "schedule call with Ivan tomorrow at 6 PM",
+        )
+
     def test_english_router_fallback_is_replaced_too(self):
         replies = [UNHANDLED_WEB_MESSAGE_EN]
         self.assertEqual(replace_unhandled_reply(replies, "AI answer"), ["AI answer"])
