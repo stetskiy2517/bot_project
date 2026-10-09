@@ -9,6 +9,7 @@ import time
 from flask import Blueprint, jsonify, request, send_from_directory, session
 
 from core.ai_memory_store import record_ai_memory_event
+from core.user_activity_store import set_request_diagnostic
 from core.assistant_preferences import get_assistant_preferences, save_assistant_preferences, review_history
 from core.chat_context import append_chat_exchange, clear_chat_context, recent_chat_messages
 from core.conversation_context import reset_user_context
@@ -124,6 +125,7 @@ def use_ai_for_unhandled_chat(response):
         if not answer:
             return response
         append_chat_exchange(user_id, text, answer)
+        set_request_diagnostic(ai_fallback="chat")
         payload["handled"] = True
         payload["replies"] = replace_unhandled_reply(replies, answer)
         response.set_data(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
