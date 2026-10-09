@@ -39,7 +39,7 @@ class AIWebFallbackTests(unittest.TestCase):
         ) as planner, patch(
             "web_app.interpret_unhandled_action",
         ) as rewrite, patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
         ) as answer:
             response = self.client.post(
                 "/api/chat",
@@ -71,7 +71,7 @@ class AIWebFallbackTests(unittest.TestCase):
             "web_app.interpret_unhandled_action",
             return_value="добавь задачу постирать белье сегодня",
         ) as rewrite, patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
         ) as answer:
             response = self.client.post(
                 "/api/chat",
@@ -100,7 +100,7 @@ class AIWebFallbackTests(unittest.TestCase):
             "web_app.interpret_unhandled_action",
             return_value=None,
         ), patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value="Могу помочь разобраться.",
         ) as answer:
             response = self.client.post(
@@ -119,7 +119,7 @@ class AIWebFallbackTests(unittest.TestCase):
             return False
 
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value="Тебе лучше назначать встречи после 10 утра.",
         ) as answer:
             response = self.client.post(
@@ -139,7 +139,7 @@ class AIWebFallbackTests(unittest.TestCase):
 
     def test_english_unhandled_chat_reaches_ai_after_bilingual_routing(self):
         with patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value="You are free after 4 PM.",
         ) as answer:
             response = self.client.post(
@@ -159,7 +159,7 @@ class AIWebFallbackTests(unittest.TestCase):
 
     def test_personal_time_question_reaches_ai_without_calendar_search(self):
         with patch("modules.calendar_user._list_events") as calendar_search, patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value="Ты принимаешь таблетки в 23:00.",
         ) as answer:
             response = self.client.post(
@@ -187,7 +187,7 @@ class AIWebFallbackTests(unittest.TestCase):
                 return "Понял, предыдущее время неверно. Во сколько ты принимаешь таблетки?"
             return "Ты принимаешь таблетки в 23:00."
 
-        with patch("modules.assistant_api.answer_unhandled", side_effect=answer):
+        with patch("web_app.answer_unhandled", side_effect=answer):
             first = self.client.post("/api/chat", json={"message": "Во сколько я принимаю таблетки?"})
             second = self.client.post("/api/chat", json={"message": "Нет"})
 
@@ -209,7 +209,7 @@ class AIWebFallbackTests(unittest.TestCase):
 
     def test_first_person_correction_reaches_ai_instead_of_calendar_creation(self):
         with patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value="Понял: таблетки в 23:00.",
         ):
             response = self.client.post(
@@ -227,7 +227,7 @@ class AIWebFallbackTests(unittest.TestCase):
             return False
 
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value=None,
         ):
             response = self.client.post(
@@ -245,7 +245,7 @@ class AIWebFallbackTests(unittest.TestCase):
             return False
 
         with patch("web_app.route_text", side_effect=unhandled_route), patch(
-            "modules.assistant_api.answer_unhandled",
+            "web_app.answer_unhandled",
             return_value=None,
         ):
             response = self.client.post(
