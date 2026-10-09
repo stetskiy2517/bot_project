@@ -26,18 +26,21 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
                     "estimate_minutes": 5,
                     "category": "personal",
                     "priority": "normal",
+                    "source_text": "отправить паспорт Артему",
                 },
                 {
                     "title": "позвонить Ольхову",
                     "estimate_minutes": 15,
                     "category": "work",
                     "priority": "normal",
+                    "source_text": "позвонить Ольхову",
                 },
                 {
                     "title": "сделать домашнее задание",
                     "estimate_minutes": 60,
                     "category": "personal",
                     "priority": "normal",
+                    "source_text": "сделать домашнее задание",
                 },
             ],
         }
@@ -54,6 +57,117 @@ class AITaskPlannerInterpretationTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual([item["estimate_minutes"] for item in result["items"]], [5, 15, 60])
         self.assertEqual(result["items"][0]["title"], "Отправить паспорт Артему")
+
+    def test_hallucinated_dacha_is_rejected(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": True,
+            "day": "2026-10-15",
+            "items": [
+                {
+                    "title": "Ремонт шкафа",
+                    "estimate_minutes": 60,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "починим шкаф",
+                },
+                {
+                    "title": "Поездка на дачу",
+                    "estimate_minutes": 120,
+                    "category": "travel",
+                    "priority": "normal",
+                    "source_text": "выходные",
+                },
+            ],
+        }
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload):
+            result = interpret_task_plan(
+                "Запланирую выходные, починим шкаф.",
+                user_id=42,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNone(result)
+
+    def test_history_is_not_sent_without_explicit_reference(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": False,
+            "day": "",
+            "items": [
+                {
+                    "title": "Позвонить Ольхову",
+                    "estimate_minutes": 15,
+                    "category": "work",
+                    "priority": "normal",
+                    "source_text": "позвонить Ольхову",
+                },
+                {
+                    "title": "Убрать ванную",
+                    "estimate_minutes": 30,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "убрать ванную",
+                },
+            ],
+        }
+        history = [
+            {"role": "user", "content": "Поездка на дачу"},
+            {"role": "assistant", "content": "Запомнил"},
+        ]
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload) as complete:
+            result = interpret_task_plan(
+                "позвонить Ольхову, убрать ванную",
+                user_id=42,
+                history=history,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNotNone(result)
+        messages = complete.call_args.args[0]
+        self.assertEqual([item["role"] for item in messages], ["system", "user"])
+        self.assertNotIn("дачу", str(messages).casefold())
+
+    def test_model_cannot_invent_day_without_date_in_user_text(self):
+        payload = {
+            "intent": "task_list",
+            "schedule": True,
+            "day": "2026-10-15",
+            "items": [
+                {
+                    "title": "Починить шкаф",
+                    "estimate_minutes": 60,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "починить шкаф",
+                },
+                {
+                    "title": "Убрать ванную",
+                    "estimate_minutes": 30,
+                    "category": "personal",
+                    "priority": "normal",
+                    "source_text": "убрать ванную",
+                },
+            ],
+        }
+        with patch("modules.ai_task_planner.has_ai_access", return_value=True), \
+             patch("modules.ai_task_planner.is_ai_available", return_value=True), \
+             patch("modules.ai_task_planner.get_user_timezone", return_value="Europe/Moscow"), \
+             patch("modules.ai_task_planner.complete_structured", return_value=payload):
+            result = interpret_task_plan(
+                "распланируй: починить шкаф, убрать ванную",
+                user_id=42,
+                now=datetime(2026, 10, 9, 9, 29, tzinfo=timezone.utc),
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["day"], "")
 
     def test_execute_plan_uses_requested_day_window(self):
         items = [
