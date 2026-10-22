@@ -121,10 +121,10 @@ BULK_SUBJECT_RE = re.compile(
     re.IGNORECASE,
 )
 TRAVEL_CONFIRMATION_RE = re.compile(
-    r"(?:электронн\\w* билет|маршрутн\\w* квитанц|посадочн\\w* талон|"
+    r"(?:электронн\w* билет|маршрутн\w* квитанц|посадочн\w* талон|"
     r"e-ticket|itinerary|boarding pass|booking confirmation|"
-    r"подтвержден\\w* бронирован\\w*|бронирование подтверждено|"
-    r"отмен\\w* рейс|изменен\\w* рейс|flight cancelled|flight changed)",
+    r"подтвержден\w* бронирован\w*|бронирование подтверждено|"
+    r"отмен\w* рейс|изменен\w* рейс|flight cancelled|flight changed)",
     re.IGNORECASE,
 )
 
