@@ -234,6 +234,9 @@ def list_messages(token: dict, *, limit: int = 10, query: str | None = None, unr
             body = str(message.get("snippet") or "").strip()[:MAX_BODY]
         results.append({
             "provider_message_id": str(message.get("id") or item.get("id") or ""),
+            "labels": list(message.get("labelIds") or []),
+            "list_unsubscribe": headers.get("list-unsubscribe", ""),
+            "list_id": headers.get("list-id", ""),
             "from": headers.get("from", ""),
             "subject": headers.get("subject") or "Без темы",
             "date": _normalized_date(headers.get("date", "")),
