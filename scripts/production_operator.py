@@ -99,7 +99,7 @@ def decrypt_request(path: Path) -> tuple[str, dict]:
 
 def _resolve_dasha() -> int:
     from core.db import conn, db_lock
-    aliases = ("даша", "дарья", "dasha", "daria")
+    aliases = ("даша", "дарья", "dasha", "daria", "darya")
     with db_lock:
         rows = conn.execute("SELECT user_id,name FROM google_accounts").fetchall()
     matches = []
