@@ -118,6 +118,7 @@ def main() -> None:
             expect(card).to_contain_text("Требует внимания")
             expect(card).to_contain_text("Нужно проверить расписание")
             expect(card.locator(".mobile-attention-count")).to_have_text("1")
+            expect(card.locator('[data-attention-action="dismiss-all"]')).to_be_visible()
 
             expect(page.locator(".mobile-summary-strip")).to_be_visible()
             expect(page.locator(".mobile-day-card.is-empty")).to_be_visible()
