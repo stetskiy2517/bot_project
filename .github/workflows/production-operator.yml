@@ -1,0 +1,102 @@
+name: production-operator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-operator.yml"
+      - "ops/requests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-operator
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    if: github.actor == 'stetskiy2517' && github.repository == 'stetskiy2517/bot_project'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check SSH configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/production_operator_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/production_operator_key" "$HOME/.ssh/known_hosts"
+
+      - name: Restore SSH operator and check VM access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i "$HOME/.ssh/production_operator_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            scripts/production_operator.py \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/personal-secretary-operator.py"
+          ssh -i "$HOME/.ssh/production_operator_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" \
+            'cd "$HOME/bot_project" && test -x .venv/bin/python && PYTHONPATH="$HOME/bot_project" .venv/bin/python /tmp/personal-secretary-operator.py --bootstrap'
+
+      - name: Execute encrypted and allowlisted requests
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "No previous commit: no operator request"
+            exit 0
+          fi
+          mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- ops/requests/)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "SSH operator restored; no pending requests"
+            exit 0
+          fi
+          if [ "${#files[@]}" -gt 3 ]; then
+            echo "Too many operator requests in one commit" >&2
+            exit 1
+          fi
+          for path in "${files[@]}"; do
+            if [[ ! "$path" =~ ^ops/requests/[a-z0-9_-]{8,64}\.json$ ]] || [ ! -f "$path" ]; then
+              echo "Invalid operator request path" >&2
+              exit 1
+            fi
+            if [ "$(wc -c < "$path")" -gt 16000 ]; then
+              echo "Operator request too large" >&2
+              exit 1
+            fi
+            remote_file="/tmp/personal-secretary-op-${GITHUB_RUN_ID}.json"
+            scp -i "$HOME/.ssh/production_operator_key" \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "$path" "$DEPLOY_USER@$DEPLOY_HOST:$remote_file"
+            ssh -i "$HOME/.ssh/production_operator_key" \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "cd \"\$HOME/bot_project\"; PYTHONPATH=\"\$HOME/bot_project\" .venv/bin/python /tmp/personal-secretary-operator.py --request '$remote_file'; result=\$?; rm -f '$remote_file'; exit \$result"
+          done
