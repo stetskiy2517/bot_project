@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, send_from_directory, session
 
-from core.attention_store import dismiss_attention_item, mark_attention_seen
+from core.attention_store import dismiss_all_attention_items, dismiss_attention_item, mark_attention_seen
 from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
 from integrations.google_calendar_service import GoogleAuthRequired
@@ -188,6 +188,11 @@ def mobile_attention():
 @mobile_ui_api.post("/api/mobile/attention/<int:attention_id>/seen")
 def mobile_attention_seen(attention_id: int):
     return {"ok": mark_attention_seen(_user(), attention_id)}
+
+
+@mobile_ui_api.delete("/api/mobile/attention")
+def mobile_attention_dismiss_all():
+    return {"ok": True, "dismissed": dismiss_all_attention_items(_user())}
 
 
 @mobile_ui_api.delete("/api/mobile/attention/<int:attention_id>")
