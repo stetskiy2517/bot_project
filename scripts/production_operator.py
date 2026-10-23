@@ -97,16 +97,18 @@ def decrypt_request(path: Path) -> tuple[str, dict]:
     return request_id, payload
 
 
-def _resolve_dasha() -> int:
+def _resolve_dasha(expected_name: str) -> int:
     from core.db import conn, db_lock
     aliases = ("даша", "дарья", "dasha", "daria", "darya")
+    expected = " ".join(str(expected_name or "").strip().casefold().split())
+    if not expected or not any(expected == a or expected.startswith(a + " ") for a in aliases):
+        raise ValueError("unrecognized recipient")
     with db_lock:
         rows = conn.execute("SELECT user_id,name FROM google_accounts").fetchall()
-    matches = []
-    for user_id, name in rows:
-        value = " ".join(str(name or "").strip().casefold().split())
-        if value in aliases or any(value.startswith(alias + " ") for alias in aliases):
-            matches.append(int(user_id))
+    matches = [
+        int(user_id) for user_id, name in rows
+        if " ".join(str(name or "").strip().casefold().split()) == expected
+    ]
     if len(matches) != 1:
         raise ValueError("recipient is missing or ambiguous")
     return matches[0]
@@ -114,7 +116,7 @@ def _resolve_dasha() -> int:
 
 def _event_for_dasha(request_id: str, payload: dict) -> str:
     if set(payload) != {
-        "request_id", "action", "target", "date", "start", "duration_minutes", "title"
+        "request_id", "action", "target", "recipient_name", "date", "start", "duration_minutes", "title"
     } or payload["target"] != "dasha":
         raise ValueError("unsupported calendar operation")
     title = payload["title"]
@@ -129,7 +131,7 @@ def _event_for_dasha(request_id: str, payload: dict) -> str:
         raise ValueError("invalid calendar date")
     if not isinstance(start_time, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start_time):
         raise ValueError("invalid calendar time")
-    user_id = _resolve_dasha()
+    user_id = _resolve_dasha(payload["recipient_name"])
     from core.db import get_user_timezone, get_category_colors
     from integrations.google_calendar_service import build_google_calendar_service
     from modules.calendar import _build_event, _create_event
