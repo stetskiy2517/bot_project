@@ -2,7 +2,7 @@ name: production-operator
 
 on:
   push:
-    branches: [main]
+    branches: [main, operator-requests]
     paths:
       - ".github/workflows/production-operator.yml"
       - "ops/requests/**"
