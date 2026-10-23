@@ -61,6 +61,7 @@
       <div class="mobile-card-title">
         <span>Требует внимания</span>
         <span class="mobile-attention-count">${normalized.length}</span>
+        <button type="button" class="mobile-attention-dismiss-all" data-attention-action="dismiss-all">Скрыть все</button>
       </div>
       <div class="mobile-attention-list">
         ${normalized.slice(0, 5).map(item => {
@@ -113,6 +114,17 @@
     await load({force: true});
   }
 
+  async function dismissAll(button) {
+    button.disabled = true;
+    try {
+      await api("/api/mobile/attention", {method: "DELETE"});
+      // Re-read the queue; dismissed items must stay hidden after a refresh.
+      await load({force: true});
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function applyEmailAction(item, id) {
     if (!item.action || typeof item.action !== "object") return;
     const result = await api("/api/email/action", {
@@ -159,6 +171,14 @@
   async function onClick(event) {
     const button = event.target.closest("[data-attention-action]");
     if (!button) return;
+    if (button.dataset.attentionAction === "dismiss-all") {
+      try {
+        await dismissAll(button);
+      } catch (error) {
+        window.alert(error?.message || "Не удалось скрыть уведомления");
+      }
+      return;
+    }
     const row = button.closest(".mobile-attention-item");
     const id = Number(row?.dataset.attentionId || 0);
     if (!id) return;
