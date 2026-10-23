@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 from unittest.mock import AsyncMock, patch
 
 import web_app
@@ -226,7 +227,7 @@ class AIWebFallbackTests(unittest.TestCase):
         async def unhandled_route(update, context, text=None):
             return False
 
-        request_id = "1791530000000-0123456789abcdef0123456789abcdef"
+        request_id = f"{int(time.time() * 1000)}-0123456789abcdef0123456789abcdef"
         with self.client.session_transaction() as stored:
             stored.setdefault("csrf_token", "test-csrf-token")
             csrf = stored["csrf_token"]
