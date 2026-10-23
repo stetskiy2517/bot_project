@@ -130,3 +130,18 @@
   font-size: 11px;
   line-height: 1.4;
 }
+
+.mobile-attention-dismiss-all {
+  margin-left: auto;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #65655f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mobile-attention-dismiss-all:hover { background: #ececea; }
+.mobile-attention-dismiss-all:disabled { opacity: 0.5; cursor: default; }
