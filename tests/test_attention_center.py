@@ -90,6 +90,55 @@ class AttentionCenterTests(unittest.TestCase):
         self.assertEqual(items[0]["priority"], "high")
         self.assertEqual(items[0]["action_type"], "email_action")
 
+    def test_nonurgent_email_proposal_does_not_push(self):
+        plan = {"created_at": datetime.now(timezone.utc).isoformat(), "actions": [{
+            "action_type": "task", "title": "Ознакомиться с информацией",
+            "confidence": 0.99, "ready": True, "source": {
+                "from": "newsletter@example.test", "subject": "Информация к сведению",
+                "provider_message_id": "digest-1",
+            },
+        }]}
+        capture_email_plan_attention(self.user_id, plan)
+        items = list_attention_items(self.user_id)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["priority"], "info")
+        self.assertEqual(pending_attention_pushes(self.user_id), [])
+
+    def test_repeatedly_dismissed_sender_is_quiet_but_urgent_still_alerts(self):
+        for i in range(3):
+            plan = {"created_at": datetime.now(timezone.utc).isoformat(), "actions": [{
+                "action_type": "task", "title": "Проверь документ",
+                "confidence": 0.99, "ready": True,
+                "due_at": (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat(),
+                "source": {"from": "sender@example.test", "subject": "Документ",
+                           "provider_message_id": f"old-{i}"},
+            }]}
+            capture_email_plan_attention(self.user_id, plan)
+            item = next(x for x in list_attention_items(self.user_id) if x["source_type"] == "email_action" and x["dismissed_at"] is None)
+            dismiss_attention_item(self.user_id, item["attention_id"])
+
+        later = {"created_at": datetime.now(timezone.utc).isoformat(), "actions": [{
+            "action_type": "task", "title": "Новый документ",
+            "confidence": 0.99, "ready": True,
+            "due_at": (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat(),
+            "source": {"from": "sender@example.test", "subject": "Документ",
+                       "provider_message_id": "quiet-4"},
+        }]}
+        capture_email_plan_attention(self.user_id, later)
+        item = next(x for x in list_attention_items(self.user_id) if "Новый документ" in x["title"])
+        self.assertEqual(item["priority"], "info")
+
+        urgent = {"created_at": datetime.now(timezone.utc).isoformat(), "actions": [{
+            "action_type": "task", "title": "Срочная задача",
+            "confidence": 0.99, "ready": True,
+            "due_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            "source": {"from": "sender@example.test", "subject": "Срочно",
+                       "provider_message_id": "urgent-5"},
+        }]}
+        capture_email_plan_attention(self.user_id, urgent)
+        urgent_item = next(x for x in list_attention_items(self.user_id) if "Срочная задача" in x["title"])
+        self.assertEqual(urgent_item["priority"], "high")
+
     def test_old_cached_email_plan_does_not_reappear_as_fresh_attention(self):
         plan = {
             "created_at": (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat(),

@@ -136,6 +136,37 @@ class AutomaticEmailAnalysisTests(unittest.TestCase):
         self.assertTrue(analyze.call_args.kwargs["analyze_text"])
         self.assertEqual(result["ai_text_calls"], 1)
 
+    def test_bulk_newsletter_with_deadline_words_is_ignored(self):
+        newsletter = self.message(
+            "news-1", subject="Новости и скидки",
+            body="Подтвердите заказ до пятницы. Специальное предложение.",
+        )
+        newsletter["labels"] = ["INBOX", "CATEGORY_PROMOTIONS"]
+        newsletter["list_unsubscribe"] = "<mailto:unsubscribe@example.test>"
+        self.assertEqual(email_auto._is_candidate(newsletter), (False, False, False))
+
+    def test_spam_is_ignored_even_with_ticket_attachment(self):
+        spam = self.message(
+            "spam-1", subject="Электронный билет",
+            body="Рейс завтра в 14:00",
+            attachments=[{"filename": "ticket.pdf", "mime_type": "application/pdf"}],
+        )
+        spam["labels"] = ["SPAM"]
+        self.assertEqual(email_auto._is_candidate(spam), (False, False, False))
+
+    def test_real_air_ticket_survives_promotions_label(self):
+        ticket = self.message(
+            "flight-1", subject="Ваш электронный билет",
+            body="Рейс завтра в 15:00",
+            attachments=[{"filename": "ticket.pdf", "mime_type": "application/pdf", "size": 1000}],
+        )
+        ticket["labels"] = ["CATEGORY_PROMOTIONS"]
+        ticket["list_unsubscribe"] = "<mailto:unsubscribe@airline.test>"
+        candidate, attachment, text_signal = email_auto._is_candidate(ticket)
+        self.assertTrue(candidate)
+        self.assertTrue(attachment)
+        self.assertTrue(text_signal)
+
     def test_attachment_only_candidate_skips_text_ai_batch(self):
         baseline = self.message("old-1")
         contexts = self.patches([baseline])

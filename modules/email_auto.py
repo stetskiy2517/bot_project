@@ -116,7 +116,47 @@ def _has_relevant_attachment(message: dict, *, text_signal: bool) -> bool:
     return False
 
 
+BULK_SUBJECT_RE = re.compile(
+    r"(?:рассылк|дайджест|новост|акци[яи]|скидк|промокод|newsletter|digest|sale|promotion)",
+    re.IGNORECASE,
+)
+TRAVEL_CONFIRMATION_RE = re.compile(
+    r"(?:электронн\w* билет|маршрутн\w* квитанц|посадочн\w* талон|"
+    r"e-ticket|itinerary|boarding pass|booking confirmation|"
+    r"подтвержден\w* бронирован\w*|бронирование подтверждено|"
+    r"отмен\w* рейс|изменен\w* рейс|flight cancelled|flight changed)",
+    re.IGNORECASE,
+)
+
+
+def _is_bulk_noise(message: dict) -> bool:
+    """Ignore mail categories that should not generate proposals or notifications."""
+    labels = {str(value).upper() for value in message.get("labels") or []}
+    if labels & {"SPAM", "TRASH"}:
+        return True
+    subject = str(message.get("subject") or "")
+    body = _message_body(message)
+    text = f"{subject}\\n{body}"[:7000]
+    attachments = message.get("attachments") or []
+    travel_attachment = any(
+        isinstance(item, dict)
+        and re.search(r"(?:ticket|билет|маршрут|boarding|itinerary)", str(item.get("filename") or ""), re.IGNORECASE)
+        for item in attachments
+    )
+    travel_confirmation = bool(TRAVEL_CONFIRMATION_RE.search(text) or travel_attachment)
+    if travel_confirmation:
+        return False
+    return bool(
+        labels & {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"}
+        or message.get("list_unsubscribe")
+        or message.get("list_id")
+        or BULK_SUBJECT_RE.search(subject)
+    )
+
+
 def _is_candidate(message: dict) -> tuple[bool, bool, bool]:
+    if _is_bulk_noise(message):
+        return False, False, False
     text_signal = _has_text_planning_signal(message)
     attachment = _has_relevant_attachment(message, text_signal=text_signal)
     return attachment or text_signal, attachment, text_signal

@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import re
+
+from core.db import conn, db_lock
 
 from core.attention_store import (
     cleanup_attention_store,
@@ -79,6 +82,56 @@ def _email_body(action: dict) -> str:
     return " · ".join(bits)[:1600]
 
 
+BULK_SUBJECT_RE = re.compile(
+    r"(?:рассылк|дайджест|новост|акци[яи]|скидк|промокод|подборк|newsletter|digest|sale|promotion|unsubscribe)",
+    re.IGNORECASE,
+)
+URGENCY_RE = re.compile(
+    r"(?:срочн|сегодня|до конца дня|urgent|asap|action required)",
+    re.IGNORECASE,
+)
+
+
+def _email_notification_priority(user_id: int, action: dict, due: datetime | None, confidence: float) -> str:
+    """Only actionable and time-sensitive email should interrupt the user."""
+    source = action.get("source") if isinstance(action.get("source"), dict) else {}
+    subject = str(source.get("subject") or "")
+    sender = str(source.get("from") or "").strip().lower()
+    action_type = str(action.get("action_type") or "")
+    if BULK_SUBJECT_RE.search(subject):
+        return "info"
+    if action.get("ready") is False or confidence < 0.85:
+        return "info"
+
+    # Explicit dismissal is a stronger signal than merely not opening a push.
+    if sender:
+        with db_lock:
+            rows = conn.execute(
+                """SELECT action_json FROM attention_items
+                   WHERE user_id=? AND source_type='email_action' AND dismissed_at IS NOT NULL
+                     AND created_at>=? ORDER BY dismissed_at DESC LIMIT 100""",
+                (int(user_id), (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()),
+            ).fetchall()
+        dismissed_count = 0
+        for (raw,) in rows:
+            try:
+                previous = json.loads(raw) if raw else {}
+            except (TypeError, json.JSONDecodeError):
+                continue
+            previous_source = previous.get("source") if isinstance(previous, dict) else None
+            if isinstance(previous_source, dict) and str(previous_source.get("from") or "").strip().lower() == sender:
+                dismissed_count += 1
+        if dismissed_count >= 3 and not (due and due <= datetime.now(timezone.utc) + timedelta(hours=6)):
+            return "info"
+
+    now = datetime.now(timezone.utc)
+    if due and now - timedelta(minutes=5) <= due <= now + timedelta(hours=36):
+        return "high"
+    if action_type in {"task", "reminder"} and URGENCY_RE.search(subject):
+        return "normal"
+    return "info"
+
+
 def capture_email_plan_attention(user_id: int, plan: dict) -> int:
     """Persist useful results of automatic email analysis without another AI call."""
     if not isinstance(plan, dict):
@@ -116,8 +169,7 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
         except (TypeError, ValueError):
             confidence = 0.0
         due = _parse_time((action.get("attachment_event") or {}).get("start") if isinstance(action.get("attachment_event"), dict) else action.get("due_at"))
-        soon = bool(due and due <= datetime.now(timezone.utc) + timedelta(hours=36))
-        priority = "high" if confidence >= 0.90 or soon else "normal"
+        priority = _email_notification_priority(user_id, action, due, confidence)
         label = "Нужно решение по письму"
         if action.get("auto_create_error"):
             label = "Не удалось автоматически выполнить действие"
