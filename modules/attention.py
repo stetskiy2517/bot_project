@@ -216,7 +216,7 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
                 category="email",
                 priority="normal",
                 title=f"Добавил в календарь: {title}"[:300],
-                body=_email_body(action),
+                body=_email_body(action, user_id),
                 action_type="none",
             )
             created += 1
@@ -228,6 +228,14 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
             confidence = 0.0
         due = _parse_time((action.get("attachment_event") or {}).get("start") if isinstance(action.get("attachment_event"), dict) else action.get("due_at"))
         priority = _email_notification_priority(user_id, action, due, confidence)
+        # Do not add noise to the attention queue. Keep distant, real deadlines
+        # as silent candidates, so they can become actionable closer to the date.
+        if priority == "info" and (
+            due is None or action.get("ready") is False or
+            _is_promotional_email(action) or
+            _is_expired_email_action(action, due, datetime.now(timezone.utc))
+        ):
+            continue
         label = "Нужно решение по письму"
         if action.get("auto_create_error"):
             label = "Не удалось автоматически выполнить действие"
@@ -240,12 +248,77 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
             category="email",
             priority=priority,
             title=f"{label}: {title}"[:300],
-            body=_email_body(action),
+            body=_email_body(action, user_id),
             action_type="email_action" if action.get("ready") is not False else "none",
             action=action if action.get("ready") is not False else None,
         )
         created += 1
     return created
+
+
+def reconcile_email_attention(user_id: int, *, now: datetime | None = None) -> int:
+    """Remove old spam/boarding proposals and promote approaching real deadlines.
+
+    Existing items need this migration too: changing only the AI prompt cannot
+    clean already-persisted alerts or prevent the old push queue from sending them.
+    """
+    current = now or datetime.now(timezone.utc)
+    current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current.astimezone(timezone.utc)
+    with db_lock:
+        rows = conn.execute(
+            """SELECT attention_id,action_json,priority,created_at
+               FROM attention_items WHERE user_id=? AND source_type='email_action'
+                 AND dismissed_at IS NULL""",
+            (int(user_id),),
+        ).fetchall()
+    retired: list[int] = []
+    changed: list[tuple[int, str, str]] = []
+    for attention_id, raw, original_priority, created_at in rows:
+        if not raw:
+            retired.append(int(attention_id))
+            continue
+        try:
+            action = json.loads(raw)
+            if not isinstance(action, dict):
+                raise ValueError("invalid stored email action")
+            confidence = float(action.get("confidence") or 0)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            retired.append(int(attention_id))
+            continue
+        event = action.get("attachment_event")
+        due = _parse_time(event.get("start") if isinstance(event, dict) else action.get("due_at"))
+        priority = _email_notification_priority(user_id, action, due, confidence, now=current)
+        age = current - (_parse_time(created_at) or current)
+        if (
+            _is_promotional_email(action) or
+            _is_expired_email_action(action, due, current) or
+            (priority == "info" and due is None) or
+            (age > EMAIL_ACTION_TTL and (due is None or due < current))
+        ):
+            retired.append(int(attention_id))
+        elif priority != original_priority:
+            changed.append((int(attention_id), str(original_priority), priority))
+    dismissed = dismiss_attention_ids(user_id, retired)
+    if changed:
+        stamp = current.isoformat()
+        with db_lock:
+            for attention_id, previous, priority in changed:
+                if previous == "info" and priority != "info":
+                    # A future deadline just became current. Its first push should
+                    # count as fresh, not as a notification from several days ago.
+                    conn.execute(
+                        "UPDATE attention_items SET priority=?,created_at=?,updated_at=? "
+                        "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+                        (priority, stamp, stamp, int(user_id), attention_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE attention_items SET priority=?,updated_at=? "
+                        "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+                        (priority, stamp, int(user_id), attention_id),
+                    )
+            conn.commit()
+    return dismissed
 
 
 def sync_proactive_action_attention(user_id: int, *, now: datetime | None = None) -> int:
@@ -313,7 +386,7 @@ def sync_overdue_task_attention(user_id: int, *, now: datetime | None = None) ->
             category="task",
             priority=priority,
             title=f"Просрочена задача: {task.get('title') or 'Без названия'}"[:300],
-            body=f"{overdue_text}. Срок: {_short_time(task.get('due_at'))}"[:1600],
+            body=f"{overdue_text}. Срок: {_short_time(task.get('due_at'), user_id)}"[:1600],
             action_type="task",
             action={"task_id": int(task["task_id"])},
         )
@@ -372,6 +445,7 @@ def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None
     sync_proactive_action_attention(user_id, now=now)
     sync_overdue_task_attention(user_id, now=now)
     sync_navigation_attention(user_id)
+    reconcile_email_attention(user_id, now=now)
 
 
 def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int = 8) -> list[dict]:
@@ -383,6 +457,7 @@ def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int 
 __all__ = [
     "attention_snapshot",
     "capture_email_plan_attention",
+    "reconcile_email_attention",
     "sync_attention_context",
     "sync_navigation_attention",
     "sync_overdue_task_attention",
