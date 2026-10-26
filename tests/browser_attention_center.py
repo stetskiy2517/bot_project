@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import secrets
@@ -145,7 +146,7 @@ def main() -> None:
                 action={
                     "action_type": "task",
                     "title": "Подтвердить встречу",
-                    "due_at": "2026-09-17T12:00:00+03:00",
+                    "due_at": (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
                     "priority": "normal",
                     "category": "work",
                     "confidence": 0.96,
@@ -161,6 +162,24 @@ def main() -> None:
             card.get_by_role("button", name="Выполнить", exact=True).click()
             expect(page.locator(".mobile-attention-card")).to_have_count(0)
             assert get_attention_item(user_id, email_item["attention_id"])["dismissed_at"] is not None
+
+            bulk_items = [
+                upsert_attention_item(
+                    user_id, source_type="assistant_notice", source_key=f"bulk-visible-{idx}",
+                    category="assistant", priority="high", title=f"Уведомление {idx}",
+                )
+                for idx in range(7)
+            ]
+            page.locator('#mobileBottomNav [data-view="home"]').click()
+            page.locator('#mobileBottomNav [data-view="today"]').click()
+            card = page.locator(".mobile-attention-card")
+            expect(card).to_be_visible()
+            expect(card.locator(".mobile-attention-count")).to_have_text("7")
+            expect(card.locator(".mobile-attention-item")).to_have_count(5)
+            card.get_by_role("button", name="Скрыть все", exact=True).click()
+            expect(page.locator(".mobile-attention-card")).to_have_count(0)
+            for item in bulk_items:
+                assert get_attention_item(user_id, item["attention_id"])["dismissed_at"] is not None
 
             page.locator("#accountBtn").click()
             expect(page.locator("#settingsPanel .sheet-head h2")).to_have_text("Аккаунт")
