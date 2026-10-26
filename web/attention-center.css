@@ -131,8 +131,15 @@
   line-height: 1.4;
 }
 
+.mobile-attention-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
 .mobile-attention-dismiss-all {
-  margin-left: auto;
   padding: 6px 9px;
   border: 0;
   border-radius: 9px;
