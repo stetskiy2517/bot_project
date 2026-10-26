@@ -167,6 +167,22 @@ class AutomaticEmailAnalysisTests(unittest.TestCase):
         self.assertTrue(attachment)
         self.assertTrue(text_signal)
 
+    def test_insurance_ad_is_noise_even_with_action_wording(self):
+        offer = self.message(
+            "ad-1", subject="Защитите жилье в Т-Страховании",
+            body="Рассмотрите предложение о страховании жилья до конца недели.",
+        )
+        self.assertEqual(email_auto._is_candidate(offer), (False, False, False))
+
+    def test_cancelled_flight_is_not_discarded_as_bulk(self):
+        cancelled = self.message(
+            "flight-cancelled-1", subject="Аннулирован перелёт по брони D6XC4V",
+            body="Ваш рейс отменён. Подтвердите изменение бронирования.",
+        )
+        cancelled["labels"] = ["CATEGORY_PROMOTIONS"]
+        cancelled["list_unsubscribe"] = "<mailto:remove@example.test>"
+        self.assertTrue(email_auto._is_candidate(cancelled)[0])
+
     def test_attachment_only_candidate_skips_text_ai_batch(self):
         baseline = self.message("old-1")
         contexts = self.patches([baseline])
