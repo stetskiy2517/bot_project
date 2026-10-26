@@ -312,8 +312,8 @@ def count_active_attention_items(user_id: int) -> int:
     with db_lock:
         row = conn.execute(
             "SELECT COUNT(*) FROM attention_items "
-            "WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=?
-                 AND (source_type!='email_action' OR priority!='info')",
+            "WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=? "
+            "AND (source_type!='email_action' OR priority!='info')",
             (int(user_id), cutoff),
         ).fetchone()
     return int(row[0]) if row else 0
