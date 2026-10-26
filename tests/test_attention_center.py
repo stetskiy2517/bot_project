@@ -5,7 +5,9 @@ import unittest
 
 from core import db
 from core.attention_store import (
+    count_active_attention_items,
     dismiss_all_attention_items,
+    email_sender_ignore_count,
     dismiss_attention_item,
     get_attention_item,
     list_attention_items,
@@ -19,7 +21,9 @@ from core.navigation_store import (
 )
 from core.task_planner_store import create_planner_task, update_planner_task
 from modules.attention import (
+    _email_body,
     capture_email_plan_attention,
+    reconcile_email_attention,
     sync_navigation_attention,
     sync_overdue_task_attention,
 )
@@ -29,13 +33,13 @@ class AttentionCenterTests(unittest.TestCase):
     def setUp(self):
         self.user_id = 991000001
         with db.db_lock:
-            for table in ("attention_items", "tasks", "navigation_preferences"):
+            for table in ("attention_items", "email_attention_feedback", "tasks", "navigation_preferences"):
                 db.conn.execute(f"DELETE FROM {table} WHERE user_id=?", (self.user_id,))
             db.conn.commit()
 
     def tearDown(self):
         with db.db_lock:
-            for table in ("attention_items", "tasks", "navigation_preferences"):
+            for table in ("attention_items", "email_attention_feedback", "tasks", "navigation_preferences"):
                 db.conn.execute(f"DELETE FROM {table} WHERE user_id=?", (self.user_id,))
             db.conn.commit()
 
@@ -202,6 +206,128 @@ class AttentionCenterTests(unittest.TestCase):
             with db.db_lock:
                 db.conn.execute("DELETE FROM attention_items WHERE user_id=?", (other_user,))
                 db.conn.commit()
+
+    def test_nonurgent_insurance_offer_does_not_need_attention(self):
+        plan = {"created_at": datetime.now(timezone.utc).isoformat(), "actions": [{
+            "action_type": "task", "title": "Рассмотреть предложение о страховании жилья",
+            "confidence": 0.99, "ready": True,
+            "source": {"subject": "Защитите жилье в Т-Страховании",
+                       "from": "marketing@bank.example"},
+        }]}
+        self.assertEqual(capture_email_plan_attention(self.user_id, plan), 0)
+        self.assertEqual(list_attention_items(self.user_id), [])
+        self.assertEqual(pending_attention_pushes(self.user_id), [])
+
+    def test_old_insurance_and_expired_boarding_are_retired(self):
+        yesterday = (datetime.now(timezone.utc) - timedelta(hours=18)).isoformat()
+        for idx, action in enumerate([
+            {"action_type": "task", "title": "Рассмотреть предложение о страховании жилья",
+             "confidence": 0.99, "ready": True,
+             "source": {"subject": "Защитите жилье в Т-Страховании", "from": "bank@example.test"}},
+            {"action_type": "task", "title": "Посадка в самолёт",
+             "due_at": yesterday, "confidence": 0.99, "ready": True,
+             "source": {"subject": "Посадка в самолёт", "from": "airline@example.test"}},
+            {"action_type": "task", "title": "Регистрация в аэропорту",
+             "due_at": yesterday, "confidence": 0.99, "ready": True,
+             "source": {"subject": "Регистрация в аэропорту", "from": "airline@example.test"}},
+        ]):
+            upsert_attention_item(
+                self.user_id, source_type="email_action", source_key=f"old-{idx}",
+                category="email", priority="high", title=f"Нужно решение по письму: {action['title']}",
+                action_type="email_action", action=action,
+            )
+        cancelled = {"action_type": "task", "title": "Проверить детали аннулированного перелёта",
+                     "confidence": 0.98, "ready": True,
+                     "source": {"subject": "Аннулирован перелёт по брони XYZ",
+                                "from": "airline@example.test"}}
+        upsert_attention_item(
+            self.user_id, source_type="email_action", source_key="cancel",
+            category="email", priority="high",
+            title="Нужно решение по письму: Проверить детали аннулированного перелёта",
+            action_type="email_action", action=cancelled,
+        )
+        self.assertEqual(reconcile_email_attention(self.user_id), 3)
+        items = list_attention_items(self.user_id)
+        self.assertEqual(len(items), 1)
+        self.assertIn("аннулированного", items[0]["title"])
+        self.assertEqual(items[0]["priority"], "normal")
+        self.assertEqual(email_sender_ignore_count(self.user_id, "airline@example.test"), 0)
+
+    def test_sender_learning_only_from_individual_dismissals(self):
+        now = datetime.now(timezone.utc)
+        for number in range(3):
+            action = {"action_type": "task", "title": "Проверить документ",
+                      "due_at": (now + timedelta(hours=12)).isoformat(),
+                      "confidence": 0.99, "ready": True,
+                      "source": {"subject": "Документ", "from": "same@example.test",
+                                 "provider_message_id": f"mail-{number}"}}
+            capture_email_plan_attention(self.user_id, {"actions": [action]})
+            item = list_attention_items(self.user_id)[0]
+            # Use the actual stored id, not a client-provided user id.
+            self.assertTrue(dismiss_attention_item(self.user_id, item["attention_id"]))
+        self.assertEqual(email_sender_ignore_count(self.user_id, "Same <same@example.test>"), 3)
+        quiet = {"action_type": "task", "title": "Проверить очередной документ",
+                 "due_at": (now + timedelta(hours=12)).isoformat(),
+                 "confidence": 0.99, "ready": True,
+                 "source": {"subject": "Документ", "from": "same@example.test",
+                            "provider_message_id": "quiet-mail"}}
+        capture_email_plan_attention(self.user_id, {"actions": [quiet]})
+        self.assertEqual(list_attention_items(self.user_id), [])
+
+        urgent = dict(quiet)
+        urgent["due_at"] = (now + timedelta(hours=2)).isoformat()
+        urgent["source"] = {**quiet["source"], "provider_message_id": "urgent-mail"}
+        capture_email_plan_attention(self.user_id, {"actions": [urgent]})
+        self.assertEqual(len(list_attention_items(self.user_id)), 1)
+        self.assertEqual(list_attention_items(self.user_id)[0]["priority"], "high")
+
+    def test_bulk_hide_and_completion_do_not_train_sender(self):
+        for index in range(7):
+            upsert_attention_item(
+                self.user_id, source_type="email_action", source_key=f"bulk-{index}",
+                category="email", priority="high", title=f"Письмо {index}",
+                action_type="email_action",
+                action={"action_type": "task", "title": "Подписать договор",
+                        "confidence": 0.99, "ready": True,
+                        "source": {"from": "partner@example.test", "subject": "Договор"}},
+            )
+        self.assertEqual(count_active_attention_items(self.user_id), 7)
+        self.assertEqual(len(list_attention_items(self.user_id, limit=5)), 5)
+        self.assertEqual(dismiss_all_attention_items(self.user_id), 7)
+        self.assertEqual(email_sender_ignore_count(self.user_id, "partner@example.test"), 0)
+        item = upsert_attention_item(
+            self.user_id, source_type="email_action", source_key="completed",
+            category="email", priority="high", title="Выполнить",
+            action_type="email_action",
+            action={"action_type": "task", "title": "Ответить",
+                    "source": {"from": "partner@example.test", "subject": "Договор"}},
+        )
+        dismiss_attention_item(self.user_id, item["attention_id"], feedback=False)
+        self.assertEqual(email_sender_ignore_count(self.user_id, "partner@example.test"), 0)
+        self.assertEqual(list_attention_items(self.user_id), [])
+
+    def test_far_future_deadline_is_held_quietly_until_approaching(self):
+        now = datetime.now(timezone.utc)
+        action = {"action_type": "task", "title": "Подписать договор",
+                  "due_at": (now + timedelta(hours=60)).isoformat(),
+                  "confidence": 0.99, "ready": True,
+                  "source": {"subject": "Прошу подписать договор",
+                             "from": "partner@example.test"}}
+        capture_email_plan_attention(self.user_id, {"actions": [action]})
+        self.assertEqual(list_attention_items(self.user_id), [])
+        self.assertEqual(count_active_attention_items(self.user_id), 0)
+        self.assertEqual(reconcile_email_attention(self.user_id, now=now + timedelta(hours=30)), 0)
+        items = list_attention_items(self.user_id)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["priority"], "high")
+
+    def test_email_time_shows_user_timezone_not_utc(self):
+        db.save_user_timezone(self.user_id, "Europe/Moscow")
+        action = {"due_at": "2026-10-25T17:20:00+00:00",
+                  "source": {"subject": "Регистрация в аэропорту"}}
+        body = _email_body(action, self.user_id)
+        self.assertIn("25.10, 20:20", body)
+        self.assertNotIn("UTC", body)
 
     def test_dismissed_item_stays_hidden_after_same_source_is_synced(self):
         item = upsert_attention_item(
