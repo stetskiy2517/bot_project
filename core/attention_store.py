@@ -17,6 +17,7 @@ TRANSIENT_SOURCE_HOURS = {
     "navigation_leave_now": 6,
     "navigation_route_change": 6,
     "daily_review": 36,
+    "email_auto_done": 24,
 }
 
 
@@ -193,6 +194,7 @@ def list_attention_items(user_id: int, *, limit: int = 20) -> list[dict]:
                       action_json,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error
                FROM attention_items
                WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=?
+                 AND (source_type!='email_action' OR priority!='info')
                ORDER BY CASE WHEN seen_at IS NULL THEN 0 ELSE 1 END,
                         CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
                         updated_at DESC,attention_id DESC LIMIT ?""",
@@ -310,7 +312,8 @@ def count_active_attention_items(user_id: int) -> int:
     with db_lock:
         row = conn.execute(
             "SELECT COUNT(*) FROM attention_items "
-            "WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=?",
+            "WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=?
+                 AND (source_type!='email_action' OR priority!='info')",
             (int(user_id), cutoff),
         ).fetchone()
     return int(row[0]) if row else 0
