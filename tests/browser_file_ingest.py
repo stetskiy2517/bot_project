@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import time
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -20,12 +21,15 @@ def main() -> None:
     temporary = tempfile.TemporaryDirectory()
     os.environ["DB_PATH"] = str(Path(temporary.name) / "file-ingest-browser.db")
 
-    import web_app
+    # File-import browser checks do not need navigation recalculation.
+    # Prevent its background worker from reopening the ephemeral SQLite DB
+    # while TemporaryDirectory is being removed after browser/server shutdown.
+    with patch("modules.navigation_monitor.start_navigation_monitor_worker"):
+        import web_app
+        app = web_app.create_web_app()
     from core.db import get_or_create_google_user, save_user_timezone
     from playwright.sync_api import expect, sync_playwright
     from werkzeug.serving import make_server
-
-    app = web_app.create_web_app()
     server = make_server("127.0.0.1", 0, app, threaded=True)
     base = f"http://127.0.0.1:{server.server_port}"
     thread = threading.Thread(target=server.serve_forever, daemon=True)

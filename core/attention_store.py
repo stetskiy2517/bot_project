@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from email.utils import parseaddr
 import json
 
 from core.db import conn, db_lock
@@ -16,6 +17,7 @@ TRANSIENT_SOURCE_HOURS = {
     "navigation_leave_now": 6,
     "navigation_route_change": 6,
     "daily_review": 36,
+    "email_auto_done": 24,
 }
 
 
@@ -55,7 +57,37 @@ def init_attention_store() -> None:
             "CREATE INDEX IF NOT EXISTS idx_attention_push "
             "ON attention_items(user_id,pushed_at,push_attempts,dismissed_at)"
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS email_attention_feedback (
+                user_id INTEGER NOT NULL,
+                sender TEXT NOT NULL,
+                ignored_count INTEGER NOT NULL DEFAULT 0,
+                last_ignored_at TEXT NOT NULL,
+                PRIMARY KEY(user_id, sender)
+            )"""
+        )
         conn.commit()
+
+
+def _sender_key(value: object) -> str:
+    """Normalize email addresses for per-user, per-sender feedback."""
+    raw = " ".join(str(value or "").split()).strip().casefold()
+    address = parseaddr(raw)[1].casefold()
+    return (address or raw)[:320]
+
+
+def email_sender_ignore_count(user_id: int, sender: object, *, days: int = 30) -> int:
+    key = _sender_key(sender)
+    if not key:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with db_lock:
+        row = conn.execute(
+            "SELECT ignored_count FROM email_attention_feedback "
+            "WHERE user_id=? AND sender=? AND last_ignored_at>=?",
+            (int(user_id), key, cutoff),
+        ).fetchone()
+    return int(row[0]) if row else 0
 
 
 def _clean(value: object, limit: int) -> str:
@@ -162,6 +194,7 @@ def list_attention_items(user_id: int, *, limit: int = 20) -> list[dict]:
                       action_json,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error
                FROM attention_items
                WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=?
+                 AND (source_type!='email_action' OR priority!='info')
                ORDER BY CASE WHEN seen_at IS NULL THEN 0 ELSE 1 END,
                         CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
                         updated_at DESC,attention_id DESC LIMIT ?""",
@@ -206,15 +239,84 @@ def mark_attention_seen(user_id: int, attention_id: int) -> bool:
     return bool(cur.rowcount)
 
 
-def dismiss_attention_item(user_id: int, attention_id: int) -> bool:
+def dismiss_attention_item(user_id: int, attention_id: int, *, feedback: bool = True) -> bool:
+    """Only explicit individual dismissal teaches email preferences.
+
+    Completing an email action or bulk-clearing the screen is not negative feedback.
+    """
+    now = _now()
+    with db_lock:
+        row = conn.execute(
+            "SELECT source_type,action_json FROM attention_items "
+            "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+            (int(user_id), int(attention_id)),
+        ).fetchone()
+        if row is None:
+            return False
+        cur = conn.execute(
+            "UPDATE attention_items SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=? "
+            "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+            (now, now, now, int(user_id), int(attention_id)),
+        )
+        if feedback and cur.rowcount and row[0] == "email_action" and row[1]:
+            try:
+                action = json.loads(row[1])
+                source = action.get("source") if isinstance(action, dict) else None
+                sender = _sender_key(source.get("from")) if isinstance(source, dict) else ""
+            except (TypeError, ValueError, json.JSONDecodeError):
+                sender = ""
+            if sender:
+                conn.execute(
+                    """INSERT INTO email_attention_feedback(user_id,sender,ignored_count,last_ignored_at)
+                       VALUES (?,?,1,?)
+                       ON CONFLICT(user_id,sender) DO UPDATE SET
+                          ignored_count=ignored_count+1,last_ignored_at=excluded.last_ignored_at""",
+                    (int(user_id), sender, now),
+                )
+        conn.commit()
+    return bool(cur.rowcount)
+
+def dismiss_all_attention_items(user_id: int) -> int:
+    """Dismiss all currently active attention cards for one user, atomically."""
     now = _now()
     with db_lock:
         cur = conn.execute(
-            "UPDATE attention_items SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=? WHERE user_id=? AND attention_id=?",
-            (now, now, now, int(user_id), int(attention_id)),
+            """UPDATE attention_items
+               SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=?
+               WHERE user_id=? AND dismissed_at IS NULL""",
+            (now, now, now, int(user_id)),
         )
         conn.commit()
-    return bool(cur.rowcount)
+        return int(cur.rowcount)
+
+
+def dismiss_attention_ids(user_id: int, ids: list[int]) -> int:
+    """Silently prune stale automatic suggestions without learning from them."""
+    unique = sorted({int(value) for value in ids if int(value) > 0})
+    if not unique:
+        return 0
+    now = _now()
+    placeholders = ",".join("?" for _ in unique)
+    with db_lock:
+        cur = conn.execute(
+            f"UPDATE attention_items SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=? "
+            f"WHERE user_id=? AND dismissed_at IS NULL AND attention_id IN ({placeholders})",
+            (now, now, now, int(user_id), *unique),
+        )
+        conn.commit()
+        return int(cur.rowcount)
+
+
+def count_active_attention_items(user_id: int) -> int:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
+    with db_lock:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM attention_items "
+            "WHERE user_id=? AND dismissed_at IS NULL AND updated_at>=? "
+            "AND (source_type!='email_action' OR priority!='info')",
+            (int(user_id), cutoff),
+        ).fetchone()
+    return int(row[0]) if row else 0
 
 
 def dismiss_attention_source(user_id: int, source_type: str, source_key: str) -> bool:

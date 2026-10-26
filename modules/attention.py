@@ -5,9 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from core.db import conn, db_lock, get_user_timezone
 
 from core.attention_store import (
     cleanup_attention_store,
+    dismiss_attention_ids,
+    email_sender_ignore_count,
     dismiss_missing_source_keys,
     list_attention_items,
     upsert_attention_item,
@@ -36,9 +42,17 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _short_time(value: object) -> str:
+def _short_time(value: object, user_id: int | None = None) -> str:
     parsed = _parse_time(value)
-    return parsed.strftime("%d.%m, %H:%M UTC") if parsed else ""
+    if parsed is None:
+        return ""
+    if user_id is None:
+        return parsed.strftime("%d.%m, %H:%M UTC")
+    try:
+        parsed = parsed.astimezone(ZoneInfo(get_user_timezone(user_id) or "Europe/Moscow"))
+    except ZoneInfoNotFoundError:
+        pass
+    return parsed.strftime("%d.%m, %H:%M")
 
 
 def _stable_digest(parts: object) -> str:
@@ -61,7 +75,7 @@ def _email_source_key(action: dict) -> str:
     return _stable_digest(stable)
 
 
-def _email_body(action: dict) -> str:
+def _email_body(action: dict, user_id: int | None = None) -> str:
     source = action.get("source") if isinstance(action.get("source"), dict) else {}
     event = action.get("attachment_event") if isinstance(action.get("attachment_event"), dict) else {}
     bits: list[str] = []
@@ -73,11 +87,110 @@ def _email_body(action: dict) -> str:
     if attachment:
         bits.append(f"Вложение: {attachment}")
     if due:
-        formatted = _short_time(due)
+        formatted = _short_time(due, user_id)
         if formatted:
             bits.append(f"Время: {formatted}")
     return " · ".join(bits)[:1600]
 
+
+# Mailing lists and promotional offers are not action requests.
+BULK_SUBJECT_RE = re.compile(
+    r"(?:рассылк|дайджест|новост|акци[яи]|скидк|промокод|подборк|"
+    r"newsletter|digest|promotion|unsubscribe|специальн\w* предложен\w*|"
+    r"защитите жиль[её]|страховани[ея] жилья|оформите страховк\w*)",
+    re.IGNORECASE,
+)
+SERVICE_ALERT_RE = re.compile(
+    r"(?:аннулирован\w* (?:перел[её]т|рейс|билет)|отмен[её]н\w* (?:рейс|перел[её]т|билет)|"
+    r"перенос\w* рейс|задержк\w* рейс|изменен\w* рейс|измен[её]н\w* рейс|"
+    r"flight cancelled|flight canceled|flight changed|reservation cancelled|booking cancelled)",
+    re.IGNORECASE,
+)
+EXPIRED_TRAVEL_STEP_RE = re.compile(
+    r"(?:посадк\w*|boarding|check[- ]?in|регистрац\w* (?:в аэропорт|на рейс)|"
+    r"отправлен\w* в аэропорт)",
+    re.IGNORECASE,
+)
+EXPLICIT_ACTION_RE = re.compile(
+    r"(?:^|[\s:])(?:ответить|согласовать|подписать|отправить|пришлите|"
+    r"предоставить|оплатить|подтвердить|связаться|проверить детали аннулированного)",
+    re.IGNORECASE,
+)
+URGENCY_RE = re.compile(
+    r"(?:срочн|сегодня|до конца дня|urgent|asap|action required)",
+    re.IGNORECASE,
+)
+BULK_LABELS = {"SPAM", "TRASH", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"}
+EMAIL_ACTION_TTL = timedelta(hours=72)
+
+
+def _email_source(action: dict) -> dict:
+    source = action.get("source")
+    return source if isinstance(source, dict) else {}
+
+
+def _is_promotional_email(action: dict) -> bool:
+    source = _email_source(action)
+    subject = str(source.get("subject") or "")
+    title = str(action.get("title") or "")
+    labels = {str(label).upper() for label in source.get("labels") or []}
+    if "SPAM" in labels or "TRASH" in labels:
+        return True
+    # A real cancellation is not a newsletter even when an airline sends list headers.
+    if SERVICE_ALERT_RE.search(subject + "\n" + title):
+        return False
+    return bool(
+        BULK_SUBJECT_RE.search(subject)
+        or labels & BULK_LABELS
+        or source.get("list_id")
+        or source.get("list_unsubscribe")
+    )
+
+
+def _is_expired_email_action(action: dict, due: datetime | None, current: datetime) -> bool:
+    if due is None or due >= current - timedelta(minutes=5):
+        return False
+    action_type = str(action.get("action_type") or "")
+    if action_type in {"reminder", "calendar_event"}:
+        return True
+    title = str(action.get("title") or "")
+    return bool(EXPIRED_TRAVEL_STEP_RE.search(title))
+
+
+def _email_notification_priority(
+    user_id: int, action: dict, due: datetime | None, confidence: float,
+    *, now: datetime | None = None,
+) -> str:
+    """Only concrete and current user actions deserve attention/push."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    if action.get("ready") is False or confidence < 0.85:
+        return "info"
+    if _is_promotional_email(action) or _is_expired_email_action(action, due, current):
+        return "info"
+
+    source = _email_source(action)
+    title = str(action.get("title") or "")
+    subject = str(source.get("subject") or "")
+    service_alert = bool(SERVICE_ALERT_RE.search(subject + "\n" + title))
+    immediate = bool(due and current <= due <= current + timedelta(hours=6))
+
+    # Three explicit individual hides are meaningful; clearing a whole screen is not.
+    if email_sender_ignore_count(user_id, source.get("from")) >= 3 and not (immediate or service_alert):
+        return "info"
+
+    if due and current - timedelta(minutes=5) <= due <= current + timedelta(hours=36):
+        return "high"
+    if due and due > current + timedelta(hours=36) and not service_alert:
+        return "info"
+    if service_alert:
+        return "normal"
+    if str(action.get("action_type") or "") == "task" and confidence >= 0.90:
+        if EXPLICIT_ACTION_RE.search(title) or URGENCY_RE.search(subject):
+            return "normal"
+    return "info"
 
 def capture_email_plan_attention(user_id: int, plan: dict) -> int:
     """Persist useful results of automatic email analysis without another AI call."""
@@ -105,7 +218,7 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
                 category="email",
                 priority="normal",
                 title=f"Добавил в календарь: {title}"[:300],
-                body=_email_body(action),
+                body=_email_body(action, user_id),
                 action_type="none",
             )
             created += 1
@@ -116,8 +229,15 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
         except (TypeError, ValueError):
             confidence = 0.0
         due = _parse_time((action.get("attachment_event") or {}).get("start") if isinstance(action.get("attachment_event"), dict) else action.get("due_at"))
-        soon = bool(due and due <= datetime.now(timezone.utc) + timedelta(hours=36))
-        priority = "high" if confidence >= 0.90 or soon else "normal"
+        priority = _email_notification_priority(user_id, action, due, confidence)
+        # Do not add noise to the attention queue. Keep distant, real deadlines
+        # as silent candidates, so they can become actionable closer to the date.
+        if priority == "info" and (
+            due is None or action.get("ready") is False or
+            _is_promotional_email(action) or
+            _is_expired_email_action(action, due, datetime.now(timezone.utc))
+        ):
+            continue
         label = "Нужно решение по письму"
         if action.get("auto_create_error"):
             label = "Не удалось автоматически выполнить действие"
@@ -130,12 +250,77 @@ def capture_email_plan_attention(user_id: int, plan: dict) -> int:
             category="email",
             priority=priority,
             title=f"{label}: {title}"[:300],
-            body=_email_body(action),
+            body=_email_body(action, user_id),
             action_type="email_action" if action.get("ready") is not False else "none",
             action=action if action.get("ready") is not False else None,
         )
         created += 1
     return created
+
+
+def reconcile_email_attention(user_id: int, *, now: datetime | None = None) -> int:
+    """Remove old spam/boarding proposals and promote approaching real deadlines.
+
+    Existing items need this migration too: changing only the AI prompt cannot
+    clean already-persisted alerts or prevent the old push queue from sending them.
+    """
+    current = now or datetime.now(timezone.utc)
+    current = current.replace(tzinfo=timezone.utc) if current.tzinfo is None else current.astimezone(timezone.utc)
+    with db_lock:
+        rows = conn.execute(
+            """SELECT attention_id,action_json,priority,created_at
+               FROM attention_items WHERE user_id=? AND source_type='email_action'
+                 AND dismissed_at IS NULL""",
+            (int(user_id),),
+        ).fetchall()
+    retired: list[int] = []
+    changed: list[tuple[int, str, str]] = []
+    for attention_id, raw, original_priority, created_at in rows:
+        if not raw:
+            retired.append(int(attention_id))
+            continue
+        try:
+            action = json.loads(raw)
+            if not isinstance(action, dict):
+                raise ValueError("invalid stored email action")
+            confidence = float(action.get("confidence") or 0)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            retired.append(int(attention_id))
+            continue
+        event = action.get("attachment_event")
+        due = _parse_time(event.get("start") if isinstance(event, dict) else action.get("due_at"))
+        priority = _email_notification_priority(user_id, action, due, confidence, now=current)
+        age = current - (_parse_time(created_at) or current)
+        if (
+            _is_promotional_email(action) or
+            _is_expired_email_action(action, due, current) or
+            (priority == "info" and due is None) or
+            (age > EMAIL_ACTION_TTL and (due is None or due < current))
+        ):
+            retired.append(int(attention_id))
+        elif priority != original_priority:
+            changed.append((int(attention_id), str(original_priority), priority))
+    dismissed = dismiss_attention_ids(user_id, retired)
+    if changed:
+        stamp = current.isoformat()
+        with db_lock:
+            for attention_id, previous, priority in changed:
+                if previous == "info" and priority != "info":
+                    # A future deadline just became current. Its first push should
+                    # count as fresh, not as a notification from several days ago.
+                    conn.execute(
+                        "UPDATE attention_items SET priority=?,created_at=?,updated_at=? "
+                        "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+                        (priority, stamp, stamp, int(user_id), attention_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE attention_items SET priority=?,updated_at=? "
+                        "WHERE user_id=? AND attention_id=? AND dismissed_at IS NULL",
+                        (priority, stamp, int(user_id), attention_id),
+                    )
+            conn.commit()
+    return dismissed
 
 
 def sync_proactive_action_attention(user_id: int, *, now: datetime | None = None) -> int:
@@ -203,7 +388,7 @@ def sync_overdue_task_attention(user_id: int, *, now: datetime | None = None) ->
             category="task",
             priority=priority,
             title=f"Просрочена задача: {task.get('title') or 'Без названия'}"[:300],
-            body=f"{overdue_text}. Срок: {_short_time(task.get('due_at'))}"[:1600],
+            body=f"{overdue_text}. Срок: {_short_time(task.get('due_at'), user_id)}"[:1600],
             action_type="task",
             action={"task_id": int(task["task_id"])},
         )
@@ -262,6 +447,7 @@ def sync_attention_context(user_id: int, *, now: datetime | None = None) -> None
     sync_proactive_action_attention(user_id, now=now)
     sync_overdue_task_attention(user_id, now=now)
     sync_navigation_attention(user_id)
+    reconcile_email_attention(user_id, now=now)
 
 
 def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int = 8) -> list[dict]:
@@ -273,6 +459,7 @@ def attention_snapshot(user_id: int, *, now: datetime | None = None, limit: int 
 __all__ = [
     "attention_snapshot",
     "capture_email_plan_attention",
+    "reconcile_email_attention",
     "sync_attention_context",
     "sync_navigation_attention",
     "sync_overdue_task_attention",

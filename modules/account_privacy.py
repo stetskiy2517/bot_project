@@ -25,7 +25,7 @@ USER_TABLES = (
     "commitment_actions",
     "command_effects", "command_requests", "conversation_state", "user_activity_log", "undo_actions",
     "reminder_push_policy", "review_deliveries", "assistant_preferences",
-    "command_templates", "proactive_actions", "proactive_feedback", "attention_items",
+    "command_templates", "proactive_actions", "proactive_feedback", "attention_items", "email_attention_feedback",
     "ai_memory_event_processing", "ai_calendar_sync", "user_memories", "ai_memory_events",
     "daily_review_ai_cache", "feature_entitlements", "file_import_drafts", "notes", "note_metadata", "reminder_details", "reminders", "tasks",
     "life_balance_ratings", "user_categories", "push_subscriptions", "navigation_preferences", "privacy_challenges",
@@ -121,6 +121,7 @@ def export_account(user_id: int) -> dict:
                 "proactive_actions": "action_id,memory_id,action_type,status,reminder_id,calendar_event_id,reason,confidence,created_at,updated_at",
                 "proactive_feedback": "action_id,memory_id,feedback,created_at,updated_at",
                 "attention_items": "attention_id,source_type,source_key,category,priority,title,body,action_type,created_at,updated_at,seen_at,dismissed_at,pushed_at,push_attempts,push_error",
+                "email_attention_feedback": "sender,ignored_count,last_ignored_at",
                 "reminder_push_policy": "reminder_id,interval_minutes,max_repeats,repeat_count,next_repeat_at",
             }
             existing = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

@@ -151,6 +151,12 @@ def _normalize_plan(raw: dict, messages: list[tuple[dict, dict]]) -> dict:
                 "from": str(message.get("from") or "")[:300],
                 "account": account.get("display_name") or account.get("email") or account.get("provider"),
             }
+            if message.get("labels"):
+                source["labels"] = [str(label)[:80] for label in message["labels"][:20]]
+            if message.get("list_id"):
+                source["list_id"] = True
+            if message.get("list_unsubscribe"):
+                source["list_unsubscribe"] = True
         actions.append(
             {
                 "action_type": action_type,

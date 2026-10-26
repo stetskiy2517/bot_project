@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, send_from_directory, session
 
-from core.attention_store import dismiss_attention_item, mark_attention_seen
+from core.attention_store import count_active_attention_items, dismiss_all_attention_items, dismiss_attention_item, mark_attention_seen
 from core.db import get_user_timezone
 from core.task_planner_store import list_planner_tasks, task_summary
 from integrations.google_calendar_service import GoogleAuthRequired
@@ -182,7 +182,9 @@ def ux_polish_js():
 
 @mobile_ui_api.get("/api/mobile/attention")
 def mobile_attention():
-    return {"items": attention_snapshot(_user(), limit=20)}
+    user_id = _user()
+    items = attention_snapshot(user_id, limit=20)
+    return {"items": items, "total": count_active_attention_items(user_id)}
 
 
 @mobile_ui_api.post("/api/mobile/attention/<int:attention_id>/seen")
@@ -190,9 +192,17 @@ def mobile_attention_seen(attention_id: int):
     return {"ok": mark_attention_seen(_user(), attention_id)}
 
 
+@mobile_ui_api.delete("/api/mobile/attention")
+def mobile_attention_dismiss_all():
+    return {"ok": True, "dismissed": dismiss_all_attention_items(_user())}
+
+
 @mobile_ui_api.delete("/api/mobile/attention/<int:attention_id>")
 def mobile_attention_dismiss(attention_id: int):
-    return {"ok": dismiss_attention_item(_user(), attention_id)}
+    reason = str(request.args.get("reason") or "dismissed").strip()
+    if reason not in {"dismissed", "completed"}:
+        return {"error": "invalid_reason"}, 400
+    return {"ok": dismiss_attention_item(_user(), attention_id, feedback=reason == "dismissed")}
 
 
 @mobile_ui_api.get("/api/mobile/today")
