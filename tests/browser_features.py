@@ -175,8 +175,11 @@ def main():
         choice = page.locator("#chat .action").first
         expect(choice).to_be_visible()
         choice.click()
-        page.wait_for_function("!sendingChat")
+        # Waiting only for !sendingChat can race with the click handler before
+        # it has started the request. Wait for the actual persisted step.
+        expect(page.locator("#chat")).to_contain_text("Что поставить в это время?")
         command(page, "Проверка окна")
+        expect(page.locator("#chat")).to_contain_text("Поставить «Проверка окна»")
         assert len(events) == previous
         page.get_by_role("button", name="Поставить", exact=True).click()
         page.wait_for_function("!sendingChat")
