@@ -47,21 +47,24 @@
     return reviewContext;
   }
 
-  function render(items, review = null) {
+  function render(items, review = null, total = null) {
     const content = document.getElementById("mobileTodayContent");
     if (!content) return;
     content.querySelector(".mobile-attention-card")?.remove();
 
     const normalized = Array.isArray(items) ? items : [];
     if (!normalized.length) return;
+    const count = Number.isInteger(total) && total >= normalized.length ? total : normalized.length;
     const aiReview = review?.presentation === "ai";
     const card = document.createElement("div");
     card.className = `mobile-card mobile-attention-card${normalized.length ? "" : " is-empty"}`;
     card.innerHTML = `
       <div class="mobile-card-title">
         <span>Требует внимания</span>
-        <span class="mobile-attention-count">${normalized.length}</span>
-        <button type="button" class="mobile-attention-dismiss-all" data-attention-action="dismiss-all">Скрыть все</button>
+        <div class="mobile-attention-header-actions">
+          <span class="mobile-attention-count">${count}</span>
+          <button type="button" class="mobile-attention-dismiss-all" data-attention-action="dismiss-all">Скрыть все</button>
+        </div>
       </div>
       <div class="mobile-attention-list">
         ${normalized.slice(0, 5).map(item => {
@@ -94,7 +97,7 @@
     try {
       await refreshReviewContext();
       const data = await api("/api/mobile/attention");
-      render(data.items || [], reviewContext);
+      render(data.items || [], reviewContext, data.total);
       focusDeepLink();
     } catch (_error) {
       // The Today screen must remain usable if the attention subsystem is temporarily unavailable.
@@ -109,8 +112,9 @@
     } catch (_error) {}
   }
 
-  async function dismiss(id) {
-    await api(`/api/mobile/attention/${id}`, {method: "DELETE"});
+  async function dismiss(id, {completed = false} = {}) {
+    const suffix = completed ? "?reason=completed" : "";
+    await api(`/api/mobile/attention/${id}${suffix}`, {method: "DELETE"});
     await load({force: true});
   }
 
@@ -131,7 +135,7 @@
       method: "POST",
       body: JSON.stringify(item.action),
     });
-    if (result?.created || result?.already_present || result?.ok) await dismiss(id);
+    if (result?.created || result?.already_present || result?.ok) await dismiss(id, {completed: true});
   }
 
   function openTask(item) {
