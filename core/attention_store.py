@@ -301,7 +301,7 @@ def dismiss_attention_ids(user_id: int, ids: list[int]) -> int:
         cur = conn.execute(
             f"UPDATE attention_items SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=? "
             f"WHERE user_id=? AND dismissed_at IS NULL AND attention_id IN ({placeholders})",
-            (now, now, int(user_id), *unique),
+            (now, now, now, int(user_id), *unique),
         )
         conn.commit()
         return int(cur.rowcount)
