@@ -164,6 +164,8 @@ def _message_payload(raw: bytes) -> dict:
     return {
         "from": _decode(message.get("From")),
         "subject": _decode(message.get("Subject")) or "Без темы",
+        "list_unsubscribe": _decode(message.get("List-Unsubscribe")),
+        "list_id": _decode(message.get("List-Id")),
         "date": parsed or date_value,
         "preview": body[:MAX_PREVIEW],
         "body": body,
