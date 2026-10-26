@@ -183,6 +183,8 @@ def _email_notification_priority(
 
     if due and current - timedelta(minutes=5) <= due <= current + timedelta(hours=36):
         return "high"
+    if due and due > current + timedelta(hours=36) and not service_alert:
+        return "info"
     if service_alert:
         return "normal"
     if str(action.get("action_type") or "") == "task" and confidence >= 0.90:
