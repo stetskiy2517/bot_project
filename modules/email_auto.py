@@ -117,14 +117,16 @@ def _has_relevant_attachment(message: dict, *, text_signal: bool) -> bool:
 
 
 BULK_SUBJECT_RE = re.compile(
-    r"(?:рассылк|дайджест|новост|акци[яи]|скидк|промокод|newsletter|digest|sale|promotion)",
+    r"(?:рассылк|дайджест|новост|акци[яи]|скидк|промокод|newsletter|digest|sale|promotion|"
+    r"защитите жиль[её]|страховани[ея] жилья|специальн\w* предложен\w*|оформите страховк\w*)",
     re.IGNORECASE,
 )
 TRAVEL_CONFIRMATION_RE = re.compile(
     r"(?:электронн\w* билет|маршрутн\w* квитанц|посадочн\w* талон|"
     r"e-ticket|itinerary|boarding pass|booking confirmation|"
     r"подтвержден\w* бронирован\w*|бронирование подтверждено|"
-    r"отмен\w* рейс|изменен\w* рейс|flight cancelled|flight changed)",
+    r"отмен\w* рейс|отмен[её]н\w* перел[её]т|аннулирован\w* перел[её]т|аннулирован\w* билет|"
+    r"изменен\w* рейс|измен[её]н\w* рейс|flight cancelled|flight canceled|flight changed)",
     re.IGNORECASE,
 )
 
@@ -136,7 +138,7 @@ def _is_bulk_noise(message: dict) -> bool:
         return True
     subject = str(message.get("subject") or "")
     body = _message_body(message)
-    text = f"{subject}\\n{body}"[:7000]
+    text = f"{subject}\n{body}"[:7000]
     attachments = message.get("attachments") or []
     travel_attachment = any(
         isinstance(item, dict)
