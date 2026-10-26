@@ -5,6 +5,7 @@ import unittest
 
 from core import db
 from core.attention_store import (
+    dismiss_all_attention_items,
     dismiss_attention_item,
     get_attention_item,
     list_attention_items,
@@ -169,6 +170,38 @@ class AttentionCenterTests(unittest.TestCase):
         self.assertEqual(pending_attention_pushes(self.user_id, limit=2), [])
         self.assertIsNotNone(get_attention_item(self.user_id, first["attention_id"])["pushed_at"])
         self.assertIsNone(get_attention_item(self.user_id, second["attention_id"])["pushed_at"])
+
+    def test_dismiss_all_is_atomic_and_user_scoped(self):
+        first = upsert_attention_item(
+            self.user_id, source_type="assistant_notice", source_key="bulk-1",
+            category="assistant", priority="high", title="Первое",
+        )
+        second = upsert_attention_item(
+            self.user_id, source_type="assistant_notice", source_key="bulk-2",
+            category="assistant", priority="normal", title="Второе",
+        )
+        other_user = self.user_id + 55
+        foreign = upsert_attention_item(
+            other_user, source_type="assistant_notice", source_key="foreign",
+            category="assistant", priority="high", title="Чужое",
+        )
+        try:
+            self.assertEqual(dismiss_all_attention_items(self.user_id), 2)
+            self.assertEqual(dismiss_all_attention_items(self.user_id), 0)
+            self.assertEqual(list_attention_items(self.user_id), [])
+            self.assertEqual(pending_attention_pushes(self.user_id), [])
+            self.assertIsNotNone(get_attention_item(self.user_id, first["attention_id"])["dismissed_at"])
+            self.assertIsNotNone(get_attention_item(self.user_id, second["attention_id"])["dismissed_at"])
+            self.assertIsNone(get_attention_item(other_user, foreign["attention_id"])["dismissed_at"])
+            upsert_attention_item(
+                self.user_id, source_type="assistant_notice", source_key="bulk-1",
+                category="assistant", priority="high", title="Первое обновлено",
+            )
+            self.assertEqual(list_attention_items(self.user_id), [])
+        finally:
+            with db.db_lock:
+                db.conn.execute("DELETE FROM attention_items WHERE user_id=?", (other_user,))
+                db.conn.commit()
 
     def test_dismissed_item_stays_hidden_after_same_source_is_synced(self):
         item = upsert_attention_item(
