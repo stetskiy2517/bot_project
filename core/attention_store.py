@@ -217,6 +217,20 @@ def dismiss_attention_item(user_id: int, attention_id: int) -> bool:
     return bool(cur.rowcount)
 
 
+def dismiss_all_attention_items(user_id: int) -> int:
+    """Dismiss all currently active attention cards for one user, atomically."""
+    now = _now()
+    with db_lock:
+        cur = conn.execute(
+            """UPDATE attention_items
+               SET dismissed_at=?,seen_at=COALESCE(seen_at,?),updated_at=?
+               WHERE user_id=? AND dismissed_at IS NULL""",
+            (now, now, now, int(user_id)),
+        )
+        conn.commit()
+        return int(cur.rowcount)
+
+
 def dismiss_attention_source(user_id: int, source_type: str, source_key: str) -> bool:
     source_type = _clean(source_type, 80)
     source_key = _clean(source_key, 300)
